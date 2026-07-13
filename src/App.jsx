@@ -1071,6 +1071,30 @@ export default function Alloy() {
                 marginBottom: 36,
               }}
             >
+              {/* 리퀴드 글래스 배경 플레이트 */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 232,
+                  height: 232,
+                  borderRadius: "50%",
+                  background: isLight
+                    ? "radial-gradient(circle at 32% 26%, rgba(255,255,255,0.95), rgba(255,255,255,0.55) 55%, rgba(255,255,255,0.35) 100%)"
+                    : "radial-gradient(circle at 32% 26%, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0.03) 100%)",
+                  backdropFilter: "blur(24px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(24px) saturate(180%)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
+                  boxShadow: isLight
+                    ? "0 20px 48px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.8), inset 0 -14px 26px rgba(20,22,26,0.05)"
+                    : "0 20px 48px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -14px 26px rgba(0,0,0,0.3)",
+                  pointerEvents: "none",
+                  transition: "background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease",
+                }}
+              />
+
               <PieChart width={230} height={230}>
                 <Tooltip content={<PieTooltip />} />
                 <Pie
