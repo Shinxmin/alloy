@@ -1071,30 +1071,6 @@ export default function Alloy() {
                 marginBottom: 36,
               }}
             >
-              {/* 리퀴드 글래스 배경 플레이트 */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  width: 232,
-                  height: 232,
-                  borderRadius: "50%",
-                  background: isLight
-                    ? "radial-gradient(circle at 32% 26%, rgba(255,255,255,0.95), rgba(255,255,255,0.55) 55%, rgba(255,255,255,0.35) 100%)"
-                    : "radial-gradient(circle at 32% 26%, rgba(255,255,255,0.16), rgba(255,255,255,0.05) 55%, rgba(255,255,255,0.03) 100%)",
-                  backdropFilter: "blur(24px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(24px) saturate(180%)",
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
-                  boxShadow: isLight
-                    ? "0 20px 48px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.8), inset 0 -14px 26px rgba(20,22,26,0.05)"
-                    : "0 20px 48px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.16), inset 0 -14px 26px rgba(0,0,0,0.3)",
-                  pointerEvents: "none",
-                  transition: "background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease",
-                }}
-              />
-
               <PieChart width={230} height={230}>
                 <Tooltip content={<PieTooltip />} />
                 <Pie
@@ -1113,6 +1089,30 @@ export default function Alloy() {
                   ))}
                 </Pie>
               </PieChart>
+
+              {/* 리퀴드 글래스 오버레이: 아래 원그래프 색상이 굴절/산란되어 비치도록 */}
+              <div
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  transform: "translate(-50%, -50%)",
+                  width: 220,
+                  height: 220,
+                  borderRadius: "50%",
+                  background: isLight
+                    ? "rgba(255,255,255,0.22)"
+                    : "rgba(255,255,255,0.07)",
+                  backdropFilter: "blur(8px) saturate(150%)",
+                  WebkitBackdropFilter: "blur(8px) saturate(150%)",
+                  border: `1px solid ${isLight ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.14)"}`,
+                  boxShadow: isLight
+                    ? "inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -12px 22px rgba(20,22,26,0.05)"
+                    : "inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -12px 22px rgba(0,0,0,0.28)",
+                  pointerEvents: "none",
+                  transition: "background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease",
+                }}
+              />
 
               {/* 원그래프 중앙 자산 총액 (통화별 각각 환산하여 표기) */}
               {!isEmpty && (
@@ -1878,6 +1878,42 @@ export default function Alloy() {
                 {editIndex !== null ? "수정하기" : "추가하기"}
               </h2>
 
+              {/* 수정 모드: 삭제 X 버튼 */}
+              {editIndex !== null && (
+                <button
+                  onClick={handleDelete}
+                  onMouseEnter={() => setDeleteHovered(true)}
+                  onMouseLeave={() => setDeleteHovered(false)}
+                  aria-label="삭제"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: `1px solid ${isLight ? "rgba(255,107,107,0.3)" : "rgba(255,107,107,0.35)"}`,
+                    background: deleteHovered
+                      ? "rgba(255,107,107,0.22)"
+                      : (isLight ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.12)"),
+                    color: deleteHovered ? "#FF8A8A" : "rgba(255,138,138,0.85)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    opacity: modalVisible ? 1 : 0,
+                    transform: modalVisible
+                      ? `translateX(0) scale(${deleteHovered ? 1.1 : 1})`
+                      : "translateX(8px) scale(0.85)",
+                    transition:
+                      "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, color 0.25s ease",
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
+                    <path d="M5 5l14 14M19 5L5 19" />
+                  </svg>
+                </button>
+              )}
+
               {/* 주식 / 현금 스위치 (수정 모드에선 숨김) */}
               {editIndex === null && (
               <div
@@ -2202,36 +2238,8 @@ export default function Alloy() {
               </>
             )}
 
-            {/* 삭제 / 취소 / 확인 */}
+            {/* 취소 / 확인 */}
             <div style={{ display: "flex", gap: 9 }}>
-              {editIndex !== null && (
-                <button
-                  onClick={handleDelete}
-                  onMouseEnter={() => setDeleteHovered(true)}
-                  onMouseLeave={() => setDeleteHovered(false)}
-                  style={{
-                    flex: 1,
-                    height: 42,
-                    borderRadius: 12,
-                    border: "1px solid rgba(255,107,107,0.3)",
-                    background: deleteHovered
-                      ? "rgba(255,107,107,0.22)"
-                      : "rgba(255,107,107,0.1)",
-                    color: deleteHovered
-                      ? "#FF8A8A"
-                      : "rgba(255,138,138,0.85)",
-                    fontSize: 14,
-                    fontWeight: 500,
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.25s ease, color 0.25s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: deleteHovered ? "translateY(-1px)" : "translateY(0)",
-                  }}
-                >
-                  삭제
-                </button>
-              )}
               <button
                 onClick={closeModal}
                 onMouseEnter={() => setCancelHovered(true)}
