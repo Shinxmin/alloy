@@ -1738,7 +1738,9 @@ export default function Alloy() {
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 12 L12 4 A8 8 0 1 1 4 12 Z" />
+                      <rect x="4" y="13" width="4" height="7" rx="1" />
+                      <rect x="10" y="8" width="4" height="12" rx="1" />
+                      <rect x="16" y="3" width="4" height="17" rx="1" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
                       투자
