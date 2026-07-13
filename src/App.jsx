@@ -1139,36 +1139,37 @@ export default function Alloy() {
                   marginBottom: 28,
                 }}
               >
+                {rateSource === "api" && (
+                  <span
+                    style={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: "50%",
+                      background: "#39FF8A",
+                      boxShadow:
+                        "0 0 6px 2px rgba(57,255,138,0.85), 0 0 2px rgba(57,255,138,1)",
+                      flexShrink: 0,
+                    }}
+                  />
+                )}
                 <span
                   style={{
                     fontSize: 12,
-                    color: (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)"),
+                    fontWeight: 700,
+                    color: (isLight ? "rgba(20,22,26,0.75)" : "rgba(255,255,255,0.85)"),
                   }}
                 >
                   1 USD = {Math.round(todayRate).toLocaleString()}원
                 </span>
                 {rateSource === "api" && (
-                  <>
-                    <span
-                      style={{
-                        width: 7,
-                        height: 7,
-                        borderRadius: "50%",
-                        background: "#39FF8A",
-                        boxShadow:
-                          "0 0 6px 2px rgba(57,255,138,0.85), 0 0 2px rgba(57,255,138,1)",
-                        flexShrink: 0,
-                      }}
-                    />
-                    <span
-                      style={{
-                        fontSize: 10,
-                        color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
-                      }}
-                    >
-                      (실시간)
-                    </span>
-                  </>
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
+                    }}
+                  >
+                    (실시간)
+                  </span>
                 )}
               </div>
             )}
@@ -1747,9 +1748,8 @@ export default function Alloy() {
                     }}
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                      <rect x="2.5" y="6.5" width="19" height="11" rx="2" stroke="currentColor" strokeWidth="1.6" />
-                      <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" />
-                      <path d="M5.5 9V9.01M18.5 15V15.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+                      <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.6" opacity="0.35" />
+                      <path d="M12 4a8 8 0 0 1 8 8h-8V4z" fill="currentColor" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
                       투자
