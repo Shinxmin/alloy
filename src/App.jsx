@@ -1161,16 +1161,6 @@ export default function Alloy() {
                 >
                   1 USD = {Math.round(todayRate).toLocaleString()}원
                 </span>
-                {rateSource === "api" && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
-                    }}
-                  >
-                    (실시간)
-                  </span>
-                )}
               </div>
             )}
 
@@ -1749,7 +1739,7 @@ export default function Alloy() {
                   >
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="8" stroke="currentColor" strokeWidth="1.6" opacity="0.35" />
-                      <path d="M12 4a8 8 0 0 1 8 8h-8V4z" fill="currentColor" />
+                      <path d="M12 12 L12 4 A8 8 0 1 1 4 12 Z" fill="#14161A" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
                       투자
