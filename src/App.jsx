@@ -629,6 +629,95 @@ export default function Alloy() {
           padding: "22px 20px 140px 20px",
         }}
       >
+        {active === 0 && (
+          <>
+            {/* 상단 헤더: 제목 + 테마 토글 (B탭 헤더 참고) */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 24,
+              }}
+            >
+              <div>
+                <h1
+                  style={{
+                    margin: "0 0 2px 0",
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: (isLight ? "#14161A" : "#FFFFFF"),
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  αlloy
+                </h1>
+                <h1
+                  style={{
+                    margin: 0,
+                    fontSize: 22,
+                    fontWeight: 700,
+                    color: (isLight ? "#14161A" : "#FFFFFF"),
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  홈
+                </h1>
+              </div>
+
+              {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
+              <button
+                onClick={toggleTheme}
+                onMouseEnter={() => setThemeHovered(true)}
+                onMouseLeave={() => setThemeHovered(false)}
+                aria-label="테마 전환"
+                style={{
+                  width: 40,
+                  height: 40,
+                  flexShrink: 0,
+                  borderRadius: "50%",
+                  border: isLight
+                    ? "1px solid rgba(20,22,26,0.12)"
+                    : "1px solid rgba(255,255,255,0.14)",
+                  background: themeHovered
+                    ? isLight
+                      ? "rgba(255,255,255,0.85)"
+                      : "rgba(255,255,255,0.14)"
+                    : isLight
+                    ? "rgba(255,255,255,0.65)"
+                    : "rgba(255,255,255,0.06)",
+                  backdropFilter: "blur(20px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                  boxShadow: themeHovered
+                    ? isLight
+                      ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                      : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                    : isLight
+                    ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                    : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  outline: "none",
+                  transition:
+                    "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                  transform: themeHovered ? "scale(1.08)" : "scale(1)",
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill={isLight ? "#14161A" : "#FFFFFF"}
+                >
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                </svg>
+              </button>
+            </div>
+          </>
+        )}
+
         {active === 1 && (
           <>
             {/* 상단 헤더: 제목 + 테마 토글 */}
@@ -1362,7 +1451,22 @@ export default function Alloy() {
                     </span>
                   </span>
                 ) : (
-                  tab
+                  <span
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      gap: 1,
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M12 2a1 1 0 0 1 1 1v8.17l6.36 3.67a1 1 0 0 1-1 1.73L12 13.15V3a1 1 0 0 1 1-1z" opacity="0.55" />
+                      <path d="M11 3.06A9 9 0 1 0 20.94 13H11V3.06z" />
+                    </svg>
+                    <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
+                      투자
+                    </span>
+                  </span>
                 )}
               </button>
             );
