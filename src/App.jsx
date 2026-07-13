@@ -122,7 +122,7 @@ export default function Alloy() {
   };
 
   const openModal = () => {
-    setActive(0);
+    setActive(1);
     resetForm();
     setEditIndex(null);
     setModalOpen(true);
@@ -130,7 +130,7 @@ export default function Alloy() {
   };
 
   const openEditModal = (type, index) => {
-    setActive(0);
+    setActive(1);
     if (type === "stock") {
       const h = holdings[index];
       setAssetType("stock");
@@ -166,7 +166,6 @@ export default function Alloy() {
   const [holdings, setHoldings] = useState([]); // [{ ticker, quantity, avgPrice, currency, exchangeRate }]
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
-  const [saveStatus, setSaveStatus] = useState("idle"); // idle | saving | saved | error
 
   // 앱 로드 시 저장된 데이터 불러오기
   useEffect(() => {
@@ -187,15 +186,11 @@ export default function Alloy() {
   useEffect(() => {
     if (!dataLoaded) return;
     try {
-      setSaveStatus("saving");
       localStorage.setItem(
         "alloy_portfolioData",
         JSON.stringify({ holdings, cashHoldings })
       );
-      setSaveStatus("saved");
-    } catch (e) {
-      setSaveStatus("error");
-    }
+    } catch (e) {}
   }, [holdings, cashHoldings, dataLoaded]);
 
   const handleConfirm = () => {
@@ -634,7 +629,7 @@ export default function Alloy() {
           padding: "22px 20px 140px 20px",
         }}
       >
-        {active === 0 && (
+        {active === 1 && (
           <>
             {/* 상단 헤더: 제목 + 테마 토글 */}
             <div
@@ -1155,26 +1150,6 @@ export default function Alloy() {
                 </div>
               </div>
             )}
-
-            {/* 저장 상태 표시 */}
-            {saveStatus !== "idle" && (
-              <div
-                style={{
-                  marginTop: 16,
-                  textAlign: "center",
-                  fontSize: 11,
-                  color:
-                    saveStatus === "error"
-                      ? "rgba(255,138,138,0.85)"
-                      : (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
-                  transition: "color 0.3s ease",
-                }}
-              >
-                {saveStatus === "saving" && "저장 중..."}
-                {saveStatus === "saved" && "저장됨"}
-                {saveStatus === "error" && "저장 실패 · 네트워크 상태를 확인해주세요"}
-              </div>
-            )}
           </>
         )}
 
@@ -1459,9 +1434,9 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(320px, 80vw)",
-              padding: "24px 22px",
-              borderRadius: 22,
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
               backdropFilter: "blur(28px) saturate(180%)",
               WebkitBackdropFilter: "blur(28px) saturate(180%)",
