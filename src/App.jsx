@@ -1100,9 +1100,7 @@ export default function Alloy() {
                   width: 220,
                   height: 220,
                   borderRadius: "50%",
-                  background: isLight
-                    ? "rgba(255,255,255,0.22)"
-                    : "rgba(255,255,255,0.07)",
+                  background: "rgba(255,255,255,0.1)",
                   backdropFilter: "blur(8px) saturate(150%)",
                   WebkitBackdropFilter: "blur(8px) saturate(150%)",
                   border: `1px solid ${isLight ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.14)"}`,
