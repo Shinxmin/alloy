@@ -1,9 +1,62 @@
 import React, { useState, useRef, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip } from "recharts";
+import { supabase } from "./supabaseClient";
 
 export default function Alloy() {
   const tabs = ["A", "B", "C"];
   const [active, setActive] = useState(0);
+
+  // Supabase 로그인 세션
+  const [session, setSession] = useState(null);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMode, setAuthMode] = useState("signIn"); // "signIn" | "signUp"
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authError, setAuthError] = useState("");
+  const [authSubmitting, setAuthSubmitting] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setSession(data.session);
+      setAuthChecked(true);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
+      setSession(newSession);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    setAuthError("");
+    setAuthNotice("");
+    setAuthSubmitting(true);
+    try {
+      if (authMode === "signUp") {
+        const { error } = await supabase.auth.signUp({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+        setAuthNotice("가입 확인 이메일을 보냈어요. 메일함을 확인해주세요.");
+      } else {
+        const { error } = await supabase.auth.signInWithPassword({
+          email: authEmail,
+          password: authPassword,
+        });
+        if (error) throw error;
+      }
+    } catch (err) {
+      setAuthError(err.message || "오류가 발생했어요. 다시 시도해주세요.");
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
   const [hovered, setHovered] = useState(null);
   const [plusHovered, setPlusHovered] = useState(false);
   const [plusPressed, setPlusPressed] = useState(false);
@@ -83,9 +136,9 @@ export default function Alloy() {
 
     let cancelled = false;
     const fetchRate = async () => {
-      // 1순위: ExchangeRate-API 오픈 액세스 (키 불필요, 매일 갱신)
+      // 1순위: Frankfurter (ECB 기준, 키 불필요, https://frankfurter.dev)
       try {
-        const res = await fetch("https://open.er-api.com/v6/latest/USD");
+        const res = await fetch("https://api.frankfurter.dev/v1/latest?from=USD&to=KRW");
         const data = await res.json();
         const rate = data && data.rates && data.rates.KRW;
         if (!cancelled && isFinite(rate) && rate > 0) {
@@ -95,9 +148,9 @@ export default function Alloy() {
         }
       } catch (e) {}
 
-      // 2순위: Frankfurter (ECB 기준, 키 불필요)
+      // 2순위: ExchangeRate-API 오픈 액세스 (키 불필요, 매일 갱신)
       try {
-        const res = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW");
+        const res = await fetch("https://open.er-api.com/v6/latest/USD");
         const data = await res.json();
         const rate = data && data.rates && data.rates.KRW;
         if (!cancelled && isFinite(rate) && rate > 0) {
@@ -201,31 +254,47 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 앱 로드 시 저장된 데이터 불러오기
+  // 로그인한 사용자의 Supabase portfolios 테이블에서 데이터 불러오기
   useEffect(() => {
-    try {
-      const saved = localStorage.getItem("alloy_portfolioData");
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && Array.isArray(parsed.holdings)) setHoldings(parsed.holdings);
-        if (parsed && Array.isArray(parsed.cashHoldings)) setCashHoldings(parsed.cashHoldings);
-      }
-    } catch (e) {
-      // 저장된 데이터가 없거나 읽기 실패 시 빈 상태로 시작
+    if (!session) {
+      setHoldings([]);
+      setCashHoldings([]);
+      setDataLoaded(false);
+      return;
     }
-    setDataLoaded(true);
-  }, []);
+    let cancelled = false;
+    setDataLoaded(false);
+    supabase
+      .from("portfolios")
+      .select("holdings, cash_holdings")
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data) {
+          if (Array.isArray(data.holdings)) setHoldings(data.holdings);
+          if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
+        }
+        setDataLoaded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
-  // holdings / cashHoldings 변경 시마다 저장 (최초 로드 완료 이후에만)
+  // holdings / cashHoldings 변경 시마다 Supabase에 저장 (최초 로드 완료 이후에만)
   useEffect(() => {
-    if (!dataLoaded) return;
-    try {
-      localStorage.setItem(
-        "alloy_portfolioData",
-        JSON.stringify({ holdings, cashHoldings })
-      );
-    } catch (e) {}
-  }, [holdings, cashHoldings, dataLoaded]);
+    if (!dataLoaded || !session) return;
+    supabase
+      .from("portfolios")
+      .upsert({
+        user_id: session.user.id,
+        holdings,
+        cash_holdings: cashHoldings,
+        updated_at: new Date().toISOString(),
+      })
+      .then(() => {});
+  }, [holdings, cashHoldings, dataLoaded, session]);
 
   const handleConfirm = () => {
     if (assetType === "cash") {
@@ -612,6 +681,160 @@ export default function Alloy() {
     transition: "background 0.25s ease, border 0.25s ease",
   };
 
+  if (!authChecked) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: isLight ? "#F8F9FA" : "#17191D",
+          color: isLight ? "#14161A" : "#FFFFFF",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+        }}
+      >
+        불러오는 중...
+      </div>
+    );
+  }
+
+  if (!session) {
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          background: isLight ? "#F8F9FA" : "#17191D",
+          fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+          padding: 20,
+          boxSizing: "border-box",
+        }}
+      >
+        <form
+          onSubmit={handleAuthSubmit}
+          style={{
+            width: "min(320px, 100%)",
+            padding: "28px 22px",
+            borderRadius: 22,
+            background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+            backdropFilter: "blur(28px) saturate(180%)",
+            WebkitBackdropFilter: "blur(28px) saturate(180%)",
+            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+            boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+          }}
+        >
+          <h1
+            style={{
+              margin: "0 0 2px 0",
+              fontSize: 22,
+              fontWeight: 700,
+              color: isLight ? "#14161A" : "#FFFFFF",
+              letterSpacing: 0.2,
+            }}
+          >
+            αlloy
+          </h1>
+          <h2
+            style={{
+              margin: "0 0 20px 0",
+              fontSize: 15,
+              fontWeight: 600,
+              color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+            }}
+          >
+            {authMode === "signUp" ? "회원가입" : "로그인"}
+          </h2>
+
+          <label style={fieldLabelStyle}>이메일</label>
+          <input
+            type="email"
+            required
+            value={authEmail}
+            onChange={(e) => setAuthEmail(e.target.value)}
+            style={inputStyle}
+          />
+
+          <label style={fieldLabelStyle}>비밀번호</label>
+          <input
+            type="password"
+            required
+            minLength={6}
+            value={authPassword}
+            onChange={(e) => setAuthPassword(e.target.value)}
+            style={inputStyle}
+          />
+
+          {authError && (
+            <div style={{ fontSize: 12, color: "rgba(255,138,138,0.9)", marginBottom: 12 }}>
+              {authError}
+            </div>
+          )}
+          {authNotice && (
+            <div
+              style={{
+                fontSize: 12,
+                color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                marginBottom: 12,
+              }}
+            >
+              {authNotice}
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={authSubmitting}
+            style={{
+              width: "100%",
+              height: 42,
+              borderRadius: 12,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)"}`,
+              background: isLight ? "rgba(20,22,26,0.18)" : "rgba(255,255,255,0.18)",
+              color: isLight ? "#14161A" : "#FFFFFF",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: authSubmitting ? "default" : "pointer",
+              outline: "none",
+              opacity: authSubmitting ? 0.6 : 1,
+              marginBottom: 14,
+            }}
+          >
+            {authMode === "signUp" ? "가입하기" : "로그인"}
+          </button>
+
+          <div
+            style={{
+              textAlign: "center",
+              fontSize: 12,
+              color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+            }}
+          >
+            {authMode === "signUp" ? "이미 계정이 있으신가요?" : "계정이 없으신가요?"}{" "}
+            <span
+              onClick={() => {
+                setAuthMode((m) => (m === "signUp" ? "signIn" : "signUp"));
+                setAuthError("");
+                setAuthNotice("");
+              }}
+              style={{
+                cursor: "pointer",
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+              }}
+            >
+              {authMode === "signUp" ? "로그인" : "회원가입"}
+            </span>
+          </div>
+        </form>
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -925,14 +1148,27 @@ export default function Alloy() {
                   1 USD = {Math.round(todayRate).toLocaleString()}원
                 </span>
                 {rateSource === "api" && (
-                  <span
-                    style={{
-                      fontSize: 10,
-                      color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
-                    }}
-                  >
-                    (실시간)
-                  </span>
+                  <>
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background: "#39FF8A",
+                        boxShadow:
+                          "0 0 6px 2px rgba(57,255,138,0.85), 0 0 2px rgba(57,255,138,1)",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span
+                      style={{
+                        fontSize: 10,
+                        color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
+                      }}
+                    >
+                      (실시간)
+                    </span>
+                  </>
                 )}
               </div>
             )}
@@ -1333,6 +1569,50 @@ export default function Alloy() {
                 >
                   <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                 </svg>
+              </button>
+            </div>
+
+            {/* 로그인 계정 정보 및 로그아웃 */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                padding: "14px 16px",
+                borderRadius: 14,
+                background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.1)"}`,
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  marginRight: 12,
+                }}
+              >
+                {session.user.email}
+              </span>
+              <button
+                onClick={handleSignOut}
+                style={{
+                  flexShrink: 0,
+                  height: 32,
+                  padding: "0 14px",
+                  borderRadius: 10,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  background: "transparent",
+                  color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                로그아웃
               </button>
             </div>
           </>
