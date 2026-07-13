@@ -922,55 +922,109 @@ export default function Alloy() {
                 </h1>
               </div>
 
-              {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-              <button
-                onClick={toggleTheme}
-                onMouseEnter={() => setThemeHovered(true)}
-                onMouseLeave={() => setThemeHovered(false)}
-                aria-label="테마 전환"
-                style={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  borderRadius: "50%",
-                  border: isLight
-                    ? "1px solid rgba(20,22,26,0.12)"
-                    : "1px solid rgba(255,255,255,0.14)",
-                  background: themeHovered
-                    ? isLight
-                      ? "rgba(255,255,255,0.85)"
-                      : "rgba(255,255,255,0.14)"
-                    : isLight
-                    ? "rgba(255,255,255,0.65)"
-                    : "rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(20px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  boxShadow: themeHovered
-                    ? isLight
-                      ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                      : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                    : isLight
-                    ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                    : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  outline: "none",
-                  transition:
-                    "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                  transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill={isLight ? "#14161A" : "#FFFFFF"}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
+                <button
+                  onClick={openModal}
+                  onMouseEnter={() => setPlusHovered(true)}
+                  onMouseLeave={() => setPlusHovered(false)}
+                  onMouseDown={() => setPlusPressed(true)}
+                  onMouseUp={() => setPlusPressed(false)}
+                  aria-label="추가하기"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.14)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: plusHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: plusHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 20,
+                    fontWeight: 400,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: plusPressed
+                      ? "scale(0.9) translateY(0)"
+                      : plusHovered
+                      ? "scale(1.08) translateY(-2px)"
+                      : "scale(1) translateY(0)",
+                  }}
                 >
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </button>
+                  +
+                </button>
+
+                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
+                <button
+                  onClick={toggleTheme}
+                  onMouseEnter={() => setThemeHovered(true)}
+                  onMouseLeave={() => setThemeHovered(false)}
+                  aria-label="테마 전환"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.12)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: themeHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: themeHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill={isLight ? "#14161A" : "#FFFFFF"}
+                  >
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                </button>
+              </div>
             </div>
           </>
         )}
@@ -1011,55 +1065,109 @@ export default function Alloy() {
                 </h1>
               </div>
 
-              {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-              <button
-                onClick={toggleTheme}
-                onMouseEnter={() => setThemeHovered(true)}
-                onMouseLeave={() => setThemeHovered(false)}
-                aria-label="테마 전환"
-                style={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  borderRadius: "50%",
-                  border: isLight
-                    ? "1px solid rgba(20,22,26,0.12)"
-                    : "1px solid rgba(255,255,255,0.14)",
-                  background: themeHovered
-                    ? isLight
-                      ? "rgba(255,255,255,0.85)"
-                      : "rgba(255,255,255,0.14)"
-                    : isLight
-                    ? "rgba(255,255,255,0.65)"
-                    : "rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(20px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  boxShadow: themeHovered
-                    ? isLight
-                      ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                      : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                    : isLight
-                    ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                    : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  outline: "none",
-                  transition:
-                    "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                  transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill={isLight ? "#14161A" : "#FFFFFF"}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
+                <button
+                  onClick={openModal}
+                  onMouseEnter={() => setPlusHovered(true)}
+                  onMouseLeave={() => setPlusHovered(false)}
+                  onMouseDown={() => setPlusPressed(true)}
+                  onMouseUp={() => setPlusPressed(false)}
+                  aria-label="추가하기"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.14)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: plusHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: plusHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 20,
+                    fontWeight: 400,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: plusPressed
+                      ? "scale(0.9) translateY(0)"
+                      : plusHovered
+                      ? "scale(1.08) translateY(-2px)"
+                      : "scale(1) translateY(0)",
+                  }}
                 >
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </button>
+                  +
+                </button>
+
+                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
+                <button
+                  onClick={toggleTheme}
+                  onMouseEnter={() => setThemeHovered(true)}
+                  onMouseLeave={() => setThemeHovered(false)}
+                  aria-label="테마 전환"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.12)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: themeHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: themeHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill={isLight ? "#14161A" : "#FFFFFF"}
+                  >
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {/* 원그래프 */}
@@ -1512,55 +1620,109 @@ export default function Alloy() {
                 </h1>
               </div>
 
-              {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-              <button
-                onClick={toggleTheme}
-                onMouseEnter={() => setThemeHovered(true)}
-                onMouseLeave={() => setThemeHovered(false)}
-                aria-label="테마 전환"
-                style={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  borderRadius: "50%",
-                  border: isLight
-                    ? "1px solid rgba(20,22,26,0.12)"
-                    : "1px solid rgba(255,255,255,0.14)",
-                  background: themeHovered
-                    ? isLight
-                      ? "rgba(255,255,255,0.85)"
-                      : "rgba(255,255,255,0.14)"
-                    : isLight
-                    ? "rgba(255,255,255,0.65)"
-                    : "rgba(255,255,255,0.06)",
-                  backdropFilter: "blur(20px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  boxShadow: themeHovered
-                    ? isLight
-                      ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                      : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                    : isLight
-                    ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                    : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  outline: "none",
-                  transition:
-                    "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                  transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill={isLight ? "#14161A" : "#FFFFFF"}
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
+                <button
+                  onClick={openModal}
+                  onMouseEnter={() => setPlusHovered(true)}
+                  onMouseLeave={() => setPlusHovered(false)}
+                  onMouseDown={() => setPlusPressed(true)}
+                  onMouseUp={() => setPlusPressed(false)}
+                  aria-label="추가하기"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.14)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: plusHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: plusHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 20,
+                    fontWeight: 400,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: plusPressed
+                      ? "scale(0.9) translateY(0)"
+                      : plusHovered
+                      ? "scale(1.08) translateY(-2px)"
+                      : "scale(1) translateY(0)",
+                  }}
                 >
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                </svg>
-              </button>
+                  +
+                </button>
+
+                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
+                <button
+                  onClick={toggleTheme}
+                  onMouseEnter={() => setThemeHovered(true)}
+                  onMouseLeave={() => setThemeHovered(false)}
+                  aria-label="테마 전환"
+                  style={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: isLight
+                      ? "1px solid rgba(20,22,26,0.12)"
+                      : "1px solid rgba(255,255,255,0.14)",
+                    background: themeHovered
+                      ? isLight
+                        ? "rgba(255,255,255,0.85)"
+                        : "rgba(255,255,255,0.14)"
+                      : isLight
+                      ? "rgba(255,255,255,0.65)"
+                      : "rgba(255,255,255,0.06)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    boxShadow: themeHovered
+                      ? isLight
+                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
+                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
+                      : isLight
+                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
+                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition:
+                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
+                  }}
+                >
+                  <svg
+                    width="16"
+                    height="16"
+                    viewBox="0 0 24 24"
+                    fill={isLight ? "#14161A" : "#FFFFFF"}
+                  >
+                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
+                  </svg>
+                </button>
+              </div>
             </div>
 
             {/* 로그인 계정 정보 및 로그아웃 */}
@@ -1751,47 +1913,6 @@ export default function Alloy() {
             );
           })}
         </div>
-
-        {/* 원형 + 버튼 (리퀴드 글래스) */}
-        <button
-          onClick={openModal}
-          onMouseEnter={() => setPlusHovered(true)}
-          onMouseLeave={() => setPlusHovered(false)}
-          onMouseDown={() => setPlusPressed(true)}
-          onMouseUp={() => setPlusPressed(false)}
-          style={{
-            width: BAR_HEIGHT,
-            height: BAR_HEIGHT,
-            flexShrink: 0,
-            borderRadius: "50%",
-            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-            background: plusHovered
-              ? (isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.14)")
-              : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
-            backdropFilter: "blur(20px) saturate(180%)",
-            WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            boxShadow: plusHovered
-              ? "0 10px 36px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3)"
-              : "0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
-            color: (isLight ? "#14161A" : "#FFFFFF"),
-            fontSize: 22,
-            fontWeight: 400,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            outline: "none",
-            transition:
-              "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-            transform: plusPressed
-              ? "scale(0.92)"
-              : plusHovered
-              ? "scale(1.08)"
-              : "scale(1)",
-          }}
-        >
-          +
-        </button>
       </div>
 
       {/* 종목 모달 */}
