@@ -1090,28 +1090,6 @@ export default function Alloy() {
                 </Pie>
               </PieChart>
 
-              {/* 리퀴드 글래스 오버레이: 아래 원그래프 색상이 굴절/산란되어 비치도록 */}
-              <div
-                style={{
-                  position: "absolute",
-                  top: "50%",
-                  left: "50%",
-                  transform: "translate(-50%, -50%)",
-                  width: 220,
-                  height: 220,
-                  borderRadius: "50%",
-                  background: "rgba(255,255,255,0.1)",
-                  backdropFilter: "blur(8px) saturate(150%)",
-                  WebkitBackdropFilter: "blur(8px) saturate(150%)",
-                  border: `1px solid ${isLight ? "rgba(255,255,255,0.55)" : "rgba(255,255,255,0.14)"}`,
-                  boxShadow: isLight
-                    ? "inset 0 1px 0 rgba(255,255,255,0.7), inset 0 -12px 22px rgba(20,22,26,0.05)"
-                    : "inset 0 1px 0 rgba(255,255,255,0.14), inset 0 -12px 22px rgba(0,0,0,0.28)",
-                  pointerEvents: "none",
-                  transition: "background 0.3s ease, border 0.3s ease, box-shadow 0.3s ease",
-                }}
-              />
-
               {/* 원그래프 중앙 자산 총액 (통화별 각각 환산하여 표기) */}
               {!isEmpty && (
                 <div
