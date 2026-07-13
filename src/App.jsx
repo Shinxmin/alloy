@@ -210,6 +210,8 @@ export default function Alloy() {
 
   const openModal = () => {
     setActive(1);
+    setPlusHovered(false);
+    setPlusPressed(false);
     resetForm();
     setEditIndex(null);
     setModalOpen(true);
@@ -218,6 +220,8 @@ export default function Alloy() {
 
   const openEditModal = (type, index) => {
     setActive(1);
+    setPlusHovered(false);
+    setPlusPressed(false);
     if (type === "stock") {
       const h = holdings[index];
       setAssetType("stock");
