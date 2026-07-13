@@ -65,17 +65,51 @@ export default function Alloy() {
   const assetTypeBtnRefs = useRef([]);
   const [assetTypeIndicator, setAssetTypeIndicator] = useState({ left: 0, width: 0 });
 
-  // 기준환율 (원화 자산을 달러로 환산할 때 사용)
+  // 기준환율 (원화 자산을 달러로 환산할 때 사용) - 새로고침마다 API로 자동 조회
   const [todayRate, setTodayRate] = useState(1300);
   const [rateLoaded, setRateLoaded] = useState(false);
+  const [rateSource, setRateSource] = useState("default"); // "api" | "cache" | "default"
 
   useEffect(() => {
     try {
       const saved = localStorage.getItem("alloy_todayRate");
       const parsed = parseFloat(saved);
-      if (isFinite(parsed) && parsed > 0) setTodayRate(parsed);
+      if (isFinite(parsed) && parsed > 0) {
+        setTodayRate(parsed);
+        setRateSource("cache");
+      }
     } catch (e) {}
     setRateLoaded(true);
+
+    let cancelled = false;
+    const fetchRate = async () => {
+      // 1순위: ExchangeRate-API 오픈 액세스 (키 불필요, 매일 갱신)
+      try {
+        const res = await fetch("https://open.er-api.com/v6/latest/USD");
+        const data = await res.json();
+        const rate = data && data.rates && data.rates.KRW;
+        if (!cancelled && isFinite(rate) && rate > 0) {
+          setTodayRate(rate);
+          setRateSource("api");
+          return;
+        }
+      } catch (e) {}
+
+      // 2순위: Frankfurter (ECB 기준, 키 불필요)
+      try {
+        const res = await fetch("https://api.frankfurter.app/latest?from=USD&to=KRW");
+        const data = await res.json();
+        const rate = data && data.rates && data.rates.KRW;
+        if (!cancelled && isFinite(rate) && rate > 0) {
+          setTodayRate(rate);
+          setRateSource("api");
+        }
+      } catch (e) {}
+    };
+    fetchRate();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {
@@ -871,14 +905,14 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 기준환율 입력 (원화 자산 → 달러 환산에 사용) */}
+            {/* 기준환율 표시 (원화 자산 → 달러 환산에 사용, API에서 자동 조회) */}
             {!isEmpty && (
               <div
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
-                  gap: 8,
+                  gap: 6,
                   marginBottom: 28,
                 }}
               >
@@ -886,47 +920,20 @@ export default function Alloy() {
                   style={{
                     fontSize: 12,
                     color: (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)"),
-                    flexShrink: 0,
                   }}
                 >
-                  1 USD =
+                  1 USD = {Math.round(todayRate).toLocaleString()}원
                 </span>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formatWithCommas(String(todayRate))}
-                  onChange={(e) => {
-                    const raw = e.target.value.replace(/,/g, "");
-                    if (/^\d*\.?\d*$/.test(raw)) {
-                      const n = parseFloat(raw);
-                      setTodayRate(raw === "" ? 0 : isFinite(n) ? n : todayRate);
-                    }
-                  }}
-                  style={{
-                    width: 88,
-                    textAlign: "center",
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: (isLight ? "#14161A" : "#FFFFFF"),
-                    background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)"),
-                    border: (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"),
-                    borderRadius: 8,
-                    padding: "6px 8px",
-                    outline: "none",
-                    transition: "border 0.2s ease",
-                  }}
-                  onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                  onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                />
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)"),
-                    flexShrink: 0,
-                  }}
-                >
-                  원
-                </span>
+                {rateSource === "api" && (
+                  <span
+                    style={{
+                      fontSize: 10,
+                      color: (isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"),
+                    }}
+                  >
+                    (실시간)
+                  </span>
+                )}
               </div>
             )}
 
@@ -1459,9 +1466,10 @@ export default function Alloy() {
                       gap: 1,
                     }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2a1 1 0 0 1 1 1v8.17l6.36 3.67a1 1 0 0 1-1 1.73L12 13.15V3a1 1 0 0 1 1-1z" opacity="0.55" />
-                      <path d="M11 3.06A9 9 0 1 0 20.94 13H11V3.06z" />
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                      <rect x="2.5" y="6.5" width="19" height="11" rx="2" stroke="currentColor" strokeWidth="1.6" />
+                      <circle cx="12" cy="12" r="2.6" stroke="currentColor" strokeWidth="1.6" />
+                      <path d="M5.5 9V9.01M18.5 15V15.01" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
                       투자
