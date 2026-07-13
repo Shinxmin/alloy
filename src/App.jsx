@@ -63,6 +63,22 @@ export default function Alloy() {
   const btnRefs = useRef([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
+  // 명령어 입력창 (채팅 입력 버튼 + 리퀴드 글래스 패널)
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatVisible, setChatVisible] = useState(false);
+  const [chatHovered, setChatHovered] = useState(false);
+  const [chatMessage, setChatMessage] = useState("");
+
+  const toggleChat = () => {
+    if (chatOpen) {
+      setChatVisible(false);
+      setTimeout(() => setChatOpen(false), 300);
+    } else {
+      setChatOpen(true);
+      requestAnimationFrame(() => setChatVisible(true));
+    }
+  };
+
   const [theme, setTheme] = useState("dark"); // "dark" | "light"
   const [themeHovered, setThemeHovered] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
@@ -1917,7 +1933,124 @@ export default function Alloy() {
             );
           })}
         </div>
+
+        {/* 명령어 입력창 버튼 (리퀴드 글래스, 탭바와 동일한 높이의 원형) */}
+        <button
+          onClick={toggleChat}
+          onMouseEnter={() => setChatHovered(true)}
+          onMouseLeave={() => setChatHovered(false)}
+          aria-label="명령어 입력창 열기"
+          style={{
+            width: BAR_HEIGHT,
+            height: BAR_HEIGHT,
+            flexShrink: 0,
+            borderRadius: "50%",
+            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+            background: chatHovered
+              ? (isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.14)")
+              : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
+            backdropFilter: "blur(20px) saturate(180%)",
+            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+            boxShadow: chatHovered
+              ? "0 10px 36px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3)"
+              : "0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
+            color: isLight ? "#14161A" : "#FFFFFF",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            outline: "none",
+            transition:
+              "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+            transform: chatHovered ? "scale(1.08)" : "scale(1)",
+          }}
+        >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M4 5h16a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H9l-4 4v-4H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z" />
+            <path d="M8 10h.01M12 10h.01M16 10h.01" />
+          </svg>
+        </button>
       </div>
+
+      {/* 명령어 입력창 패널 (리퀴드 글래스, 탭바 위에 슬라이드로 등장) */}
+      {chatOpen && (
+        <>
+          <div onClick={toggleChat} style={{ position: "fixed", inset: 0, zIndex: 9 }} />
+          <div
+            style={{
+              position: "fixed",
+              bottom: 24 + BAR_HEIGHT + 14,
+              left: "50%",
+              zIndex: 10,
+              width: "min(360px, 88vw)",
+              opacity: chatVisible ? 1 : 0,
+              transform: chatVisible
+                ? "translate(-50%, 0)"
+                : "translate(-50%, 16px)",
+              transition:
+                "opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                padding: 10,
+                borderRadius: 999,
+                background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(28px) saturate(180%)",
+                WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                boxShadow:
+                  "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              }}
+            >
+              <input
+                type="text"
+                autoFocus
+                value={chatMessage}
+                onChange={(e) => setChatMessage(e.target.value)}
+                placeholder="명령어를 입력하세요"
+                style={{
+                  flex: 1,
+                  height: 40,
+                  padding: "0 14px",
+                  borderRadius: 999,
+                  border: "none",
+                  background: "transparent",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 14,
+                  outline: "none",
+                }}
+              />
+              <button
+                onClick={() => setChatMessage("")}
+                aria-label="전송"
+                style={{
+                  width: 40,
+                  height: 40,
+                  flexShrink: 0,
+                  borderRadius: "50%",
+                  border: "none",
+                  background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M3 11l18-8-8 18-2-8-8-2z" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 종목 모달 */}
       {modalOpen && (
