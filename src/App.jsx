@@ -371,11 +371,14 @@ export default function Alloy() {
   const [promoCode, setPromoCode] = useState("");
 
   const handlePromoSubmit = () => {
-    if (promoCode.trim().toLowerCase() === "dev") {
-      setUsagePercent(0);
-    }
+    const isValid = promoCode.trim().toLowerCase() === "dev";
     setPromoCode("");
     setPromoOpen(false);
+    if (isValid) {
+      setUsagePercent(0);
+      closeUsageModal();
+      showSubActionNotice("프로모션이 적용되었습니다");
+    }
   };
 
   useEffect(() => {
@@ -420,6 +423,8 @@ export default function Alloy() {
   }, []);
 
   const openUsageModal = () => {
+    setPromoOpen(false);
+    setPromoCode("");
     setUsageModalOpen(true);
     requestAnimationFrame(() => setUsageModalVisible(true));
   };
@@ -597,12 +602,25 @@ export default function Alloy() {
       });
   }, [holdings, cashHoldings, dataLoaded, session]);
 
+  // 서브 액션바 알림 (리퀴드 글래스, 탭바 바로 위) - 닉네임 저장/프로모션 코드 등 공용
+  const [subActionNotice, setSubActionNotice] = useState(false);
+  const [subActionVisible, setSubActionVisible] = useState(false);
+  const [subActionText, setSubActionText] = useState("");
+
+  const showSubActionNotice = (text) => {
+    setSubActionText(text);
+    setSubActionNotice(true);
+    requestAnimationFrame(() => setSubActionVisible(true));
+    setTimeout(() => {
+      setSubActionVisible(false);
+      setTimeout(() => setSubActionNotice(false), 300);
+    }, 1800);
+  };
+
   // 닉네임 (Supabase profiles 테이블)
   const [nickname, setNickname] = useState("");
   const [nicknameEditing, setNicknameEditing] = useState(false);
   const [nicknameDraft, setNicknameDraft] = useState("");
-  const [nicknameSavedNotice, setNicknameSavedNotice] = useState(false);
-  const [nicknameSavedVisible, setNicknameSavedVisible] = useState(false);
   const nicknameInputRef = useRef(null);
 
   useEffect(() => {
@@ -650,12 +668,7 @@ export default function Alloy() {
       nickname: trimmed,
       updated_at: new Date().toISOString(),
     });
-    setNicknameSavedNotice(true);
-    requestAnimationFrame(() => setNicknameSavedVisible(true));
-    setTimeout(() => {
-      setNicknameSavedVisible(false);
-      setTimeout(() => setNicknameSavedNotice(false), 300);
-    }, 1800);
+    showSubActionNotice("저장 되었습니다");
   };
 
   const handleConfirm = () => {
@@ -2421,7 +2434,7 @@ export default function Alloy() {
             >
               구독
             </h2>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
               <span
                 style={{
                   fontSize: 12,
@@ -2454,89 +2467,6 @@ export default function Alloy() {
                 사용량 한도
               </span>
             </div>
-
-            {/* 프로모션 코드 입력 */}
-            {promoOpen ? (
-              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 36 }}>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    flexShrink: 0,
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  프로모션 코드
-                </span>
-                <input
-                  type="text"
-                  autoFocus
-                  value={promoCode}
-                  onChange={(e) => setPromoCode(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handlePromoSubmit();
-                    if (e.key === "Escape") {
-                      setPromoCode("");
-                      setPromoOpen(false);
-                    }
-                  }}
-                  style={{
-                    flex: "0 0 50%",
-                    height: 28,
-                    padding: "0 10px",
-                    borderRadius: 8,
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 13,
-                    outline: "none",
-                    boxSizing: "border-box",
-                  }}
-                />
-                <button
-                  onClick={handlePromoSubmit}
-                  aria-label="프로모션 코드 보내기"
-                  style={{
-                    width: 26,
-                    height: 26,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: "transparent",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    padding: 0,
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M5 12h14M13 6l6 6-6 6" />
-                  </svg>
-                </button>
-              </div>
-            ) : (
-              <span
-                onClick={() => setPromoOpen(true)}
-                role="button"
-                tabIndex={0}
-                style={{
-                  display: "inline-block",
-                  marginBottom: 36,
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                  textUnderlineOffset: 3,
-                }}
-              >
-                프로모션 코드가 있어요
-              </span>
-            )}
 
             {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
             <h2
@@ -2771,16 +2701,16 @@ export default function Alloy() {
         </button>
       </div>
 
-      {/* 닉네임 저장 알림 (리퀴드 글래스, 탭바 바로 위) */}
-      {nicknameSavedNotice && (
+      {/* 서브 액션바 알림 (리퀴드 글래스, 탭바 바로 위) */}
+      {subActionNotice && (
         <div
           style={{
             position: "fixed",
             bottom: 24 + BAR_HEIGHT + 14,
             left: "50%",
             zIndex: 11,
-            opacity: nicknameSavedVisible ? 1 : 0,
-            transform: nicknameSavedVisible ? "translate(-50%, 0)" : "translate(-50%, 8px)",
+            opacity: subActionVisible ? 1 : 0,
+            transform: subActionVisible ? "translate(-50%, 0)" : "translate(-50%, 8px)",
             transition: "opacity 0.3s ease, transform 0.3s ease",
             pointerEvents: "none",
           }}
@@ -2800,7 +2730,7 @@ export default function Alloy() {
               whiteSpace: "nowrap",
             }}
           >
-            저장 되었습니다
+            {subActionText}
           </div>
         </div>
       )}
@@ -3455,6 +3385,80 @@ export default function Alloy() {
               }}
             >
               UTC+9 00:00 까지 {usageCountdownText} 남았습니다
+            </div>
+
+            {/* 프로모션 코드 (사용량 한도 모달 최하단) */}
+            <div style={{ marginTop: 16 }}>
+              {!promoOpen ? (
+                <span
+                  onClick={() => setPromoOpen(true)}
+                  role="button"
+                  tabIndex={0}
+                  style={{
+                    display: "inline-block",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    cursor: "pointer",
+                    textDecoration: "underline",
+                    textUnderlineOffset: 3,
+                  }}
+                >
+                  프로모션 코드가 있어요
+                </span>
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={promoCode}
+                    onChange={(e) => setPromoCode(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handlePromoSubmit();
+                      if (e.key === "Escape") {
+                        setPromoCode("");
+                        setPromoOpen(false);
+                      }
+                    }}
+                    style={{
+                      width: "33%",
+                      flexShrink: 0,
+                      height: 28,
+                      padding: "0 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 13,
+                      outline: "none",
+                      boxSizing: "border-box",
+                    }}
+                  />
+                  <button
+                    onClick={handlePromoSubmit}
+                    aria-label="프로모션 코드 보내기"
+                    style={{
+                      width: 26,
+                      height: 26,
+                      flexShrink: 0,
+                      borderRadius: "50%",
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      background: "transparent",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      outline: "none",
+                      padding: 0,
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M5 12h14M13 6l6 6-6 6" />
+                    </svg>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         </div>
