@@ -2109,8 +2109,23 @@ export default function Alloy() {
                   }}
                 />
               ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <span style={{ fontSize: 16, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "22px auto 22px",
+                    alignItems: "center",
+                    columnGap: 6,
+                  }}
+                >
+                  <span aria-hidden="true" />
+                  <span
+                    style={{
+                      fontSize: 16,
+                      fontWeight: 700,
+                      textAlign: "center",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                    }}
+                  >
                     {nickname || "사용자"}
                   </span>
                   <button
@@ -2146,50 +2161,24 @@ export default function Alloy() {
                   </button>
                 </div>
               )}
-            </div>
 
-            {/* 로그인 계정 정보 및 로그아웃 */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                padding: "14px 16px",
-                borderRadius: 14,
-                background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
-                border: `1px solid ${isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.1)"}`,
-              }}
-            >
+              {/* 멤버십 등급 배지 (추후 구독제 업그레이드 예정) */}
               <span
                 style={{
-                  fontSize: 13,
-                  color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  marginRight: 12,
-                }}
-              >
-                {session.user.email}
-              </span>
-              <button
-                onClick={handleSignOut}
-                style={{
-                  flexShrink: 0,
-                  height: 32,
-                  padding: "0 14px",
-                  borderRadius: 10,
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                  background: "transparent",
-                  color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
                   fontSize: 12,
                   fontWeight: 600,
-                  cursor: "pointer",
-                  outline: "none",
+                  padding: "4px 14px",
+                  borderRadius: 999,
+                  letterSpacing: 0.2,
+                  background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
+                  backdropFilter: "blur(20px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
+                  color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
                 }}
               >
-                로그아웃
-              </button>
+                Basic
+              </span>
             </div>
           </>
         )}
@@ -2375,12 +2364,71 @@ export default function Alloy() {
         </button>
       </div>
 
+      {/* 로그인 계정 정보 및 로그아웃 (탭바 바로 위, 설정 탭에서만 노출) */}
+      {active === 2 && !chatOpen && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24 + BAR_HEIGHT + 14,
+            left: "50%",
+            transform: "translateX(-50%)",
+            zIndex: 8,
+            width: "min(360px, 88vw)",
+            boxSizing: "border-box",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            padding: "14px 16px",
+            borderRadius: 20,
+            background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+            backdropFilter: "blur(24px) saturate(180%)",
+            WebkitBackdropFilter: "blur(24px) saturate(180%)",
+            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+            boxShadow: "0 12px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+          }}
+        >
+          <span
+            style={{
+              fontSize: 13,
+              color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+              marginRight: 12,
+            }}
+          >
+            {session.user.email}
+          </span>
+          <button
+            onClick={handleSignOut}
+            style={{
+              flexShrink: 0,
+              height: 32,
+              padding: "0 14px",
+              borderRadius: 10,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              background: "transparent",
+              color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+              fontSize: 12,
+              fontWeight: 600,
+              cursor: "pointer",
+              outline: "none",
+            }}
+          >
+            로그아웃
+          </button>
+        </div>
+      )}
+
       {/* 닉네임 저장 알림 (리퀴드 글래스, 탭바 바로 위) */}
       {nicknameSavedNotice && (
         <div
           style={{
             position: "fixed",
-            bottom: 24 + BAR_HEIGHT + 14,
+            bottom:
+              active === 2 && !chatOpen
+                ? 24 + BAR_HEIGHT + 14 + 74
+                : 24 + BAR_HEIGHT + 14,
             left: "50%",
             zIndex: 11,
             opacity: nicknameSavedVisible ? 1 : 0,
