@@ -77,7 +77,7 @@ export default function Alloy() {
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMAND_DONE_TEXT = "완료";
-  const COMMANDS = ["sort"];
+  const COMMANDS = [{ name: "sort", desc: "정렬" }];
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -2207,8 +2207,8 @@ export default function Alloy() {
                 chatMessage.startsWith("/") &&
                 (() => {
                   const query = chatMessage.slice(1).toLowerCase();
-                  const matches = COMMANDS.filter((c) => c.startsWith(query)).sort((a, b) =>
-                    a.localeCompare(b)
+                  const matches = COMMANDS.filter((c) => c.name.startsWith(query)).sort(
+                    (a, b) => a.name.localeCompare(b.name)
                   );
                   if (matches.length === 0) return null;
                   return (
@@ -2222,9 +2222,9 @@ export default function Alloy() {
                     >
                       {matches.map((cmd, i) => (
                         <div
-                          key={cmd}
+                          key={cmd.name}
                           onClick={() => {
-                            if (cmd === "sort") {
+                            if (cmd.name === "sort") {
                               setChatSortMode(true);
                               setChatMessage("");
                             }
@@ -2234,12 +2234,12 @@ export default function Alloy() {
                             setCmdHoverIdx((prev) => (prev === i ? null : prev))
                           }
                           style={{
+                            display: "flex",
+                            alignItems: "baseline",
+                            gap: 6,
                             padding: "6px 10px",
                             borderRadius: 10,
-                            fontSize: 13,
-                            fontWeight: 600,
                             cursor: "pointer",
-                            color: isLight ? "#14161A" : "#FFFFFF",
                             background:
                               cmdHoverIdx === i
                                 ? isLight
@@ -2249,7 +2249,28 @@ export default function Alloy() {
                             transition: "background 0.15s ease",
                           }}
                         >
-                          /{cmd}
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                            }}
+                          >
+                            /{cmd.name}
+                          </span>
+                          {cmd.desc && (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 500,
+                                color: isLight
+                                  ? "rgba(20,22,26,0.45)"
+                                  : "rgba(255,255,255,0.45)",
+                              }}
+                            >
+                              {cmd.desc}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
