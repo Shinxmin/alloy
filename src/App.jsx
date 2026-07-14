@@ -2304,25 +2304,35 @@ export default function Alloy() {
                   </button>
                 </div>
               )}
-
-              {/* 멤버십 등급 배지 (추후 구독제 업그레이드 예정) */}
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: "4px 14px",
-                  borderRadius: 999,
-                  letterSpacing: 0.2,
-                  background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
-                  backdropFilter: "blur(20px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
-                  color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
-                }}
-              >
-                Basic
-              </span>
             </div>
+
+            {/* 구독 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
+            <h2
+              style={{
+                margin: "0 0 14px 0",
+                fontSize: 18,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+              }}
+            >
+              구독
+            </h2>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 600,
+                padding: "4px 14px",
+                borderRadius: 999,
+                letterSpacing: 0.2,
+                background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(20px) saturate(180%)",
+                WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
+                color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
+              }}
+            >
+              Basic
+            </span>
           </>
         )}
       </div>
@@ -2518,42 +2528,58 @@ export default function Alloy() {
             zIndex: 8,
             width: "min(360px, 88vw)",
             boxSizing: "border-box",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
             padding: "0 4px",
           }}
         >
-          <span
+          {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
+          <h2
             style={{
-              fontSize: 13,
-              color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              whiteSpace: "nowrap",
-              marginRight: 12,
+              margin: "0 0 10px 0",
+              fontSize: 18,
+              fontWeight: 700,
+              color: isLight ? "#14161A" : "#FFFFFF",
             }}
           >
-            {session.user.email}
-          </span>
-          <button
-            onClick={handleSignOut}
+            계정
+          </h2>
+          <div
             style={{
-              flexShrink: 0,
-              height: 32,
-              padding: "0 14px",
-              borderRadius: 10,
-              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-              background: "transparent",
-              color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
-              fontSize: 12,
-              fontWeight: 600,
-              cursor: "pointer",
-              outline: "none",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
             }}
           >
-            로그아웃
-          </button>
+            <span
+              style={{
+                fontSize: 13,
+                color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+                marginRight: 12,
+              }}
+            >
+              {session.user.email}
+            </span>
+            <button
+              onClick={handleSignOut}
+              style={{
+                flexShrink: 0,
+                height: 32,
+                padding: "0 14px",
+                borderRadius: 10,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                background: "transparent",
+                color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                fontSize: 12,
+                fontWeight: 600,
+                cursor: "pointer",
+                outline: "none",
+              }}
+            >
+              로그아웃
+            </button>
+          </div>
         </div>
       )}
 
@@ -2564,7 +2590,7 @@ export default function Alloy() {
             position: "fixed",
             bottom:
               active === 2 && !chatOpen
-                ? 24 + BAR_HEIGHT + 14 + 74
+                ? 24 + BAR_HEIGHT + 14 + 100
                 : 24 + BAR_HEIGHT + 14,
             left: "50%",
             zIndex: 11,
