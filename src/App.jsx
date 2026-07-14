@@ -2476,7 +2476,7 @@ export default function Alloy() {
                     }
                   }}
                   style={{
-                    flex: 1,
+                    flex: "0 0 50%",
                     height: 28,
                     padding: "0 10px",
                     borderRadius: 8,
@@ -2528,7 +2528,7 @@ export default function Alloy() {
                   textUnderlineOffset: 3,
                 }}
               >
-                프로모션 코드
+                프로모션 코드가 있어요
               </span>
             )}
 
