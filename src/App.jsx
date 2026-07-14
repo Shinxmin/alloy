@@ -2521,13 +2521,7 @@ export default function Alloy() {
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            padding: "14px 16px",
-            borderRadius: 20,
-            background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
-            backdropFilter: "blur(24px) saturate(180%)",
-            WebkitBackdropFilter: "blur(24px) saturate(180%)",
-            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-            boxShadow: "0 12px 40px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+            padding: "0 4px",
           }}
         >
           <span
