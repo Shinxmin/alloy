@@ -1134,7 +1134,7 @@ export default function Alloy() {
           background: isLight
             ? "#F8F9FA"
             : theme === "sunset"
-            ? "radial-gradient(circle at 50% 50%, #3d2a1e 0%, #241b18 40%, #17191D 78%)"
+            ? "radial-gradient(circle at 50% 50%, #47301e 0%, #2a1f1a 55%, #17191D 95%)"
             : "#17191D",
           zIndex: -1,
           transition: "background 0.3s ease",
