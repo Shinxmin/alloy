@@ -143,6 +143,13 @@ export default function Alloy() {
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
   const [targetNoticeText, setTargetNoticeText] = useState(null);
+  // AI 모드 (터미널 입력창 우측 스위치): 켜면 명령어 대신 Gemini에게 자유 질문
+  const [aiMode, setAiMode] = useState(false);
+  const [aiSwitchHovered, setAiSwitchHovered] = useState(false);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiResponseText, setAiResponseText] = useState(null);
+  const AI_LOADING_TEXT = "응답을 생성하고 있습니다";
+  const [aiLoadingTypedCount, setAiLoadingTypedCount] = useState(0);
   const sortThemePromptText =
     chatSortMode && !pendingCommand && !chatDoneNotice
       ? "어떤 기준으로 정렬할까요?"
@@ -151,6 +158,7 @@ export default function Alloy() {
       : "";
   const typedSortThemePrompt = useTypedText(sortThemePromptText);
   const typedTargetNotice = useTypedText(targetNoticeText || "");
+  const typedAiResponse = useTypedText(aiResponseText || "");
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
@@ -172,12 +180,47 @@ export default function Alloy() {
       setPendingCommand(null);
       setChatDoneNotice(false);
       setTargetNoticeText(null);
+      setAiResponseText(null);
+      setAiLoading(false);
       requestAnimationFrame(() => setChatVisible(true));
+    }
+  };
+
+  // 터미널 AI 모드: 입력한 질문을 Gemini API로 전달하고 응답을 받아옴
+  const callGemini = async (prompt) => {
+    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
+    if (!apiKey) return "API 키가 설정되지 않았습니다";
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+        }
+      );
+      const data = await res.json();
+      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+      return text ? text.trim() : "응답을 가져오지 못했습니다";
+    } catch (e) {
+      console.error("Gemini API 호출 실패:", e);
+      return "응답을 가져오지 못했습니다";
     }
   };
 
   const handleChatSend = () => {
     const trimmed = chatMessage.trim();
+    if (aiMode) {
+      if (!trimmed) return;
+      setChatMessage("");
+      setAiResponseText(null);
+      setAiLoading(true);
+      callGemini(trimmed).then((text) => {
+        setAiLoading(false);
+        setAiResponseText(text);
+      });
+      return;
+    }
     if (trimmed === "/sort") {
       setChatSortMode(true);
       setChatMessage("");
@@ -1055,6 +1098,25 @@ export default function Alloy() {
       clearTimeout(execTimer);
     };
   }, [pendingCommand]);
+
+  // AI 모드 응답 대기 중 빠른 타이핑 효과로 "응답을 생성하고 있습니다" 표기
+  useEffect(() => {
+    if (!aiLoading) {
+      setAiLoadingTypedCount(0);
+      return;
+    }
+    setAiLoadingTypedCount(0);
+    const totalChars = AI_LOADING_TEXT.length;
+    const typeDuration = 700;
+    const charInterval = typeDuration / totalChars;
+    let i = 0;
+    const typeTimer = setInterval(() => {
+      i++;
+      setAiLoadingTypedCount(i);
+      if (i >= totalChars) clearInterval(typeTimer);
+    }, charInterval);
+    return () => clearInterval(typeTimer);
+  }, [aiLoading]);
 
   // 결과 안내를 빠른 타이핑 효과로 표기 후 원래 입력창으로 복귀
   useEffect(() => {
@@ -2833,8 +2895,68 @@ export default function Alloy() {
                 >
                   {Math.round(usagePercent)}%
                 </span>
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
+                    marginLeft: "auto",
+                    flexShrink: 0,
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 11,
+                      fontWeight: 600,
+                      letterSpacing: 0.2,
+                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    AI
+                  </span>
+                  <button
+                    onClick={() => setAiMode((v) => !v)}
+                    onMouseEnter={() => setAiSwitchHovered(true)}
+                    onMouseLeave={() => setAiSwitchHovered(false)}
+                    aria-label="AI 모드 전환"
+                    style={{
+                      width: 34,
+                      height: 20,
+                      borderRadius: 999,
+                      border: "none",
+                      padding: 2,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: aiMode ? "flex-end" : "flex-start",
+                      cursor: "pointer",
+                      outline: "none",
+                      flexShrink: 0,
+                      background: aiMode
+                        ? isLight
+                          ? "rgba(20,22,26,0.55)"
+                          : "rgba(255,255,255,0.65)"
+                        : isLight
+                        ? "rgba(20,22,26,0.14)"
+                        : "rgba(255,255,255,0.16)",
+                      transform: aiSwitchHovered ? "scale(1.08)" : "scale(1)",
+                      transition: "background 0.25s ease, transform 0.15s ease",
+                    }}
+                  >
+                    <div
+                      style={{
+                        width: 16,
+                        height: 16,
+                        borderRadius: "50%",
+                        background: isLight ? "#FFFFFF" : "#17191D",
+                        boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
+                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    />
+                  </button>
+                </div>
               </div>
-              {!chatSortMode &&
+              {!aiMode &&
+                !chatSortMode &&
                 !chatThemeMode &&
                 !pendingCommand &&
                 !chatDoneNotice &&
@@ -2930,6 +3052,31 @@ export default function Alloy() {
                     </div>
                   );
                 })()}
+              {aiMode && aiLoading && (
+                <div
+                  style={{
+                    padding: "4px 14px",
+                    fontSize: 14,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                  }}
+                >
+                  {AI_LOADING_TEXT.slice(0, aiLoadingTypedCount)}
+                </div>
+              )}
+              {aiMode && !aiLoading && aiResponseText && (
+                <div
+                  style={{
+                    padding: "4px 14px",
+                    fontSize: 14,
+                    lineHeight: 1.4,
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                  }}
+                >
+                  {typedAiResponse}
+                </div>
+              )}
               {targetNoticeText && (
                 <div
                   style={{
@@ -3084,8 +3231,10 @@ export default function Alloy() {
                     onChange={(e) => {
                       setChatMessage(e.target.value);
                       if (targetNoticeText) setTargetNoticeText(null);
+                      if (aiResponseText) setAiResponseText(null);
                     }}
-                    placeholder="명령어를 입력하세요"
+                    disabled={aiMode && aiLoading}
+                    placeholder={aiMode ? "AI에게 질문해보세요" : "명령어를 입력하세요"}
                     style={{
                       flex: 1,
                       height: 40,
