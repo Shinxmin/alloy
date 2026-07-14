@@ -1100,6 +1100,7 @@ export default function Alloy() {
         minHeight: "100vh",
         width: "100%",
         position: "relative",
+        zIndex: 0,
         fontFamily:
           "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
       }}
@@ -1125,30 +1126,20 @@ export default function Alloy() {
         }
       `}</style>
 
-      {/* 전체 화면을 항상 덮는 고정 배경 레이어 */}
+      {/* 전체 화면을 항상 덮는 고정 배경 레이어. 선셋 테마는 다크 배경에 주황색 계열을 섞은 원형 그라데이션 (이스터에그) */}
       <div
         style={{
           position: "fixed",
           inset: 0,
-          background: isLight ? "#F8F9FA" : "#17191D",
+          background: isLight
+            ? "#F8F9FA"
+            : theme === "sunset"
+            ? "radial-gradient(circle at 50% 50%, #3d2a1e 0%, #241b18 40%, #17191D 78%)"
+            : "#17191D",
           zIndex: -1,
           transition: "background 0.3s ease",
         }}
       />
-
-      {/* 선셋 테마 전용: 다크 배경 위에 얕게 깔리는 원형 그라데이션 (이스터에그) */}
-      {theme === "sunset" && (
-        <div
-          style={{
-            position: "fixed",
-            inset: 0,
-            zIndex: -1,
-            pointerEvents: "none",
-            background:
-              "radial-gradient(circle at 50% 50%, rgba(255,130,90,0.20), rgba(255,80,110,0.10) 40%, transparent 75%)",
-          }}
-        />
-      )}
 
       {/* 탭 콘텐츠 영역 */}
       <div
