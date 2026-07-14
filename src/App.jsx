@@ -72,7 +72,12 @@ export default function Alloy() {
   const [sortHoverIdx, setSortHoverIdx] = useState(null);
   const [pendingSortCriteria, setPendingSortCriteria] = useState(null);
   const [sortTypedCount, setSortTypedCount] = useState(0);
-  const SORT_STATUS_TEXT = "정렬 명령어를 수행하고 있습니다...";
+  const [chatDoneNotice, setChatDoneNotice] = useState(false);
+  const [doneTypedCount, setDoneTypedCount] = useState(0);
+  const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
+  const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
+  const COMMAND_DONE_TEXT = "완료";
+  const COMMANDS = ["sort"];
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -82,6 +87,7 @@ export default function Alloy() {
       setChatOpen(true);
       setChatSortMode(false);
       setPendingSortCriteria(null);
+      setChatDoneNotice(false);
       requestAnimationFrame(() => setChatVisible(true));
     }
   };
@@ -473,6 +479,9 @@ export default function Alloy() {
         } else if (pendingSortCriteria) {
           e.preventDefault();
           setPendingSortCriteria(null);
+        } else if (chatDoneNotice) {
+          e.preventDefault();
+          setChatDoneNotice(false);
         } else if (chatSortMode) {
           e.preventDefault();
           setChatSortMode(false);
@@ -492,7 +501,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen, chatSortMode, pendingSortCriteria]);
+  }, [modalOpen, chatOpen, chatSortMode, pendingSortCriteria, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -599,12 +608,12 @@ export default function Alloy() {
   const handleSortSelectRef = useRef(handleSortSelect);
   handleSortSelectRef.current = handleSortSelect;
 
-  // 정렬 선택 후 타이핑 효과로 3초간 안내 문구 표기 -> 삭제 -> 실제 정렬 실행
+  // 정렬 선택 후 빠른 타이핑 효과로 2초간 실행 안내 표기 -> 실제 정렬 실행 -> 완료 안내
   useEffect(() => {
     if (!pendingSortCriteria) return;
     setSortTypedCount(0);
-    const totalChars = SORT_STATUS_TEXT.length;
-    const typeDuration = 1500;
+    const totalChars = COMMAND_RUNNING_TEXT.length;
+    const typeDuration = 700;
     const charInterval = typeDuration / totalChars;
     let i = 0;
     const typeTimer = setInterval(() => {
@@ -617,13 +626,39 @@ export default function Alloy() {
       setSortTypedCount(0);
       handleSortSelectRef.current(pendingSortCriteria);
       setPendingSortCriteria(null);
-    }, 3000);
+      setChatDoneNotice(true);
+    }, 2000);
 
     return () => {
       clearInterval(typeTimer);
       clearTimeout(execTimer);
     };
   }, [pendingSortCriteria]);
+
+  // 완료 안내를 빠른 타이핑 효과로 표기 후 원래 입력창으로 복귀
+  useEffect(() => {
+    if (!chatDoneNotice) return;
+    setDoneTypedCount(0);
+    const totalChars = COMMAND_DONE_TEXT.length;
+    const typeDuration = 250;
+    const charInterval = typeDuration / totalChars;
+    let i = 0;
+    const typeTimer = setInterval(() => {
+      i++;
+      setDoneTypedCount(i);
+      if (i >= totalChars) clearInterval(typeTimer);
+    }, charInterval);
+
+    const resetTimer = setTimeout(() => {
+      setChatDoneNotice(false);
+      setDoneTypedCount(0);
+    }, 1500);
+
+    return () => {
+      clearInterval(typeTimer);
+      clearTimeout(resetTimer);
+    };
+  }, [chatDoneNotice]);
 
   const totalStockValueUSD = holdings.reduce((sum, h) => sum + toUSD(h), 0);
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
@@ -2166,6 +2201,60 @@ export default function Alloy() {
                   50%
                 </span>
               </div>
+              {!chatSortMode &&
+                !pendingSortCriteria &&
+                !chatDoneNotice &&
+                chatMessage.startsWith("/") &&
+                (() => {
+                  const query = chatMessage.slice(1).toLowerCase();
+                  const matches = COMMANDS.filter((c) => c.startsWith(query)).sort((a, b) =>
+                    a.localeCompare(b)
+                  );
+                  if (matches.length === 0) return null;
+                  return (
+                    <div
+                      style={{
+                        display: "flex",
+                        flexDirection: "column",
+                        gap: 2,
+                        padding: "0 4px",
+                      }}
+                    >
+                      {matches.map((cmd, i) => (
+                        <div
+                          key={cmd}
+                          onClick={() => {
+                            if (cmd === "sort") {
+                              setChatSortMode(true);
+                              setChatMessage("");
+                            }
+                          }}
+                          onMouseEnter={() => setCmdHoverIdx(i)}
+                          onMouseLeave={() =>
+                            setCmdHoverIdx((prev) => (prev === i ? null : prev))
+                          }
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 10,
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            background:
+                              cmdHoverIdx === i
+                                ? isLight
+                                  ? "rgba(20,22,26,0.10)"
+                                  : "rgba(255,255,255,0.12)"
+                                : "transparent",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          /{cmd}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })()}
               <div
                 style={{
                   display: "flex",
@@ -2185,8 +2274,21 @@ export default function Alloy() {
                     color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  <b>{SORT_STATUS_TEXT.slice(0, Math.min(sortTypedCount, 2))}</b>
-                  {SORT_STATUS_TEXT.slice(2, sortTypedCount)}
+                  {COMMAND_RUNNING_TEXT.slice(0, sortTypedCount)}
+                </div>
+              ) : chatDoneNotice ? (
+                <div
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 14px",
+                    fontSize: 14,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                  }}
+                >
+                  {COMMAND_DONE_TEXT.slice(0, doneTypedCount)}
                 </div>
               ) : chatSortMode ? (
                 [
