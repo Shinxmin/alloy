@@ -76,11 +76,11 @@ export default function Alloy() {
   const [chatDoneText, setChatDoneText] = useState("");
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
-  const [chatPlaceholder, setChatPlaceholder] = useState("명령어를 입력하세요");
+  const [targetNoticeText, setTargetNoticeText] = useState(null);
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
-    { name: "target", desc: "목표 비중" },
+    { name: "target", desc: "목표 비중", usage: "/target [종목] [비중(%)]" },
   ];
 
   const toggleChat = () => {
@@ -92,6 +92,7 @@ export default function Alloy() {
       setChatSortMode(false);
       setPendingCommand(null);
       setChatDoneNotice(false);
+      setTargetNoticeText(null);
       requestAnimationFrame(() => setChatVisible(true));
     }
   };
@@ -109,7 +110,7 @@ export default function Alloy() {
       if (parts.length === 3 && parts[1] && isFinite(percent)) {
         setPendingCommand({ kind: "target", ticker: parts[1], percent });
       } else {
-        setChatPlaceholder("사용법: /target [티커] [%]");
+        setTargetNoticeText("사용법: /target [티커] [%]");
       }
       setChatMessage("");
       return;
@@ -682,8 +683,8 @@ export default function Alloy() {
         setChatDoneText("완료");
         setChatDoneNotice(true);
       } else if (pendingCommand.kind === "target") {
-        // /target 결과는 자동으로 사라지지 않고 입력창 placeholder 자리에 유지됨
-        setChatPlaceholder(
+        // /target 결과는 자동으로 사라지지 않고 입력창 자리에 일반 텍스트로 유지됨
+        setTargetNoticeText(
           computeTargetResultRef.current(pendingCommand.ticker, pendingCommand.percent)
         );
       }
@@ -2321,19 +2322,25 @@ export default function Alloy() {
                           >
                             /{cmd.name}
                           </span>
-                          {cmd.desc && (
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 500,
-                                color: isLight
-                                  ? "rgba(20,22,26,0.45)"
-                                  : "rgba(255,255,255,0.45)",
-                              }}
-                            >
-                              {cmd.desc}
-                            </span>
-                          )}
+                          {(() => {
+                            const descText =
+                              query === cmd.name && cmd.usage ? cmd.usage : cmd.desc;
+                            return (
+                              descText && (
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 500,
+                                    color: isLight
+                                      ? "rgba(20,22,26,0.45)"
+                                      : "rgba(255,255,255,0.45)",
+                                  }}
+                                >
+                                  {descText}
+                                </span>
+                              )
+                            );
+                          })()}
                         </div>
                       ))}
                     </div>
@@ -2415,24 +2422,48 @@ export default function Alloy() {
                 ))
               ) : (
                 <>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={chatMessage}
-                    onChange={(e) => setChatMessage(e.target.value)}
-                    placeholder={chatPlaceholder}
-                    style={{
-                      flex: 1,
-                      height: 40,
-                      padding: "0 14px",
-                      borderRadius: 999,
-                      border: "none",
-                      background: "transparent",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 14,
-                      outline: "none",
-                    }}
-                  />
+                  <div style={{ position: "relative", flex: 1 }}>
+                    {targetNoticeText && chatMessage === "" && (
+                      <div
+                        style={{
+                          position: "absolute",
+                          left: 14,
+                          top: "50%",
+                          transform: "translateY(-50%)",
+                          fontSize: 14,
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          pointerEvents: "none",
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          maxWidth: "calc(100% - 20px)",
+                        }}
+                      >
+                        {targetNoticeText}
+                      </div>
+                    )}
+                    <input
+                      type="text"
+                      autoFocus
+                      value={chatMessage}
+                      onChange={(e) => {
+                        setChatMessage(e.target.value);
+                        if (targetNoticeText) setTargetNoticeText(null);
+                      }}
+                      placeholder={targetNoticeText ? "" : "명령어를 입력하세요"}
+                      style={{
+                        width: "100%",
+                        height: 40,
+                        padding: "0 14px",
+                        borderRadius: 999,
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        outline: "none",
+                      }}
+                    />
+                  </div>
                   <button
                     onClick={handleChatSend}
                     aria-label="전송"
