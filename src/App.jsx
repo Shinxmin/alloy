@@ -2,6 +2,26 @@ import React, { useState, useRef, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from "recharts";
 import { supabase } from "./supabaseClient";
 
+// 텍스트를 한 글자씩 타이핑되는 것처럼 보여주는 공용 훅 (버튼 등 UI 요소가 아닌 설명 텍스트용)
+function useTypedText(text) {
+  const [count, setCount] = useState(0);
+  useEffect(() => {
+    setCount(0);
+    if (!text) return;
+    const interval = setInterval(() => {
+      setCount((c) => {
+        if (c >= text.length) {
+          clearInterval(interval);
+          return c;
+        }
+        return c + 1;
+      });
+    }, 20);
+    return () => clearInterval(interval);
+  }, [text]);
+  return text ? text.slice(0, count) : "";
+}
+
 export default function Alloy() {
   const tabs = ["A", "B", "C"];
   const [active, setActive] = useState(0);
@@ -123,6 +143,14 @@ export default function Alloy() {
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
   const [targetNoticeText, setTargetNoticeText] = useState(null);
+  const sortThemePromptText =
+    chatSortMode && !pendingCommand && !chatDoneNotice
+      ? "어떤 기준으로 정렬할까요?"
+      : chatThemeMode && !pendingCommand && !chatDoneNotice
+      ? "어떤 테마를 적용할까요?"
+      : "";
+  const typedSortThemePrompt = useTypedText(sortThemePromptText);
+  const typedTargetNotice = useTypedText(targetNoticeText || "");
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
@@ -2927,7 +2955,7 @@ export default function Alloy() {
                     color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  {targetNoticeText}
+                  {typedTargetNotice}
                 </div>
               )}
               {(chatSortMode || chatThemeMode) && !pendingCommand && !chatDoneNotice && (
@@ -2939,7 +2967,7 @@ export default function Alloy() {
                     color: "#FFFFFF",
                   }}
                 >
-                  {chatSortMode ? "어떤 기준으로 정렬할까요?" : "어떤 테마를 적용할까요?"}
+                  {typedSortThemePrompt}
                 </div>
               )}
               <div
@@ -3058,19 +3086,6 @@ export default function Alloy() {
                       transition: "transform 0.2s ease, background 0.2s ease",
                     }}
                   >
-                    <span
-                      style={{
-                        width: 9,
-                        height: 9,
-                        borderRadius: "50%",
-                        flexShrink: 0,
-                        background: THEME_SWATCHES[opt.key],
-                        border:
-                          opt.key === "light"
-                            ? "1px solid rgba(20,22,26,0.25)"
-                            : "1px solid rgba(255,255,255,0.15)",
-                      }}
-                    />
                     {opt.label}
                   </button>
                 ))
