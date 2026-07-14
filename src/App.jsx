@@ -382,8 +382,9 @@ export default function Alloy() {
   // 사용량 한도 (터미널 입력창 진행률 바와 동기화, 매일 자정(KST) 0%로 초기화)
   const getKSTInfo = () => {
     const now = new Date();
-    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
-    const kstMs = utcMs + 9 * 3600000;
+    // now.getTime()은 이미 타임존과 무관한 절대 epoch ms이므로, 여기에 로컬
+    // getTimezoneOffset()을 추가로 더하면 이중 보정되어 시간이 어긋남
+    const kstMs = now.getTime() + 9 * 3600000;
     const kst = new Date(kstMs);
     const dateStr = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, "0")}-${String(kst.getUTCDate()).padStart(2, "0")}`;
     const msUntilMidnight = 86400000 - (kstMs % 86400000);
@@ -402,10 +403,12 @@ export default function Alloy() {
     const isValid = promoCode.trim().toLowerCase() === "dev";
     setPromoCode("");
     setPromoOpen(false);
+    closeUsageModal();
     if (isValid) {
       setUsagePercent(0);
-      closeUsageModal();
       showSubActionNotice("프로모션이 적용되었습니다");
+    } else {
+      showSubActionNotice("프로모션 코드가 일치하지 않습니다", true);
     }
   };
 
@@ -634,9 +637,11 @@ export default function Alloy() {
   const [subActionNotice, setSubActionNotice] = useState(false);
   const [subActionVisible, setSubActionVisible] = useState(false);
   const [subActionText, setSubActionText] = useState("");
+  const [subActionIsError, setSubActionIsError] = useState(false);
 
-  const showSubActionNotice = (text) => {
+  const showSubActionNotice = (text, isError = false) => {
     setSubActionText(text);
+    setSubActionIsError(isError);
     setSubActionNotice(true);
     requestAnimationFrame(() => setSubActionVisible(true));
     setTimeout(() => {
@@ -971,23 +976,8 @@ export default function Alloy() {
     });
   };
 
-  // 주식 현재가를 외부(Yahoo Finance)에서 조회, 실패 시 null (평단가로 대체)
-  const fetchCurrentPrice = async (ticker) => {
-    try {
-      const res = await fetch(
-        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
-      );
-      if (!res.ok) return null;
-      const data = await res.json();
-      const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-      return typeof price === "number" && isFinite(price) ? price : null;
-    } catch (e) {
-      return null;
-    }
-  };
-
-  // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수/매도 계산
-  // 현금은 기준환율(todayRate), 주식은 외부에서 조회한 현재가를 기준으로 계산
+  // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수/매도 금액 계산
+  // 현금은 기준환율(todayRate)로 환산
   const computeTargetResult = async (ticker, percent) => {
     if (!isFinite(percent) || percent < 0 || percent >= 100) {
       return "목표 비중은 0~100 사이의 숫자로 입력해주세요";
@@ -1009,17 +999,13 @@ export default function Alloy() {
 
     if (stockIdx !== -1) {
       const h = holdings[stockIdx];
-      const fetchedPrice = await fetchCurrentPrice(h.ticker);
-      const currentPrice = fetchedPrice != null ? fetchedPrice : h.avgPrice;
       const absInCurrency = h.currency === "USD" ? absUSD : absUSD * todayRate;
-      const sharesNeeded = Math.ceil(absInCurrency / currentPrice);
-      const amountNeeded = sharesNeeded * currentPrice;
-      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 ${formatAmount(amountNeeded, h.currency)} 추가 ${action} 필요합니다`;
+      return `${ticker} 목표 ${percent}% 달성을 위해 ${formatAmount(absInCurrency, h.currency)} 추가 ${action} 필요합니다`;
     }
 
     const c = cashHoldings[cashIdx];
     const absInCurrency = c.currency === "USD" ? absUSD : absUSD * todayRate;
-    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(absInCurrency, c.currency)} 추가 ${action} 필요합니다`;
+    return `${ticker} 목표 ${percent}% 달성을 위해 ${formatAmount(absInCurrency, c.currency)} 추가 ${action} 필요합니다`;
   };
 
   const handleSortSelectRef = useRef(handleSortSelect);
@@ -2754,7 +2740,7 @@ export default function Alloy() {
               boxShadow: "0 8px 28px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
               fontSize: 12,
               fontWeight: 600,
-              color: isLight ? "#14161A" : "#FFFFFF",
+              color: subActionIsError ? "rgba(255,138,138,0.9)" : isLight ? "#14161A" : "#FFFFFF",
               whiteSpace: "nowrap",
             }}
           >
