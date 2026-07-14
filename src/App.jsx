@@ -618,8 +618,24 @@ export default function Alloy() {
     });
   };
 
-  // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수 계산
-  const computeTargetResult = (ticker, percent) => {
+  // 주식 현재가를 외부(Yahoo Finance)에서 조회, 실패 시 null (평단가로 대체)
+  const fetchCurrentPrice = async (ticker) => {
+    try {
+      const res = await fetch(
+        `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?interval=1d&range=1d`
+      );
+      if (!res.ok) return null;
+      const data = await res.json();
+      const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+      return typeof price === "number" && isFinite(price) ? price : null;
+    } catch (e) {
+      return null;
+    }
+  };
+
+  // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수/매도 계산
+  // 현금은 기준환율(todayRate), 주식은 외부에서 조회한 현재가를 기준으로 계산
+  const computeTargetResult = async (ticker, percent) => {
     if (!isFinite(percent) || percent < 0 || percent >= 100) {
       return "목표 비중은 0~100 사이의 숫자로 입력해주세요";
     }
@@ -632,25 +648,25 @@ export default function Alloy() {
     }
 
     const currentUSD = stockIdx !== -1 ? toUSD(holdings[stockIdx]) : cashToUSD(cashHoldings[cashIdx]);
-    const currentPercent = grandTotalUSD > 0 ? Math.round((currentUSD / grandTotalUSD) * 100) : 0;
     const targetFraction = percent / 100;
-    const additionalUSD = (targetFraction * grandTotalUSD - currentUSD) / (1 - targetFraction);
-
-    if (additionalUSD <= 0) {
-      return `${ticker}는 이미 목표 비중 ${percent}%를 충족했습니다 (현재 ${currentPercent}%)`;
-    }
+    const diffUSD = (targetFraction * grandTotalUSD - currentUSD) / (1 - targetFraction);
+    const isSell = diffUSD < 0;
+    const absUSD = Math.abs(diffUSD);
+    const action = isSell ? "매도" : "매수";
 
     if (stockIdx !== -1) {
       const h = holdings[stockIdx];
-      const additionalInCurrency = h.currency === "USD" ? additionalUSD : additionalUSD * todayRate;
-      const sharesNeeded = Math.ceil(additionalInCurrency / h.avgPrice);
-      const amountNeeded = sharesNeeded * h.avgPrice;
-      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 (${formatAmount(amountNeeded, h.currency)}) 추가 매수 필요`;
+      const fetchedPrice = await fetchCurrentPrice(h.ticker);
+      const currentPrice = fetchedPrice != null ? fetchedPrice : h.avgPrice;
+      const absInCurrency = h.currency === "USD" ? absUSD : absUSD * todayRate;
+      const sharesNeeded = Math.ceil(absInCurrency / currentPrice);
+      const amountNeeded = sharesNeeded * currentPrice;
+      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 (${formatAmount(amountNeeded, h.currency)}) 추가 ${action} 필요합니다.`;
     }
 
     const c = cashHoldings[cashIdx];
-    const additionalInCurrency = c.currency === "USD" ? additionalUSD : additionalUSD * todayRate;
-    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(additionalInCurrency, c.currency)} 추가 필요`;
+    const absInCurrency = c.currency === "USD" ? absUSD : absUSD * todayRate;
+    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(absInCurrency, c.currency)} 추가 ${action} 필요합니다.`;
   };
 
   const handleSortSelectRef = useRef(handleSortSelect);
@@ -683,10 +699,10 @@ export default function Alloy() {
         setChatDoneText("완료");
         setChatDoneNotice(true);
       } else if (pendingCommand.kind === "target") {
-        // /target 결과는 자동으로 사라지지 않고 입력창 자리에 일반 텍스트로 유지됨
-        setTargetNoticeText(
-          computeTargetResultRef.current(pendingCommand.ticker, pendingCommand.percent)
-        );
+        // /target 결과는 자동으로 사라지지 않고 입력창 자리에 일반 텍스트로 유지됨 (주식 현재가 조회는 비동기)
+        computeTargetResultRef
+          .current(pendingCommand.ticker, pendingCommand.percent)
+          .then((resultText) => setTargetNoticeText(resultText));
       }
     }, 2000);
 
