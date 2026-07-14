@@ -928,6 +928,41 @@ export default function Alloy() {
     }
   };
 
+  // 보유 주식 정보 모달: TradingView 고급 차트(Advanced Chart) 무료 임베드 위젯으로 시세 차트 로드
+  const chartContainerRef = useRef(null);
+  const isStockInfoMode = modalOpen && assetType === "stock" && editIndex !== null;
+  const infoTicker = isStockInfoMode ? holdings[editIndex]?.ticker : null;
+
+  useEffect(() => {
+    if (!infoTicker || !chartContainerRef.current) return;
+    const container = chartContainerRef.current;
+    container.innerHTML =
+      '<div class="tradingview-widget-container__widget" style="height:100%;width:100%"></div>';
+
+    const script = document.createElement("script");
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js";
+    script.type = "text/javascript";
+    script.async = true;
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: infoTicker,
+      interval: "D",
+      timezone: "Etc/UTC",
+      theme: isLight ? "light" : "dark",
+      style: "3",
+      locale: "kr",
+      hide_top_toolbar: true,
+      hide_legend: true,
+      save_image: false,
+      support_host: "https://www.tradingview.com",
+    });
+    container.appendChild(script);
+
+    return () => {
+      container.innerHTML = "";
+    };
+  }, [infoTicker, isLight]);
+
   // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수/매도 계산
   // 현금은 기준환율(todayRate), 주식은 외부에서 조회한 현재가를 기준으로 계산
   const computeTargetResult = async (ticker, percent) => {
@@ -3386,7 +3421,7 @@ export default function Alloy() {
                   letterSpacing: 0.2,
                 }}
               >
-                {editIndex !== null ? "수정하기" : "추가하기"}
+                {isStockInfoMode ? "정보" : editIndex !== null ? "수정하기" : "추가하기"}
               </h2>
 
               {/* 수정 모드: 삭제 X 버튼 */}
@@ -3495,143 +3530,276 @@ export default function Alloy() {
             </div>
 
             {assetType === "stock" ? (
-              <>
-                {/* 티커 */}
-                <label style={fieldLabelStyle}>티커</label>
-                <input
-                  type="text"
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value)}
-                  style={inputStyle}
-                  onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                  onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                />
+              isStockInfoMode ? (
+                <>
+                  {/* 종목 시세 차트 (TradingView 고급 차트 무료 임베드) */}
+                  <div
+                    className="tradingview-widget-container"
+                    ref={chartContainerRef}
+                    style={{
+                      width: "100%",
+                      height: 220,
+                      marginBottom: 18,
+                      borderRadius: 12,
+                      overflow: "hidden",
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.04)",
+                    }}
+                  />
 
-                {/* 수량 */}
-                <label style={fieldLabelStyle}>수량</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formatWithCommas(quantity)}
-                  onChange={handleNumericChange(setQuantity)}
-                  style={inputStyle}
-                  onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                  onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                />
-
-                {/* 단가 */}
-                <label style={fieldLabelStyle}>단가</label>
-                <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                  {/* 티커 (가로폭 유지) */}
+                  <label style={fieldLabelStyle}>티커</label>
                   <input
                     type="text"
-                    inputMode="decimal"
-                    value={formatWithCommas(price)}
-                    onChange={handleNumericChange(setPrice)}
-                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value)}
+                    style={inputStyle}
                     onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
                     onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
                   />
 
-                  {/* ₩ / $ 토글 버튼 */}
-                  <div
-                    style={{
-                      position: "relative",
-                      display: "flex",
-                      height: 42,
-                      padding: 4,
-                      borderRadius: 12,
-                      background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
-                      border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
-                      flexShrink: 0,
-                    }}
-                  >
+                  {/* 수량 + 단가 (2열) */}
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <div style={{ flex: 1 }}>
+                      <label style={fieldLabelStyle}>수량</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={formatWithCommas(quantity)}
+                        onChange={handleNumericChange(setQuantity)}
+                        style={{ ...inputStyle, marginBottom: 0 }}
+                        onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                        onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                      />
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <label style={fieldLabelStyle}>단가</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={formatWithCommas(price)}
+                        onChange={handleNumericChange(setPrice)}
+                        style={{ ...inputStyle, marginBottom: 0 }}
+                        onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                        onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                      />
+                    </div>
+                  </div>
+
+                  {/* 환율 + 통화 토글 (2열) */}
+                  <div style={{ display: "flex", gap: 8, alignItems: "flex-end" }}>
+                    <div style={{ flex: 1, opacity: currency === "USD" ? 1 : 0.3, transition: "opacity 0.3s ease" }}>
+                      <label style={fieldLabelStyle}>환율</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        value={formatWithCommas(exchangeRate)}
+                        onChange={handleNumericChange(setExchangeRate)}
+                        disabled={currency !== "USD"}
+                        style={{ ...inputStyle, marginBottom: 0 }}
+                        onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                        onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                      />
+                    </div>
+
+                    {/* ₩ / $ 토글 버튼 */}
                     <div
                       style={{
-                        position: "absolute",
-                        top: 4,
-                        left: currencyIndicator.left,
-                        width: currencyIndicator.width,
-                        height: "calc(100% - 8px)",
-                        borderRadius: 9,
-                        background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                        transition:
-                          "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                        position: "relative",
+                        display: "flex",
+                        height: 42,
+                        padding: 4,
+                        borderRadius: 12,
+                        background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
+                        border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
+                        flexShrink: 0,
                       }}
-                    />
-                    {[
-                      { key: "KRW", label: "₩" },
-                      { key: "USD", label: "$" },
-                    ].map((c, i) => (
-                      <button
-                        key={c.key}
-                        ref={(el) => (currencyBtnRefs.current[i] = el)}
-                        onClick={() => setCurrency(c.key)}
+                    >
+                      <div
                         style={{
-                          position: "relative",
-                          zIndex: 1,
-                          width: 34,
-                          height: "100%",
-                          border: "none",
-                          background: "transparent",
+                          position: "absolute",
+                          top: 4,
+                          left: currencyIndicator.left,
+                          width: currencyIndicator.width,
+                          height: "calc(100% - 8px)",
                           borderRadius: 9,
-                          color:
-                            currency === c.key
-                              ? (isLight ? "#14161A" : "#FFFFFF")
-                              : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
-                          fontSize: 14,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          outline: "none",
-                          transition: "color 0.3s ease",
+                          background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                          transition:
+                            "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
                         }}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
+                      />
+                      {[
+                        { key: "KRW", label: "₩" },
+                        { key: "USD", label: "$" },
+                      ].map((c, i) => (
+                        <button
+                          key={c.key}
+                          ref={(el) => (currencyBtnRefs.current[i] = el)}
+                          onClick={() => setCurrency(c.key)}
+                          style={{
+                            position: "relative",
+                            zIndex: 1,
+                            width: 34,
+                            height: "100%",
+                            border: "none",
+                            background: "transparent",
+                            borderRadius: 9,
+                            color:
+                              currency === c.key
+                                ? (isLight ? "#14161A" : "#FFFFFF")
+                                : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
+                            fontSize: 14,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            outline: "none",
+                            transition: "color 0.3s ease",
+                          }}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-
-                {/* 환율 (구매 시점 환율 기록용) */}
-                <label
-                  style={{
-                    ...fieldLabelStyle,
-                    opacity: currency === "USD" ? 1 : 0.3,
-                    transition: "opacity 0.3s ease",
-                  }}
-                >
-                  환율
-                </label>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 8,
-                    marginBottom: 6,
-                    opacity: currency === "USD" ? 1 : 0.3,
-                    pointerEvents: currency === "USD" ? "auto" : "none",
-                    transition: "opacity 0.3s ease",
-                  }}
-                >
-                  <span style={{ fontSize: 14, color: (isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)"), flexShrink: 0 }}>
-                    1 USD =
-                  </span>
+                </>
+              ) : (
+                <>
+                  {/* 티커 */}
+                  <label style={fieldLabelStyle}>티커</label>
                   <input
                     type="text"
-                    inputMode="decimal"
-                    value={formatWithCommas(exchangeRate)}
-                    onChange={handleNumericChange(setExchangeRate)}
-                    disabled={currency !== "USD"}
-                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                    value={ticker}
+                    onChange={(e) => setTicker(e.target.value)}
+                    style={inputStyle}
                     onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
                     onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
                   />
-                  <span style={{ fontSize: 14, color: (isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)"), flexShrink: 0 }}>
-                    원
-                  </span>
-                </div>
-                <div style={{ marginBottom: 14 }} />
-              </>
+
+                  {/* 수량 */}
+                  <label style={fieldLabelStyle}>수량</label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={formatWithCommas(quantity)}
+                    onChange={handleNumericChange(setQuantity)}
+                    style={inputStyle}
+                    onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                    onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                  />
+
+                  {/* 단가 */}
+                  <label style={fieldLabelStyle}>단가</label>
+                  <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formatWithCommas(price)}
+                      onChange={handleNumericChange(setPrice)}
+                      style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                    />
+
+                    {/* ₩ / $ 토글 버튼 */}
+                    <div
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        height: 42,
+                        padding: 4,
+                        borderRadius: 12,
+                        background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
+                        border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 4,
+                          left: currencyIndicator.left,
+                          width: currencyIndicator.width,
+                          height: "calc(100% - 8px)",
+                          borderRadius: 9,
+                          background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                          transition:
+                            "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      />
+                      {[
+                        { key: "KRW", label: "₩" },
+                        { key: "USD", label: "$" },
+                      ].map((c, i) => (
+                        <button
+                          key={c.key}
+                          ref={(el) => (currencyBtnRefs.current[i] = el)}
+                          onClick={() => setCurrency(c.key)}
+                          style={{
+                            position: "relative",
+                            zIndex: 1,
+                            width: 34,
+                            height: "100%",
+                            border: "none",
+                            background: "transparent",
+                            borderRadius: 9,
+                            color:
+                              currency === c.key
+                                ? (isLight ? "#14161A" : "#FFFFFF")
+                                : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
+                            fontSize: 14,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            outline: "none",
+                            transition: "color 0.3s ease",
+                          }}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 환율 (구매 시점 환율 기록용) */}
+                  <label
+                    style={{
+                      ...fieldLabelStyle,
+                      opacity: currency === "USD" ? 1 : 0.3,
+                      transition: "opacity 0.3s ease",
+                    }}
+                  >
+                    환율
+                  </label>
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 8,
+                      marginBottom: 6,
+                      opacity: currency === "USD" ? 1 : 0.3,
+                      pointerEvents: currency === "USD" ? "auto" : "none",
+                      transition: "opacity 0.3s ease",
+                    }}
+                  >
+                    <span style={{ fontSize: 14, color: (isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)"), flexShrink: 0 }}>
+                      1 USD =
+                    </span>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formatWithCommas(exchangeRate)}
+                      onChange={handleNumericChange(setExchangeRate)}
+                      disabled={currency !== "USD"}
+                      style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                    />
+                    <span style={{ fontSize: 14, color: (isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)"), flexShrink: 0 }}>
+                      원
+                    </span>
+                  </div>
+                  <div style={{ marginBottom: 14 }} />
+                </>
+              )
             ) : (
               <>
                 {/* 통화 */}
