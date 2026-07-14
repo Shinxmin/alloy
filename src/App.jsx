@@ -6,6 +6,12 @@ export default function Alloy() {
   const tabs = ["A", "B", "C"];
   const [active, setActive] = useState(0);
 
+  // 탭 전환 시 이전 탭의 스크롤 위치가 유지되어 콘텐츠가 적은 탭에서
+  // 스크롤이 아래로 내려간 채로 보이는 문제 방지
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [active]);
+
   // Supabase 로그인 세션
   const [session, setSession] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
