@@ -69,8 +69,9 @@ export default function Alloy() {
   const [chatHovered, setChatHovered] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [chatSortMode, setChatSortMode] = useState(false);
+  const [chatThemeMode, setChatThemeMode] = useState(false);
   const [sortHoverIdx, setSortHoverIdx] = useState(null);
-  const [pendingCommand, setPendingCommand] = useState(null); // { kind: "sort", criteria } | { kind: "target", ticker, percent }
+  const [pendingCommand, setPendingCommand] = useState(null); // { kind: "sort", criteria } | { kind: "target", ticker, percent } | { kind: "theme", choice }
   const [runningTypedCount, setRunningTypedCount] = useState(0);
   const [chatDoneNotice, setChatDoneNotice] = useState(false);
   const [chatDoneText, setChatDoneText] = useState("");
@@ -81,6 +82,7 @@ export default function Alloy() {
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
     { name: "target", desc: "목표 비중", usage: "[종목] [비중(%)]" },
+    { name: "theme", desc: "테마" },
   ];
 
   const toggleChat = () => {
@@ -90,6 +92,7 @@ export default function Alloy() {
     } else {
       setChatOpen(true);
       setChatSortMode(false);
+      setChatThemeMode(false);
       setPendingCommand(null);
       setChatDoneNotice(false);
       setTargetNoticeText(null);
@@ -101,6 +104,11 @@ export default function Alloy() {
     const trimmed = chatMessage.trim();
     if (trimmed === "/sort") {
       setChatSortMode(true);
+      setChatMessage("");
+      return;
+    }
+    if (trimmed === "/theme") {
+      setChatThemeMode(true);
       setChatMessage("");
       return;
     }
@@ -118,7 +126,7 @@ export default function Alloy() {
     setChatMessage("");
   };
 
-  const [theme, setTheme] = useState("dark"); // "dark" | "light"
+  const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset"
   const [themeHovered, setThemeHovered] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
   const isLight = theme === "light";
@@ -127,7 +135,7 @@ export default function Alloy() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("alloy_theme");
-      if (saved === "light") setTheme("light");
+      if (saved === "light" || saved === "sunset") setTheme(saved);
     } catch (e) {}
     setThemeLoaded(true);
   }, []);
@@ -501,6 +509,9 @@ export default function Alloy() {
         } else if (chatSortMode) {
           e.preventDefault();
           setChatSortMode(false);
+        } else if (chatThemeMode) {
+          e.preventDefault();
+          setChatThemeMode(false);
         } else if (chatOpen) {
           e.preventDefault();
           toggleChatRef.current();
@@ -517,7 +528,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -661,12 +672,12 @@ export default function Alloy() {
       const absInCurrency = h.currency === "USD" ? absUSD : absUSD * todayRate;
       const sharesNeeded = Math.ceil(absInCurrency / currentPrice);
       const amountNeeded = sharesNeeded * currentPrice;
-      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 (${formatAmount(amountNeeded, h.currency)}) 추가 ${action} 필요합니다.`;
+      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 ${formatAmount(amountNeeded, h.currency)} 추가 ${action} 필요합니다`;
     }
 
     const c = cashHoldings[cashIdx];
     const absInCurrency = c.currency === "USD" ? absUSD : absUSD * todayRate;
-    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(absInCurrency, c.currency)} 추가 ${action} 필요합니다.`;
+    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(absInCurrency, c.currency)} 추가 ${action} 필요합니다`;
   };
 
   const handleSortSelectRef = useRef(handleSortSelect);
@@ -691,11 +702,16 @@ export default function Alloy() {
     const execTimer = setTimeout(() => {
       setRunningTypedCount(0);
       setChatSortMode(false);
+      setChatThemeMode(false);
       setSortHoverIdx(null);
       setChatMessage("");
       setPendingCommand(null);
       if (pendingCommand.kind === "sort") {
         handleSortSelectRef.current(pendingCommand.criteria);
+        setChatDoneText("완료");
+        setChatDoneNotice(true);
+      } else if (pendingCommand.kind === "theme") {
+        setTheme(pendingCommand.choice);
         setChatDoneText("완료");
         setChatDoneNotice(true);
       } else if (pendingCommand.kind === "target") {
@@ -1119,6 +1135,20 @@ export default function Alloy() {
           transition: "background 0.3s ease",
         }}
       />
+
+      {/* 선셋 테마 전용: 다크 배경 위에 얕게 깔리는 원형 그라데이션 (이스터에그) */}
+      {theme === "sunset" && (
+        <div
+          style={{
+            position: "fixed",
+            inset: 0,
+            zIndex: -1,
+            pointerEvents: "none",
+            background:
+              "radial-gradient(circle at 50% 22%, rgba(255,140,90,0.16), rgba(255,90,120,0.08) 45%, transparent 72%)",
+          }}
+        />
+      )}
 
       {/* 탭 콘텐츠 영역 */}
       <div
@@ -2280,6 +2310,7 @@ export default function Alloy() {
                 </span>
               </div>
               {!chatSortMode &&
+                !chatThemeMode &&
                 !pendingCommand &&
                 !chatDoneNotice &&
                 chatMessage.startsWith("/") &&
@@ -2311,6 +2342,9 @@ export default function Alloy() {
                           onClick={() => {
                             if (cmd.name === "sort") {
                               setChatSortMode(true);
+                              setChatMessage("");
+                            } else if (cmd.name === "theme") {
+                              setChatThemeMode(true);
                               setChatMessage("");
                             } else if (cmd.name === "target" && !chatMessage.includes(" ")) {
                               setChatMessage("/target ");
@@ -2430,6 +2464,44 @@ export default function Alloy() {
                   <button
                     key={opt.key}
                     onClick={() => setPendingCommand({ kind: "sort", criteria: opt.key })}
+                    onMouseEnter={() => setSortHoverIdx(i)}
+                    onMouseLeave={() =>
+                      setSortHoverIdx((prev) => (prev === i ? null : prev))
+                    }
+                    style={{
+                      flex: 1,
+                      height: 40,
+                      borderRadius: 999,
+                      border: "none",
+                      background:
+                        sortHoverIdx === i
+                          ? isLight
+                            ? "rgba(20,22,26,0.18)"
+                            : "rgba(255,255,255,0.22)"
+                          : isLight
+                          ? "rgba(20,22,26,0.10)"
+                          : "rgba(255,255,255,0.12)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      transform: sortHoverIdx === i ? "scale(1.04)" : "scale(1)",
+                      transition: "transform 0.2s ease, background 0.2s ease",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))
+              ) : chatThemeMode ? (
+                [
+                  { key: "light", label: "1. 라이트" },
+                  { key: "dark", label: "2. 다크" },
+                  { key: "sunset", label: "3. 선셋" },
+                ].map((opt, i) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => setPendingCommand({ kind: "theme", choice: opt.key })}
                     onMouseEnter={() => setSortHoverIdx(i)}
                     onMouseLeave={() =>
                       setSortHoverIdx((prev) => (prev === i ? null : prev))
