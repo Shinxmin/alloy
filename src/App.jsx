@@ -344,6 +344,25 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
+  // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  useEffect(() => {
+    const anyModalOpen = modalOpen || rateModalOpen || chatOpen;
+    if (anyModalOpen) {
+      const scrollY = window.scrollY;
+      document.body.style.position = "fixed";
+      document.body.style.top = `-${scrollY}px`;
+      document.body.style.left = "0";
+      document.body.style.right = "0";
+      return () => {
+        document.body.style.position = "";
+        document.body.style.top = "";
+        document.body.style.left = "";
+        document.body.style.right = "";
+        window.scrollTo(0, scrollY);
+      };
+    }
+  }, [modalOpen, rateModalOpen, chatOpen]);
+
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
     const el = currencyBtnRefs.current[idx];
