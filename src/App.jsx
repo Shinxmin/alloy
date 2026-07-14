@@ -187,6 +187,10 @@ export default function Alloy() {
   };
 
   // 터미널 AI 모드: 입력한 질문을 Gemini API로 전달하고 응답을 받아옴
+  const AI_SYSTEM_PROMPT =
+    "1. 최대 15줄 이내로 답변할 것\n" +
+    "2. 볼드체(*) 사용하지 말 것\n" +
+    "3. 빠르고 간략하게 사실인 내용만 확인하여 답할 것\n\n";
   const callGemini = async (prompt) => {
     const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
     if (!apiKey) return "API 키가 설정되지 않았습니다";
@@ -196,7 +200,10 @@ export default function Alloy() {
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: AI_SYSTEM_PROMPT + prompt }] }],
+            generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+          }),
         }
       );
       const data = await res.json();
@@ -211,13 +218,16 @@ export default function Alloy() {
   const handleChatSend = () => {
     const trimmed = chatMessage.trim();
     if (aiMode) {
-      if (!trimmed) return;
+      if (!trimmed || usagePercent >= 100) return;
       setChatMessage("");
       setAiResponseText(null);
       setAiLoading(true);
       callGemini(trimmed).then((text) => {
         setAiLoading(false);
         setAiResponseText(text);
+        const next = Math.min(100, usagePercent + 10);
+        setUsagePercent(next);
+        if (next >= 100) setAiMode(false);
       });
       return;
     }
@@ -2902,6 +2912,8 @@ export default function Alloy() {
                     gap: 6,
                     marginLeft: "auto",
                     flexShrink: 0,
+                    opacity: usagePercent >= 100 ? 0.4 : 1,
+                    transition: "opacity 0.2s ease",
                   }}
                 >
                   <span
@@ -2912,12 +2924,16 @@ export default function Alloy() {
                       color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                     }}
                   >
-                    AI
+                    Gemini API
                   </span>
                   <button
-                    onClick={() => setAiMode((v) => !v)}
+                    onClick={() => {
+                      if (usagePercent >= 100) return;
+                      setAiMode((v) => !v);
+                    }}
                     onMouseEnter={() => setAiSwitchHovered(true)}
                     onMouseLeave={() => setAiSwitchHovered(false)}
+                    disabled={usagePercent >= 100}
                     aria-label="AI 모드 전환"
                     style={{
                       width: 34,
@@ -2928,7 +2944,7 @@ export default function Alloy() {
                       display: "flex",
                       alignItems: "center",
                       justifyContent: aiMode ? "flex-end" : "flex-start",
-                      cursor: "pointer",
+                      cursor: usagePercent >= 100 ? "not-allowed" : "pointer",
                       outline: "none",
                       flexShrink: 0,
                       background: aiMode
@@ -2938,7 +2954,7 @@ export default function Alloy() {
                         : isLight
                         ? "rgba(20,22,26,0.14)"
                         : "rgba(255,255,255,0.16)",
-                      transform: aiSwitchHovered ? "scale(1.08)" : "scale(1)",
+                      transform: aiSwitchHovered && usagePercent < 100 ? "scale(1.08)" : "scale(1)",
                       transition: "background 0.25s ease, transform 0.15s ease",
                     }}
                   >
@@ -3052,7 +3068,7 @@ export default function Alloy() {
                     </div>
                   );
                 })()}
-              {aiMode && aiLoading && (
+              {aiLoading && (
                 <div
                   style={{
                     padding: "4px 14px",
@@ -3063,7 +3079,7 @@ export default function Alloy() {
                   {AI_LOADING_TEXT.slice(0, aiLoadingTypedCount)}
                 </div>
               )}
-              {aiMode && !aiLoading && aiResponseText && (
+              {!aiLoading && aiResponseText && (
                 <div
                   style={{
                     padding: "4px 14px",
@@ -3233,7 +3249,7 @@ export default function Alloy() {
                       if (targetNoticeText) setTargetNoticeText(null);
                       if (aiResponseText) setAiResponseText(null);
                     }}
-                    disabled={aiMode && aiLoading}
+                    disabled={aiLoading}
                     placeholder={aiMode ? "AI에게 질문해보세요" : "명령어를 입력하세요"}
                     style={{
                       flex: 1,
