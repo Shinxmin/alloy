@@ -344,9 +344,94 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  // 사용량 한도 (터미널 입력창 진행률 바와 동기화, 매일 자정(KST) 0%로 초기화)
+  const getKSTInfo = () => {
+    const now = new Date();
+    const utcMs = now.getTime() + now.getTimezoneOffset() * 60000;
+    const kstMs = utcMs + 9 * 3600000;
+    const kst = new Date(kstMs);
+    const dateStr = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, "0")}-${String(kst.getUTCDate()).padStart(2, "0")}`;
+    const msUntilMidnight = 86400000 - (kstMs % 86400000);
+    return { dateStr, msUntilMidnight };
+  };
+
+  const [usagePercent, setUsagePercent] = useState(0);
+  const [usageLoaded, setUsageLoaded] = useState(false);
+  const [usageModalOpen, setUsageModalOpen] = useState(false);
+  const [usageModalVisible, setUsageModalVisible] = useState(false);
+  const [usageCountdownText, setUsageCountdownText] = useState("");
+
   useEffect(() => {
-    const anyModalOpen = modalOpen || rateModalOpen || chatOpen;
+    const { dateStr } = getKSTInfo();
+    try {
+      const savedDate = localStorage.getItem("alloy_usageResetDate");
+      const savedPercent = parseFloat(localStorage.getItem("alloy_usagePercent"));
+      if (savedDate === dateStr && isFinite(savedPercent)) {
+        setUsagePercent(savedPercent);
+      } else {
+        localStorage.setItem("alloy_usageResetDate", dateStr);
+        localStorage.setItem("alloy_usagePercent", "0");
+      }
+    } catch (e) {}
+    setUsageLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (!usageLoaded) return;
+    try {
+      localStorage.setItem("alloy_usagePercent", String(usagePercent));
+    } catch (e) {}
+  }, [usagePercent, usageLoaded]);
+
+  // 한국시간 자정마다 실제로 0%로 초기화 (앱을 켜둔 채로 자정을 넘겨도 동작)
+  useEffect(() => {
+    let timer;
+    const scheduleReset = () => {
+      const { msUntilMidnight } = getKSTInfo();
+      timer = setTimeout(() => {
+        setUsagePercent(0);
+        const { dateStr } = getKSTInfo();
+        try {
+          localStorage.setItem("alloy_usageResetDate", dateStr);
+          localStorage.setItem("alloy_usagePercent", "0");
+        } catch (e) {}
+        scheduleReset();
+      }, msUntilMidnight + 500);
+    };
+    scheduleReset();
+    return () => clearTimeout(timer);
+  }, []);
+
+  const openUsageModal = () => {
+    setUsageModalOpen(true);
+    requestAnimationFrame(() => setUsageModalVisible(true));
+  };
+
+  const closeUsageModal = () => {
+    setUsageModalVisible(false);
+    setTimeout(() => setUsageModalOpen(false), 300);
+  };
+  const closeUsageModalRef = useRef(closeUsageModal);
+  closeUsageModalRef.current = closeUsageModal;
+
+  // 모달이 열려있는 동안 자정까지 남은 시간을 1초마다 갱신
+  useEffect(() => {
+    if (!usageModalOpen) return;
+    const update = () => {
+      const { msUntilMidnight } = getKSTInfo();
+      const totalMinutes = Math.floor(msUntilMidnight / 60000);
+      const hh = Math.floor(totalMinutes / 60);
+      const mm = totalMinutes % 60;
+      setUsageCountdownText(`${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`);
+    };
+    update();
+    const interval = setInterval(update, 1000);
+    return () => clearInterval(interval);
+  }, [usageModalOpen]);
+
+  // 모달(종목 추가/수정, 환율 차트, 사용량 한도, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  useEffect(() => {
+    const anyModalOpen = modalOpen || rateModalOpen || usageModalOpen || chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -361,7 +446,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, usageModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -690,7 +775,10 @@ export default function Alloy() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        if (rateModalOpen) {
+        if (usageModalOpen) {
+          e.preventDefault();
+          closeUsageModalRef.current();
+        } else if (rateModalOpen) {
           e.preventDefault();
           closeRateModalRef.current();
         } else if (modalOpen) {
@@ -724,7 +812,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, rateModalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, rateModalOpen, usageModalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -2317,22 +2405,89 @@ export default function Alloy() {
             >
               구독
             </h2>
-            <span
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  padding: "4px 14px",
+                  borderRadius: 999,
+                  letterSpacing: 0.2,
+                  background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
+                  backdropFilter: "blur(20px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
+                  color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
+                }}
+              >
+                Basic
+              </span>
+              <span
+                onClick={openUsageModal}
+                role="button"
+                tabIndex={0}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+              >
+                사용량 한도
+              </span>
+            </div>
+
+            {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
+            <h2
               style={{
-                fontSize: 12,
-                fontWeight: 600,
-                padding: "4px 14px",
-                borderRadius: 999,
-                letterSpacing: 0.2,
-                background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
-                backdropFilter: "blur(20px) saturate(180%)",
-                WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
-                color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
+                margin: "0 0 14px 0",
+                fontSize: 18,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
               }}
             >
-              Basic
-            </span>
+              계정
+            </h2>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 13,
+                  color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                  marginRight: 12,
+                }}
+              >
+                {session.user.email}
+              </span>
+              <button
+                onClick={handleSignOut}
+                style={{
+                  flexShrink: 0,
+                  height: 32,
+                  padding: "0 14px",
+                  borderRadius: 10,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  background: "transparent",
+                  color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                  fontSize: 12,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                로그아웃
+              </button>
+            </div>
           </>
         )}
       </div>
@@ -2517,81 +2672,12 @@ export default function Alloy() {
         </button>
       </div>
 
-      {/* 로그인 계정 정보 및 로그아웃 (탭바 바로 위, 설정 탭에서만 노출) */}
-      {active === 2 && !chatOpen && (
-        <div
-          style={{
-            position: "fixed",
-            bottom: 24 + BAR_HEIGHT + 14,
-            left: "50%",
-            transform: "translateX(-50%)",
-            zIndex: 8,
-            width: "min(360px, 88vw)",
-            boxSizing: "border-box",
-            padding: "0 4px",
-          }}
-        >
-          {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
-          <h2
-            style={{
-              margin: "0 0 10px 0",
-              fontSize: 18,
-              fontWeight: 700,
-              color: isLight ? "#14161A" : "#FFFFFF",
-            }}
-          >
-            계정
-          </h2>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
-            <span
-              style={{
-                fontSize: 13,
-                color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-                overflow: "hidden",
-                textOverflow: "ellipsis",
-                whiteSpace: "nowrap",
-                marginRight: 12,
-              }}
-            >
-              {session.user.email}
-            </span>
-            <button
-              onClick={handleSignOut}
-              style={{
-                flexShrink: 0,
-                height: 32,
-                padding: "0 14px",
-                borderRadius: 10,
-                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                background: "transparent",
-                color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
-                fontSize: 12,
-                fontWeight: 600,
-                cursor: "pointer",
-                outline: "none",
-              }}
-            >
-              로그아웃
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* 닉네임 저장 알림 (리퀴드 글래스, 탭바 바로 위) */}
       {nicknameSavedNotice && (
         <div
           style={{
             position: "fixed",
-            bottom:
-              active === 2 && !chatOpen
-                ? 24 + BAR_HEIGHT + 14 + 100
-                : 24 + BAR_HEIGHT + 14,
+            bottom: 24 + BAR_HEIGHT + 14,
             left: "50%",
             zIndex: 11,
             opacity: nicknameSavedVisible ? 1 : 0,
@@ -2685,10 +2771,11 @@ export default function Alloy() {
                 >
                   <div
                     style={{
-                      width: "50%",
+                      width: `${usagePercent}%`,
                       height: "100%",
                       borderRadius: 999,
                       background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
+                      transition: "width 0.3s ease",
                     }}
                   />
                 </div>
@@ -2701,7 +2788,7 @@ export default function Alloy() {
                     flexShrink: 0,
                   }}
                 >
-                  50%
+                  {Math.round(usagePercent)}%
                 </span>
               </div>
               {!chatSortMode &&
@@ -3141,6 +3228,102 @@ export default function Alloy() {
                   </AreaChart>
                 </ResponsiveContainer>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 사용량 한도 모달 (터미널 입력창 진행률 바와 동기화, 추가하기 모달과 동일한 크기) */}
+      {usageModalOpen && (
+        <div
+          onClick={closeUsageModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: usageModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: usageModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: usageModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: usageModalVisible ? 1 : 0,
+              transform: usageModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 18px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              사용량 한도
+            </h2>
+
+            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+              <div
+                style={{
+                  flex: 1,
+                  height: 6,
+                  borderRadius: 999,
+                  overflow: "hidden",
+                  background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
+                }}
+              >
+                <div
+                  style={{
+                    width: `${usagePercent}%`,
+                    height: "100%",
+                    borderRadius: 999,
+                    background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
+                    transition: "width 0.3s ease",
+                  }}
+                />
+              </div>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  flexShrink: 0,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {Math.round(usagePercent)}%
+              </span>
+            </div>
+
+            <div
+              style={{
+                marginTop: 10,
+                fontSize: 11,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              UTC+9 00:00 까지 {usageCountdownText} 남았습니다
             </div>
           </div>
         </div>
