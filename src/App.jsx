@@ -12,6 +12,45 @@ export default function Alloy() {
     window.scrollTo(0, 0);
   }, [active]);
 
+  // 아이폰 사파리는 100vh가 주소창을 뺀 실제 화면보다 커서 콘텐츠가 없어도
+  // 스크롤이 생기므로, 실제 뷰포트 높이(window.innerHeight)를 추적해 사용
+  const [vh, setVh] = useState(() => (typeof window !== "undefined" ? window.innerHeight : 800));
+  useEffect(() => {
+    const updateVh = () => setVh(window.innerHeight);
+    updateVh();
+    window.addEventListener("resize", updateVh);
+    window.addEventListener("orientationchange", updateVh);
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener("resize", updateVh);
+    }
+    return () => {
+      window.removeEventListener("resize", updateVh);
+      window.removeEventListener("orientationchange", updateVh);
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener("resize", updateVh);
+      }
+    };
+  }, []);
+
+  // 아이폰 사파리에서 키보드가 올라오면 fixed 요소가 가려지는 문제 방지:
+  // visualViewport로 키보드 높이를 추적해 터미널 패널을 그만큼 띄워줌
+  const [keyboardOffset, setKeyboardOffset] = useState(0);
+  useEffect(() => {
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const updateKeyboardOffset = () => {
+      const offset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+      setKeyboardOffset(offset);
+    };
+    updateKeyboardOffset();
+    vv.addEventListener("resize", updateKeyboardOffset);
+    vv.addEventListener("scroll", updateKeyboardOffset);
+    return () => {
+      vv.removeEventListener("resize", updateKeyboardOffset);
+      vv.removeEventListener("scroll", updateKeyboardOffset);
+    };
+  }, []);
+
   // Supabase 로그인 세션
   const [session, setSession] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
@@ -1053,7 +1092,7 @@ export default function Alloy() {
     border: (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"),
     background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
     color: (isLight ? "#14161A" : "#FFFFFF"),
-    fontSize: 14,
+    fontSize: 16,
     outline: "none",
     boxSizing: "border-box",
     transition: "background 0.25s ease, border 0.25s ease",
@@ -1063,7 +1102,7 @@ export default function Alloy() {
     return (
       <div
         style={{
-          minHeight: "100vh",
+          minHeight: vh,
           width: "100%",
           display: "flex",
           alignItems: "center",
@@ -1082,7 +1121,7 @@ export default function Alloy() {
     return (
       <div
         style={{
-          minHeight: "100vh",
+          minHeight: vh,
           width: "100%",
           display: "flex",
           alignItems: "center",
@@ -1216,7 +1255,7 @@ export default function Alloy() {
   return (
     <div
       style={{
-        minHeight: "100vh",
+        minHeight: vh,
         width: "100%",
         position: "relative",
         zIndex: 0,
@@ -1263,7 +1302,7 @@ export default function Alloy() {
       {/* 탭 콘텐츠 영역 */}
       <div
         style={{
-          minHeight: "100vh",
+          minHeight: vh,
           width: "100%",
           boxSizing: "border-box",
           padding: "22px 20px 140px 20px",
@@ -2531,7 +2570,7 @@ export default function Alloy() {
           <div
             style={{
               position: "fixed",
-              bottom: 24 + BAR_HEIGHT + 14,
+              bottom: 24 + BAR_HEIGHT + 14 + keyboardOffset,
               left: "50%",
               zIndex: 10,
               width: "min(360px, 88vw)",
@@ -2540,7 +2579,7 @@ export default function Alloy() {
                 ? "translate(-50%, 0)"
                 : "translate(-50%, 16px)",
               transition:
-                "opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+                "opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s cubic-bezier(0.22, 1, 0.36, 1), bottom 0.25s ease",
             }}
           >
             <div
@@ -2849,7 +2888,7 @@ export default function Alloy() {
                       border: "none",
                       background: "transparent",
                       color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 14,
+                      fontSize: 16,
                       outline: "none",
                     }}
                   />
