@@ -450,6 +450,8 @@ export default function Alloy() {
         if (!error && data) {
           if (Array.isArray(data.holdings)) setHoldings(data.holdings);
           if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
+        } else if (error) {
+          console.error("포트폴리오 불러오기 실패:", error.message);
         }
         setDataLoaded(true);
       });
@@ -469,7 +471,9 @@ export default function Alloy() {
         cash_holdings: cashHoldings,
         updated_at: new Date().toISOString(),
       })
-      .then(() => {});
+      .then(({ error }) => {
+        if (error) console.error("포트폴리오 저장 실패:", error.message);
+      });
   }, [holdings, cashHoldings, dataLoaded, session]);
 
   // 닉네임 (Supabase profiles 테이블)
@@ -1110,7 +1114,7 @@ export default function Alloy() {
     justifyContent: "space-between",
     margin: "0 -20px 24px -20px",
     padding: "22px 20px 14px 20px",
-    background: isLight ? "rgba(248,249,250,0.82)" : "rgba(23,25,29,0.82)",
+    background: isLight ? "rgba(248,249,250,0.45)" : "rgba(23,25,29,0.45)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
   };
@@ -1372,7 +1376,10 @@ export default function Alloy() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
                 <button
-                  onClick={toggleTheme}
+                  onClick={() => {
+                    toggleTheme();
+                    setThemeHovered(false);
+                  }}
                   onMouseEnter={() => setThemeHovered(true)}
                   onMouseLeave={() => setThemeHovered(false)}
                   aria-label="테마 전환"
@@ -1508,7 +1515,10 @@ export default function Alloy() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
                 <button
-                  onClick={toggleTheme}
+                  onClick={() => {
+                    toggleTheme();
+                    setThemeHovered(false);
+                  }}
                   onMouseEnter={() => setThemeHovered(true)}
                   onMouseLeave={() => setThemeHovered(false)}
                   aria-label="테마 전환"
@@ -2065,7 +2075,10 @@ export default function Alloy() {
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
                 <button
-                  onClick={toggleTheme}
+                  onClick={() => {
+                    toggleTheme();
+                    setThemeHovered(false);
+                  }}
                   onMouseEnter={() => setThemeHovered(true)}
                   onMouseLeave={() => setThemeHovered(false)}
                   aria-label="테마 전환"
