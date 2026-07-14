@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
-import { PieChart, Pie, Cell, Tooltip } from "recharts";
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from "recharts";
 import { supabase } from "./supabaseClient";
 
 export default function Alloy() {
@@ -234,6 +234,55 @@ export default function Alloy() {
       localStorage.setItem("alloy_todayRate", String(todayRate));
     } catch (e) {}
   }, [todayRate, rateLoaded]);
+
+  // 환율 차트 모달 (최근 1개월 원달러 환율 추이)
+  const [rateModalOpen, setRateModalOpen] = useState(false);
+  const [rateModalVisible, setRateModalVisible] = useState(false);
+  const [rateHistory, setRateHistory] = useState([]);
+  const [rateHistoryLoading, setRateHistoryLoading] = useState(false);
+  const [rateHistoryError, setRateHistoryError] = useState(false);
+  const [rateTextHovered, setRateTextHovered] = useState(false);
+
+  const fetchRateHistory = async () => {
+    setRateHistoryLoading(true);
+    setRateHistoryError(false);
+    try {
+      const end = new Date();
+      const start = new Date();
+      start.setMonth(start.getMonth() - 1);
+      const fmt = (d) => d.toISOString().slice(0, 10);
+      const res = await fetch(
+        `https://api.frankfurter.dev/v1/${fmt(start)}..${fmt(end)}?from=USD&to=KRW`
+      );
+      const data = await res.json();
+      const rates = data && data.rates;
+      if (!rates || Object.keys(rates).length === 0) throw new Error("no rates");
+      const parsed = Object.keys(rates)
+        .sort()
+        .map((date) => ({
+          date: date.slice(5).replace("-", "/"),
+          rate: rates[date].KRW,
+        }));
+      setRateHistory(parsed);
+    } catch (e) {
+      setRateHistoryError(true);
+    } finally {
+      setRateHistoryLoading(false);
+    }
+  };
+
+  const openRateModal = () => {
+    setRateModalOpen(true);
+    requestAnimationFrame(() => setRateModalVisible(true));
+    fetchRateHistory();
+  };
+
+  const closeRateModal = () => {
+    setRateModalVisible(false);
+    setTimeout(() => setRateModalOpen(false), 300);
+  };
+  const closeRateModalRef = useRef(closeRateModal);
+  closeRateModalRef.current = closeRateModal;
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -558,7 +607,10 @@ export default function Alloy() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        if (modalOpen) {
+        if (rateModalOpen) {
+          e.preventDefault();
+          closeRateModalRef.current();
+        } else if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
         } else if (pendingCommand) {
@@ -589,7 +641,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, rateModalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -1564,12 +1616,21 @@ export default function Alloy() {
             {/* 기준환율 표시 (원화 자산 → 달러 환산에 사용, API에서 자동 조회) */}
             {!isEmpty && (
               <div
+                onClick={openRateModal}
+                onMouseEnter={() => setRateTextHovered(true)}
+                onMouseLeave={() => setRateTextHovered(false)}
+                role="button"
+                tabIndex={0}
                 style={{
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
                   gap: 6,
                   marginBottom: 28,
+                  cursor: "pointer",
+                  opacity: rateTextHovered ? 0.7 : 1,
+                  transition: "opacity 0.2s ease",
+                  outline: "none",
                 }}
               >
                 {rateSource === "api" && (
@@ -2814,6 +2875,173 @@ export default function Alloy() {
             </div>
           </div>
         </>
+      )}
+
+      {/* 환율 차트 모달 (최근 1개월 원달러 환율 추이, 추가하기 모달과 동일한 크기) */}
+      {rateModalOpen && (
+        <div
+          onClick={closeRateModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: rateModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: rateModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: rateModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: rateModalVisible ? 1 : 0,
+              transform: rateModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  letterSpacing: 0.2,
+                }}
+              >
+                원달러 환율
+              </h2>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                최근 1개월
+              </span>
+            </div>
+
+            <div
+              style={{
+                fontSize: 22,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                marginBottom: 14,
+              }}
+            >
+              {Math.round(todayRate).toLocaleString()}원
+            </div>
+
+            <div style={{ width: "100%", height: 150 }}>
+              {rateHistoryLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : rateHistoryError || rateHistory.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  환율 정보를 불러올 수 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={rateHistory} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0.35}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+                    <Tooltip
+                      contentStyle={{
+                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        borderRadius: 10,
+                        fontSize: 11,
+                        padding: "6px 10px",
+                      }}
+                      labelStyle={{
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontWeight: 600,
+                        marginBottom: 2,
+                      }}
+                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
+                      formatter={(value) => [`${Math.round(value).toLocaleString()}원`, "환율"]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="rate"
+                      stroke={isLight ? "#14161A" : "#FFFFFF"}
+                      strokeWidth={2}
+                      fill="url(#rateGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
       )}
 
       {/* 종목 모달 */}
