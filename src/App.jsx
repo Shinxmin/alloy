@@ -360,6 +360,16 @@ export default function Alloy() {
   const [usageModalOpen, setUsageModalOpen] = useState(false);
   const [usageModalVisible, setUsageModalVisible] = useState(false);
   const [usageCountdownText, setUsageCountdownText] = useState("");
+  const [promoOpen, setPromoOpen] = useState(false);
+  const [promoCode, setPromoCode] = useState("");
+
+  const handlePromoSubmit = () => {
+    if (promoCode.trim().toLowerCase() === "dev") {
+      setUsagePercent(0);
+    }
+    setPromoCode("");
+    setPromoOpen(false);
+  };
 
   useEffect(() => {
     const { dateStr } = getKSTInfo();
@@ -2405,7 +2415,7 @@ export default function Alloy() {
             >
               구독
             </h2>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
               <span
                 style={{
                   fontSize: 12,
@@ -2438,6 +2448,89 @@ export default function Alloy() {
                 사용량 한도
               </span>
             </div>
+
+            {/* 프로모션 코드 입력 */}
+            {promoOpen ? (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 36 }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    flexShrink: 0,
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  프로모션 코드
+                </span>
+                <input
+                  type="text"
+                  autoFocus
+                  value={promoCode}
+                  onChange={(e) => setPromoCode(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") handlePromoSubmit();
+                    if (e.key === "Escape") {
+                      setPromoCode("");
+                      setPromoOpen(false);
+                    }
+                  }}
+                  style={{
+                    flex: 1,
+                    height: 28,
+                    padding: "0 10px",
+                    borderRadius: 8,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 13,
+                    outline: "none",
+                    boxSizing: "border-box",
+                  }}
+                />
+                <button
+                  onClick={handlePromoSubmit}
+                  aria-label="프로모션 코드 보내기"
+                  style={{
+                    width: 26,
+                    height: 26,
+                    flexShrink: 0,
+                    borderRadius: "50%",
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: "transparent",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    outline: "none",
+                    padding: 0,
+                  }}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M5 12h14M13 6l6 6-6 6" />
+                  </svg>
+                </button>
+              </div>
+            ) : (
+              <span
+                onClick={() => setPromoOpen(true)}
+                role="button"
+                tabIndex={0}
+                style={{
+                  display: "inline-block",
+                  marginBottom: 36,
+                  fontSize: 12,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textUnderlineOffset: 3,
+                }}
+              >
+                프로모션 코드
+              </span>
+            )}
 
             {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
             <h2
