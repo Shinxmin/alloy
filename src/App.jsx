@@ -186,7 +186,14 @@ export default function Alloy() {
     }
   }, [chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
 
-  const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset"
+  const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset" | "forest"
+  // 테마별 대표 색상/그라데이션 (배경 레이어와 /theme 선택지 원형 스와치에서 공용으로 사용)
+  const THEME_SWATCHES = {
+    light: "#F8F9FA",
+    dark: "#17191D",
+    sunset: "radial-gradient(circle at 50% 50%, #47301e 0%, #2a1f1a 55%, #17191D 95%)",
+    forest: "radial-gradient(circle at 50% 50%, #1f3d28 0%, #1a2a20 55%, #17191D 95%)",
+  };
   const [themeHovered, setThemeHovered] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
   const isLight = theme === "light";
@@ -195,7 +202,7 @@ export default function Alloy() {
   useEffect(() => {
     try {
       const saved = localStorage.getItem("alloy_theme");
-      if (saved === "light" || saved === "sunset") setTheme(saved);
+      if (saved === "light" || saved === "sunset" || saved === "forest") setTheme(saved);
     } catch (e) {}
     setThemeLoaded(true);
   }, []);
@@ -1437,16 +1444,15 @@ export default function Alloy() {
         }
       `}</style>
 
-      {/* 전체 화면을 항상 덮는 고정 배경 레이어. 선셋 테마는 다크 배경에 주황색 계열을 섞은 원형 그라데이션 (이스터에그) */}
+      {/* 전체 화면을 항상 덮는 고정 배경 레이어. 선셋/포레스트 테마는 다크 배경에 색상을 섞은 원형 그라데이션 (이스터에그) */}
       <div
         style={{
           position: "fixed",
           inset: 0,
-          background: isLight
-            ? "#F8F9FA"
-            : theme === "sunset"
-            ? "radial-gradient(circle at 50% 50%, #47301e 0%, #2a1f1a 55%, #17191D 95%)"
-            : "#17191D",
+          background:
+            theme === "sunset" || theme === "forest"
+              ? THEME_SWATCHES[theme]
+              : THEME_SWATCHES[isLight ? "light" : "dark"],
           zIndex: -1,
           transition: "background 0.3s ease",
         }}
@@ -2994,6 +3000,18 @@ export default function Alloy() {
                   {targetNoticeText}
                 </div>
               )}
+              {(chatSortMode || chatThemeMode) && !pendingCommand && !chatDoneNotice && (
+                <div
+                  style={{
+                    padding: "0 14px",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: "#FFFFFF",
+                  }}
+                >
+                  {chatSortMode ? "어떤 기준으로 정렬할까요?" : "어떤 테마를 적용할까요?"}
+                </div>
+              )}
               <div
                 style={{
                   display: "flex",
@@ -3032,9 +3050,9 @@ export default function Alloy() {
                 </div>
               ) : chatSortMode ? (
                 [
-                  { key: "name", label: "1. 이름" },
-                  { key: "percent", label: "2. 비중" },
-                  { key: "quantity", label: "3. 수량" },
+                  { key: "name", label: "이름" },
+                  { key: "percent", label: "비중" },
+                  { key: "quantity", label: "수량" },
                 ].map((opt, i) => (
                   <button
                     key={opt.key}
@@ -3070,9 +3088,10 @@ export default function Alloy() {
                 ))
               ) : chatThemeMode ? (
                 [
-                  { key: "light", label: "1. 라이트" },
-                  { key: "dark", label: "2. 다크" },
-                  { key: "sunset", label: "3. 선셋" },
+                  { key: "light", label: "라이트" },
+                  { key: "dark", label: "다크" },
+                  { key: "sunset", label: "선셋" },
+                  { key: "forest", label: "포레스트" },
                 ].map((opt, i) => (
                   <button
                     key={opt.key}
@@ -3086,6 +3105,11 @@ export default function Alloy() {
                       height: 40,
                       borderRadius: 999,
                       border: "none",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      padding: "0 2px",
                       background:
                         sortHoverIdx === i
                           ? isLight
@@ -3095,14 +3119,28 @@ export default function Alloy() {
                           ? "rgba(20,22,26,0.10)"
                           : "rgba(255,255,255,0.12)",
                       color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
+                      whiteSpace: "nowrap",
                       cursor: "pointer",
                       outline: "none",
                       transform: sortHoverIdx === i ? "scale(1.04)" : "scale(1)",
                       transition: "transform 0.2s ease, background 0.2s ease",
                     }}
                   >
+                    <span
+                      style={{
+                        width: 9,
+                        height: 9,
+                        borderRadius: "50%",
+                        flexShrink: 0,
+                        background: THEME_SWATCHES[opt.key],
+                        border:
+                          opt.key === "light"
+                            ? "1px solid rgba(20,22,26,0.25)"
+                            : "1px solid rgba(255,255,255,0.15)",
+                      }}
+                    />
                     {opt.label}
                   </button>
                 ))
