@@ -363,6 +363,67 @@ export default function Alloy() {
       .then(() => {});
   }, [holdings, cashHoldings, dataLoaded, session]);
 
+  // 닉네임 (Supabase profiles 테이블)
+  const [nickname, setNickname] = useState("");
+  const [nicknameEditing, setNicknameEditing] = useState(false);
+  const [nicknameDraft, setNicknameDraft] = useState("");
+  const [nicknameSavedNotice, setNicknameSavedNotice] = useState(false);
+  const [nicknameSavedVisible, setNicknameSavedVisible] = useState(false);
+  const nicknameInputRef = useRef(null);
+
+  useEffect(() => {
+    if (!session) {
+      setNickname("");
+      return;
+    }
+    let cancelled = false;
+    supabase
+      .from("profiles")
+      .select("nickname")
+      .eq("user_id", session.user.id)
+      .maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (!error && data && data.nickname) {
+          setNickname(data.nickname);
+        } else {
+          setNickname((session.user.email || "").split("@")[0]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
+
+  useEffect(() => {
+    if (nicknameEditing) {
+      requestAnimationFrame(() => nicknameInputRef.current && nicknameInputRef.current.focus());
+    }
+  }, [nicknameEditing]);
+
+  const startEditingNickname = () => {
+    setNicknameDraft(nickname);
+    setNicknameEditing(true);
+  };
+
+  const saveNickname = async (value) => {
+    const trimmed = value.trim();
+    setNicknameEditing(false);
+    if (!trimmed || trimmed === nickname || !session) return;
+    setNickname(trimmed);
+    await supabase.from("profiles").upsert({
+      user_id: session.user.id,
+      nickname: trimmed,
+      updated_at: new Date().toISOString(),
+    });
+    setNicknameSavedNotice(true);
+    requestAnimationFrame(() => setNicknameSavedVisible(true));
+    setTimeout(() => {
+      setNicknameSavedVisible(false);
+      setTimeout(() => setNicknameSavedNotice(false), 300);
+    }, 1800);
+  };
+
   const handleConfirm = () => {
     if (assetType === "cash") {
       const amountNum = parseFloat(cashAmount);
@@ -655,7 +716,7 @@ export default function Alloy() {
     const cashIdx = stockIdx === -1 ? cashHoldings.findIndex((c) => c.currency.toLowerCase() === ticker.toLowerCase()) : -1;
 
     if (stockIdx === -1 && cashIdx === -1) {
-      return `'${ticker}' 종목을 찾을 수 없습니다`;
+      return "종목을 찾을 수 없습니다";
     }
 
     const currentUSD = stockIdx !== -1 ? toUSD(holdings[stockIdx]) : cashToUSD(cashHoldings[cashIdx]);
@@ -1989,6 +2050,104 @@ export default function Alloy() {
               </div>
             </div>
 
+            {/* 프로필: 기본 원형 이미지 + 닉네임 + 수정 버튼 */}
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                gap: 10,
+                marginBottom: 20,
+              }}
+            >
+              <div
+                style={{
+                  width: 72,
+                  height: 72,
+                  borderRadius: "50%",
+                  flexShrink: 0,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                }}
+              >
+                <svg
+                  width="34"
+                  height="34"
+                  viewBox="0 0 24 24"
+                  fill={isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.4)"}
+                >
+                  <circle cx="12" cy="8" r="4" />
+                  <path d="M4 20c0-4.4 3.6-7 8-7s8 2.6 8 7a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+                </svg>
+              </div>
+
+              {nicknameEditing ? (
+                <input
+                  ref={nicknameInputRef}
+                  value={nicknameDraft}
+                  onChange={(e) => setNicknameDraft(e.target.value)}
+                  onBlur={(e) => saveNickname(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") e.currentTarget.blur();
+                    if (e.key === "Escape") setNicknameEditing(false);
+                  }}
+                  maxLength={20}
+                  style={{
+                    fontSize: 16,
+                    fontWeight: 700,
+                    textAlign: "center",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    background: "transparent",
+                    border: "none",
+                    borderBottom: `1px solid ${isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"}`,
+                    outline: "none",
+                    width: 160,
+                    padding: "2px 0",
+                  }}
+                />
+              ) : (
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <span style={{ fontSize: 16, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                    {nickname || "사용자"}
+                  </span>
+                  <button
+                    onClick={startEditingNickname}
+                    aria-label="닉네임 수정"
+                    style={{
+                      width: 22,
+                      height: 22,
+                      border: "none",
+                      background: "transparent",
+                      cursor: "pointer",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      padding: 0,
+                      outline: "none",
+                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    <svg
+                      width="14"
+                      height="14"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </button>
+                </div>
+              )}
+            </div>
+
             {/* 로그인 계정 정보 및 로그아웃 */}
             <div
               style={{
@@ -2215,6 +2374,40 @@ export default function Alloy() {
           </svg>
         </button>
       </div>
+
+      {/* 닉네임 저장 알림 (리퀴드 글래스, 탭바 바로 위) */}
+      {nicknameSavedNotice && (
+        <div
+          style={{
+            position: "fixed",
+            bottom: 24 + BAR_HEIGHT + 14,
+            left: "50%",
+            zIndex: 11,
+            opacity: nicknameSavedVisible ? 1 : 0,
+            transform: nicknameSavedVisible ? "translate(-50%, 0)" : "translate(-50%, 8px)",
+            transition: "opacity 0.3s ease, transform 0.3s ease",
+            pointerEvents: "none",
+          }}
+        >
+          <div
+            style={{
+              padding: "8px 16px",
+              borderRadius: 999,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.1)",
+              backdropFilter: "blur(20px) saturate(180%)",
+              WebkitBackdropFilter: "blur(20px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 8px 28px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.1)",
+              fontSize: 12,
+              fontWeight: 600,
+              color: isLight ? "#14161A" : "#FFFFFF",
+              whiteSpace: "nowrap",
+            }}
+          >
+            저장 되었습니다
+          </div>
+        </div>
+      )}
 
       {/* 명령어 입력창 패널 (리퀴드 글래스, 탭바 위에 슬라이드로 등장) */}
       {chatOpen && (
