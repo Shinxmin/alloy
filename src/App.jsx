@@ -68,6 +68,8 @@ export default function Alloy() {
   const [chatVisible, setChatVisible] = useState(false);
   const [chatHovered, setChatHovered] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
+  const [chatSortMode, setChatSortMode] = useState(false);
+  const [sortHoverIdx, setSortHoverIdx] = useState(null);
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -75,11 +77,18 @@ export default function Alloy() {
       setTimeout(() => setChatOpen(false), 300);
     } else {
       setChatOpen(true);
+      setChatSortMode(false);
       requestAnimationFrame(() => setChatVisible(true));
     }
   };
 
   const handleChatSend = () => {
+    const trimmed = chatMessage.trim();
+    if (trimmed === "/sort") {
+      setChatSortMode(true);
+      setChatMessage("");
+      return;
+    }
     setChatMessage("");
   };
 
@@ -457,6 +466,9 @@ export default function Alloy() {
         if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
+        } else if (chatSortMode) {
+          e.preventDefault();
+          setChatSortMode(false);
         } else if (chatOpen) {
           e.preventDefault();
           toggleChatRef.current();
@@ -473,7 +485,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen]);
+  }, [modalOpen, chatOpen, chatSortMode]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -552,6 +564,25 @@ export default function Alloy() {
 
   const cashToUSD = (c) =>
     c.currency === "USD" ? c.amount : c.amount / todayRate;
+
+  // 터미널 /sort 명령어: 비중/금액/수량 기준 자동 정렬
+  const handleSortSelect = (criteria) => {
+    setHoldings((prev) => {
+      const sorted = [...prev];
+      sorted.sort((a, b) =>
+        criteria === "quantity" ? b.quantity - a.quantity : toUSD(b) - toUSD(a)
+      );
+      return sorted;
+    });
+    setCashHoldings((prev) => {
+      const sorted = [...prev];
+      sorted.sort((a, b) => cashToUSD(b) - cashToUSD(a));
+      return sorted;
+    });
+    setChatSortMode(false);
+    setSortHoverIdx(null);
+    setChatMessage("");
+  };
 
   const totalStockValueUSD = holdings.reduce((sum, h) => sum + toUSD(h), 0);
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
@@ -2101,46 +2132,88 @@ export default function Alloy() {
                   gap: 8,
                 }}
               >
-              <input
-                type="text"
-                autoFocus
-                value={chatMessage}
-                onChange={(e) => setChatMessage(e.target.value)}
-                placeholder="명령어를 입력하세요"
-                style={{
-                  flex: 1,
-                  height: 40,
-                  padding: "0 14px",
-                  borderRadius: 999,
-                  border: "none",
-                  background: "transparent",
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 14,
-                  outline: "none",
-                }}
-              />
-              <button
-                onClick={handleChatSend}
-                aria-label="전송"
-                style={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  borderRadius: "50%",
-                  border: "none",
-                  background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  cursor: "pointer",
-                  outline: "none",
-                }}
-              >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                  <path d="M3 11l18-8-8 18-2-8-8-2z" />
-                </svg>
-              </button>
+              {chatSortMode ? (
+                [
+                  { key: "percent", label: "1. 비중" },
+                  { key: "amount", label: "2. 금액" },
+                  { key: "quantity", label: "3. 수량" },
+                ].map((opt, i) => (
+                  <button
+                    key={opt.key}
+                    onClick={() => handleSortSelect(opt.key)}
+                    onMouseEnter={() => setSortHoverIdx(i)}
+                    onMouseLeave={() =>
+                      setSortHoverIdx((prev) => (prev === i ? null : prev))
+                    }
+                    style={{
+                      flex: 1,
+                      height: 40,
+                      borderRadius: 999,
+                      border: "none",
+                      background:
+                        sortHoverIdx === i
+                          ? isLight
+                            ? "rgba(20,22,26,0.18)"
+                            : "rgba(255,255,255,0.22)"
+                          : isLight
+                          ? "rgba(20,22,26,0.10)"
+                          : "rgba(255,255,255,0.12)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 13,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      transform: sortHoverIdx === i ? "scale(1.04)" : "scale(1)",
+                      transition: "transform 0.2s ease, background 0.2s ease",
+                    }}
+                  >
+                    {opt.label}
+                  </button>
+                ))
+              ) : (
+                <>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={chatMessage}
+                    onChange={(e) => setChatMessage(e.target.value)}
+                    placeholder="명령어를 입력하세요"
+                    style={{
+                      flex: 1,
+                      height: 40,
+                      padding: "0 14px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "transparent",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 14,
+                      outline: "none",
+                    }}
+                  />
+                  <button
+                    onClick={handleChatSend}
+                    aria-label="전송"
+                    style={{
+                      width: 40,
+                      height: 40,
+                      flexShrink: 0,
+                      borderRadius: "50%",
+                      border: "none",
+                      background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      outline: "none",
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+                      <path d="M3 11l18-8-8 18-2-8-8-2z" />
+                    </svg>
+                  </button>
+                </>
+              )}
               </div>
             </div>
           </div>
