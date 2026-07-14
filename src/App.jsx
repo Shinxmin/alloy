@@ -432,15 +432,30 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // 사용량 한도 (터미널 입력창 진행률 바와 동기화, 매일 자정(KST) 0%로 초기화)
-  const getKSTInfo = () => {
+  // 사용량 한도 (터미널 입력창 진행률 바와 동기화, 매일 태평양 표준시(PST) 자정에 0%로 초기화)
+  // America/Los_Angeles 타임존 기준으로 계산 (Intl API가 서머타임 전환을 자동 처리)
+  const getPSTInfo = () => {
     const now = new Date();
-    // now.getTime()은 이미 타임존과 무관한 절대 epoch ms이므로, 여기에 로컬
-    // getTimezoneOffset()을 추가로 더하면 이중 보정되어 시간이 어긋남
-    const kstMs = now.getTime() + 9 * 3600000;
-    const kst = new Date(kstMs);
-    const dateStr = `${kst.getUTCFullYear()}-${String(kst.getUTCMonth() + 1).padStart(2, "0")}-${String(kst.getUTCDate()).padStart(2, "0")}`;
-    const msUntilMidnight = 86400000 - (kstMs % 86400000);
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/Los_Angeles",
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(now);
+    const map = {};
+    parts.forEach((p) => {
+      if (p.type !== "literal") map[p.type] = p.value;
+    });
+    const dateStr = `${map.year}-${map.month}-${map.day}`;
+    const msSinceMidnight =
+      (parseInt(map.hour, 10) * 3600 + parseInt(map.minute, 10) * 60 + parseInt(map.second, 10)) *
+        1000 +
+      now.getMilliseconds();
+    const msUntilMidnight = 86400000 - msSinceMidnight;
     return { dateStr, msUntilMidnight };
   };
 
@@ -466,7 +481,7 @@ export default function Alloy() {
   };
 
   useEffect(() => {
-    const { dateStr } = getKSTInfo();
+    const { dateStr } = getPSTInfo();
     try {
       const savedDate = localStorage.getItem("alloy_usageResetDate");
       const savedPercent = parseFloat(localStorage.getItem("alloy_usagePercent"));
@@ -487,14 +502,14 @@ export default function Alloy() {
     } catch (e) {}
   }, [usagePercent, usageLoaded]);
 
-  // 한국시간 자정마다 실제로 0%로 초기화 (앱을 켜둔 채로 자정을 넘겨도 동작)
+  // 태평양 표준시(PST) 자정마다 실제로 0%로 초기화 (앱을 켜둔 채로 자정을 넘겨도 동작)
   useEffect(() => {
     let timer;
     const scheduleReset = () => {
-      const { msUntilMidnight } = getKSTInfo();
+      const { msUntilMidnight } = getPSTInfo();
       timer = setTimeout(() => {
         setUsagePercent(0);
-        const { dateStr } = getKSTInfo();
+        const { dateStr } = getPSTInfo();
         try {
           localStorage.setItem("alloy_usageResetDate", dateStr);
           localStorage.setItem("alloy_usagePercent", "0");
@@ -520,11 +535,11 @@ export default function Alloy() {
   const closeUsageModalRef = useRef(closeUsageModal);
   closeUsageModalRef.current = closeUsageModal;
 
-  // 모달이 열려있는 동안 자정까지 남은 시간을 1초마다 갱신
+  // 모달이 열려있는 동안 PST 자정까지 남은 시간을 1초마다 갱신
   useEffect(() => {
     if (!usageModalOpen) return;
     const update = () => {
-      const { msUntilMidnight } = getKSTInfo();
+      const { msUntilMidnight } = getPSTInfo();
       const totalMinutes = Math.floor(msUntilMidnight / 60000);
       const hh = Math.floor(totalMinutes / 60);
       const mm = totalMinutes % 60;
@@ -3550,7 +3565,7 @@ export default function Alloy() {
                 color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
               }}
             >
-              UTC+9 00:00 까지 {usageCountdownText} 남았습니다
+              PST 00:00 까지 {usageCountdownText} 남았습니다
             </div>
 
             {/* 프로모션 코드 (사용량 한도 모달 최하단) */}
