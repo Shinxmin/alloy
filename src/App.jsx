@@ -2071,10 +2071,10 @@ export default function Alloy() {
               onClick={(e) => e.stopPropagation()}
               style={{
                 display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: 10,
-                borderRadius: 999,
+                flexDirection: "column",
+                gap: 10,
+                padding: 12,
+                borderRadius: 26,
                 background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
                 backdropFilter: "blur(28px) saturate(180%)",
                 WebkitBackdropFilter: "blur(28px) saturate(180%)",
@@ -2083,6 +2083,62 @@ export default function Alloy() {
                   "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
               }}
             >
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 10,
+                  padding: "0 4px",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: 0.4,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    flexShrink: 0,
+                  }}
+                >
+                  터미널
+                </span>
+                <div
+                  style={{
+                    flex: 1,
+                    height: 4,
+                    borderRadius: 999,
+                    overflow: "hidden",
+                    background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: "50%",
+                      height: "100%",
+                      borderRadius: 999,
+                      background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
+                    }}
+                  />
+                </div>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 600,
+                    letterSpacing: 0.2,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    flexShrink: 0,
+                  }}
+                >
+                  50%
+                </span>
+              </div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                }}
+              >
               <input
                 type="text"
                 autoFocus
@@ -2123,6 +2179,7 @@ export default function Alloy() {
                   <path d="M3 11l18-8-8 18-2-8-8-2z" />
                 </svg>
               </button>
+              </div>
             </div>
           </div>
         </>
