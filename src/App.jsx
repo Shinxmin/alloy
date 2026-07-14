@@ -80,7 +80,7 @@ export default function Alloy() {
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
-    { name: "target", desc: "목표 비중", usage: "/target [종목] [비중(%)]" },
+    { name: "target", desc: "목표 비중", usage: "[종목] [비중(%)]" },
   ];
 
   const toggleChat = () => {
@@ -2269,9 +2269,16 @@ export default function Alloy() {
                 chatMessage.startsWith("/") &&
                 (() => {
                   const query = chatMessage.slice(1).toLowerCase();
-                  const matches = COMMANDS.filter((c) => c.name.startsWith(query)).sort(
-                    (a, b) => a.name.localeCompare(b.name)
-                  );
+                  // /target 은 인자를 입력하는 중에도 전송 전까지 설명란을 계속 표기
+                  const isTargetActive = query.startsWith("target");
+                  const targetCmd = COMMANDS.find((c) => c.name === "target");
+                  const matches = isTargetActive
+                    ? targetCmd
+                      ? [targetCmd]
+                      : []
+                    : COMMANDS.filter((c) => c.name.startsWith(query)).sort((a, b) =>
+                        a.name.localeCompare(b.name)
+                      );
                   if (matches.length === 0) return null;
                   return (
                     <div
@@ -2289,7 +2296,7 @@ export default function Alloy() {
                             if (cmd.name === "sort") {
                               setChatSortMode(true);
                               setChatMessage("");
-                            } else if (cmd.name === "target") {
+                            } else if (cmd.name === "target" && !chatMessage.includes(" ")) {
                               setChatMessage("/target ");
                             }
                           }}
@@ -2324,7 +2331,9 @@ export default function Alloy() {
                           </span>
                           {(() => {
                             const descText =
-                              query === cmd.name && cmd.usage ? cmd.usage : cmd.desc;
+                              cmd.name === "target" && isTargetActive && cmd.usage
+                                ? cmd.usage
+                                : cmd.desc;
                             return (
                               descText && (
                                 <span
@@ -2346,6 +2355,20 @@ export default function Alloy() {
                     </div>
                   );
                 })()}
+              {targetNoticeText && (
+                <div
+                  style={{
+                    padding: "4px 14px",
+                    fontSize: 14,
+                    lineHeight: 1.4,
+                    whiteSpace: "normal",
+                    wordBreak: "break-word",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                  }}
+                >
+                  {targetNoticeText}
+                </div>
+              )}
               <div
                 style={{
                   display: "flex",
@@ -2422,48 +2445,27 @@ export default function Alloy() {
                 ))
               ) : (
                 <>
-                  <div style={{ position: "relative", flex: 1 }}>
-                    {targetNoticeText && chatMessage === "" && (
-                      <div
-                        style={{
-                          position: "absolute",
-                          left: 14,
-                          top: "50%",
-                          transform: "translateY(-50%)",
-                          fontSize: 14,
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          pointerEvents: "none",
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          maxWidth: "calc(100% - 20px)",
-                        }}
-                      >
-                        {targetNoticeText}
-                      </div>
-                    )}
-                    <input
-                      type="text"
-                      autoFocus
-                      value={chatMessage}
-                      onChange={(e) => {
-                        setChatMessage(e.target.value);
-                        if (targetNoticeText) setTargetNoticeText(null);
-                      }}
-                      placeholder={targetNoticeText ? "" : "명령어를 입력하세요"}
-                      style={{
-                        width: "100%",
-                        height: 40,
-                        padding: "0 14px",
-                        borderRadius: 999,
-                        border: "none",
-                        background: "transparent",
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
-                        outline: "none",
-                      }}
-                    />
-                  </div>
+                  <input
+                    type="text"
+                    autoFocus
+                    value={chatMessage}
+                    onChange={(e) => {
+                      setChatMessage(e.target.value);
+                      if (targetNoticeText) setTargetNoticeText(null);
+                    }}
+                    placeholder="명령어를 입력하세요"
+                    style={{
+                      flex: 1,
+                      height: 40,
+                      padding: "0 14px",
+                      borderRadius: 999,
+                      border: "none",
+                      background: "transparent",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 14,
+                      outline: "none",
+                    }}
+                  />
                   <button
                     onClick={handleChatSend}
                     aria-label="전송"
