@@ -2030,44 +2030,6 @@ export default function Alloy() {
             }}
           >
             <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 10,
-                padding: "0 6px 8px",
-              }}
-            >
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  letterSpacing: 0.4,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                }}
-              >
-                터미널
-              </span>
-              <div
-                style={{
-                  width: 84,
-                  height: 4,
-                  borderRadius: 999,
-                  overflow: "hidden",
-                  background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
-                }}
-              >
-                <div
-                  style={{
-                    width: "45%",
-                    height: "100%",
-                    borderRadius: 999,
-                    background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
-                  }}
-                />
-              </div>
-            </div>
-            <div
               onClick={(e) => e.stopPropagation()}
               style={{
                 display: "flex",
@@ -2104,7 +2066,7 @@ export default function Alloy() {
                 </span>
                 <div
                   style={{
-                    flex: 1,
+                    flex: "0 0 33%",
                     height: 4,
                     borderRadius: 999,
                     overflow: "hidden",
