@@ -70,14 +70,17 @@ export default function Alloy() {
   const [chatMessage, setChatMessage] = useState("");
   const [chatSortMode, setChatSortMode] = useState(false);
   const [sortHoverIdx, setSortHoverIdx] = useState(null);
-  const [pendingSortCriteria, setPendingSortCriteria] = useState(null);
-  const [sortTypedCount, setSortTypedCount] = useState(0);
+  const [pendingCommand, setPendingCommand] = useState(null); // { kind: "sort", criteria } | { kind: "target", ticker, percent }
+  const [runningTypedCount, setRunningTypedCount] = useState(0);
   const [chatDoneNotice, setChatDoneNotice] = useState(false);
+  const [chatDoneText, setChatDoneText] = useState("");
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
-  const COMMAND_DONE_TEXT = "완료";
-  const COMMANDS = [{ name: "sort", desc: "정렬" }];
+  const COMMANDS = [
+    { name: "sort", desc: "정렬" },
+    { name: "target", desc: "목표 비중" },
+  ];
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -86,7 +89,7 @@ export default function Alloy() {
     } else {
       setChatOpen(true);
       setChatSortMode(false);
-      setPendingSortCriteria(null);
+      setPendingCommand(null);
       setChatDoneNotice(false);
       requestAnimationFrame(() => setChatVisible(true));
     }
@@ -96,6 +99,18 @@ export default function Alloy() {
     const trimmed = chatMessage.trim();
     if (trimmed === "/sort") {
       setChatSortMode(true);
+      setChatMessage("");
+      return;
+    }
+    if (trimmed.startsWith("/target")) {
+      const parts = trimmed.split(/\s+/);
+      const percent = parseFloat((parts[2] || "").replace("%", ""));
+      if (parts.length === 3 && parts[1] && isFinite(percent)) {
+        setPendingCommand({ kind: "target", ticker: parts[1], percent });
+      } else {
+        setChatDoneText("사용법: /target [티커] [%]");
+        setChatDoneNotice(true);
+      }
       setChatMessage("");
       return;
     }
@@ -476,9 +491,9 @@ export default function Alloy() {
         if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
-        } else if (pendingSortCriteria) {
+        } else if (pendingCommand) {
           e.preventDefault();
-          setPendingSortCriteria(null);
+          setPendingCommand(null);
         } else if (chatDoneNotice) {
           e.preventDefault();
           setChatDoneNotice(false);
@@ -501,7 +516,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen, chatSortMode, pendingSortCriteria, chatDoneNotice]);
+  }, [modalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -600,32 +615,75 @@ export default function Alloy() {
       });
       return sorted;
     });
-    setChatSortMode(false);
-    setSortHoverIdx(null);
-    setChatMessage("");
+  };
+
+  // 터미널 /target [티커] [%] 명령어: 목표 비중 달성에 필요한 추가 매수 계산
+  const computeTargetResult = (ticker, percent) => {
+    if (!isFinite(percent) || percent < 0 || percent >= 100) {
+      return "목표 비중은 0~100 사이의 숫자로 입력해주세요";
+    }
+    const grandTotalUSD = holdings.reduce((s, h) => s + toUSD(h), 0) + cashHoldings.reduce((s, c) => s + cashToUSD(c), 0);
+    const stockIdx = holdings.findIndex((h) => h.ticker.toLowerCase() === ticker.toLowerCase());
+    const cashIdx = stockIdx === -1 ? cashHoldings.findIndex((c) => c.currency.toLowerCase() === ticker.toLowerCase()) : -1;
+
+    if (stockIdx === -1 && cashIdx === -1) {
+      return `'${ticker}' 종목을 찾을 수 없습니다`;
+    }
+
+    const currentUSD = stockIdx !== -1 ? toUSD(holdings[stockIdx]) : cashToUSD(cashHoldings[cashIdx]);
+    const currentPercent = grandTotalUSD > 0 ? Math.round((currentUSD / grandTotalUSD) * 100) : 0;
+    const targetFraction = percent / 100;
+    const additionalUSD = (targetFraction * grandTotalUSD - currentUSD) / (1 - targetFraction);
+
+    if (additionalUSD <= 0) {
+      return `${ticker}는 이미 목표 비중 ${percent}%를 충족했습니다 (현재 ${currentPercent}%)`;
+    }
+
+    if (stockIdx !== -1) {
+      const h = holdings[stockIdx];
+      const additionalInCurrency = h.currency === "USD" ? additionalUSD : additionalUSD * todayRate;
+      const sharesNeeded = Math.ceil(additionalInCurrency / h.avgPrice);
+      const amountNeeded = sharesNeeded * h.avgPrice;
+      return `${ticker} 목표 ${percent}% 달성을 위해 약 ${sharesNeeded.toLocaleString()}주 (${formatAmount(amountNeeded, h.currency)}) 추가 매수 필요`;
+    }
+
+    const c = cashHoldings[cashIdx];
+    const additionalInCurrency = c.currency === "USD" ? additionalUSD : additionalUSD * todayRate;
+    return `${ticker} 목표 ${percent}% 달성을 위해 약 ${formatAmount(additionalInCurrency, c.currency)} 추가 필요`;
   };
 
   const handleSortSelectRef = useRef(handleSortSelect);
   handleSortSelectRef.current = handleSortSelect;
+  const computeTargetResultRef = useRef(computeTargetResult);
+  computeTargetResultRef.current = computeTargetResult;
 
-  // 정렬 선택 후 빠른 타이핑 효과로 2초간 실행 안내 표기 -> 실제 정렬 실행 -> 완료 안내
+  // 명령어 선택/입력 후 빠른 타이핑 효과로 2초간 실행 안내 표기 -> 실제 명령 실행 -> 결과 안내
   useEffect(() => {
-    if (!pendingSortCriteria) return;
-    setSortTypedCount(0);
+    if (!pendingCommand) return;
+    setRunningTypedCount(0);
     const totalChars = COMMAND_RUNNING_TEXT.length;
     const typeDuration = 700;
     const charInterval = typeDuration / totalChars;
     let i = 0;
     const typeTimer = setInterval(() => {
       i++;
-      setSortTypedCount(i);
+      setRunningTypedCount(i);
       if (i >= totalChars) clearInterval(typeTimer);
     }, charInterval);
 
     const execTimer = setTimeout(() => {
-      setSortTypedCount(0);
-      handleSortSelectRef.current(pendingSortCriteria);
-      setPendingSortCriteria(null);
+      setRunningTypedCount(0);
+      let resultText = "완료";
+      if (pendingCommand.kind === "sort") {
+        handleSortSelectRef.current(pendingCommand.criteria);
+      } else if (pendingCommand.kind === "target") {
+        resultText = computeTargetResultRef.current(pendingCommand.ticker, pendingCommand.percent);
+      }
+      setChatSortMode(false);
+      setSortHoverIdx(null);
+      setChatMessage("");
+      setPendingCommand(null);
+      setChatDoneText(resultText);
       setChatDoneNotice(true);
     }, 2000);
 
@@ -633,14 +691,14 @@ export default function Alloy() {
       clearInterval(typeTimer);
       clearTimeout(execTimer);
     };
-  }, [pendingSortCriteria]);
+  }, [pendingCommand]);
 
-  // 완료 안내를 빠른 타이핑 효과로 표기 후 원래 입력창으로 복귀
+  // 결과 안내를 빠른 타이핑 효과로 표기 후 원래 입력창으로 복귀
   useEffect(() => {
     if (!chatDoneNotice) return;
     setDoneTypedCount(0);
-    const totalChars = COMMAND_DONE_TEXT.length;
-    const typeDuration = 250;
+    const totalChars = chatDoneText.length;
+    const typeDuration = Math.min(1200, totalChars * 25);
     const charInterval = typeDuration / totalChars;
     let i = 0;
     const typeTimer = setInterval(() => {
@@ -649,16 +707,17 @@ export default function Alloy() {
       if (i >= totalChars) clearInterval(typeTimer);
     }, charInterval);
 
+    const holdDuration = Math.min(6000, Math.max(1500, totalChars * 70));
     const resetTimer = setTimeout(() => {
       setChatDoneNotice(false);
       setDoneTypedCount(0);
-    }, 1500);
+    }, holdDuration);
 
     return () => {
       clearInterval(typeTimer);
       clearTimeout(resetTimer);
     };
-  }, [chatDoneNotice]);
+  }, [chatDoneNotice, chatDoneText]);
 
   const totalStockValueUSD = holdings.reduce((sum, h) => sum + toUSD(h), 0);
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
@@ -2202,7 +2261,7 @@ export default function Alloy() {
                 </span>
               </div>
               {!chatSortMode &&
-                !pendingSortCriteria &&
+                !pendingCommand &&
                 !chatDoneNotice &&
                 chatMessage.startsWith("/") &&
                 (() => {
@@ -2227,6 +2286,8 @@ export default function Alloy() {
                             if (cmd.name === "sort") {
                               setChatSortMode(true);
                               setChatMessage("");
+                            } else if (cmd.name === "target") {
+                              setChatMessage("/target ");
                             }
                           }}
                           onMouseEnter={() => setCmdHoverIdx(i)}
@@ -2283,7 +2344,7 @@ export default function Alloy() {
                   gap: 8,
                 }}
               >
-              {pendingSortCriteria ? (
+              {pendingCommand ? (
                 <div
                   style={{
                     flex: 1,
@@ -2295,21 +2356,22 @@ export default function Alloy() {
                     color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  {COMMAND_RUNNING_TEXT.slice(0, sortTypedCount)}
+                  {COMMAND_RUNNING_TEXT.slice(0, runningTypedCount)}
                 </div>
               ) : chatDoneNotice ? (
                 <div
                   style={{
                     flex: 1,
-                    height: 40,
+                    minHeight: 40,
                     display: "flex",
                     alignItems: "center",
-                    padding: "0 14px",
+                    padding: "8px 14px",
                     fontSize: 14,
+                    lineHeight: 1.4,
                     color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  {COMMAND_DONE_TEXT.slice(0, doneTypedCount)}
+                  {chatDoneText.slice(0, doneTypedCount)}
                 </div>
               ) : chatSortMode ? (
                 [
@@ -2319,7 +2381,7 @@ export default function Alloy() {
                 ].map((opt, i) => (
                   <button
                     key={opt.key}
-                    onClick={() => setPendingSortCriteria(opt.key)}
+                    onClick={() => setPendingCommand({ kind: "sort", criteria: opt.key })}
                     onMouseEnter={() => setSortHoverIdx(i)}
                     onMouseLeave={() =>
                       setSortHoverIdx((prev) => (prev === i ? null : prev))
