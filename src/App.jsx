@@ -70,6 +70,9 @@ export default function Alloy() {
   const [chatMessage, setChatMessage] = useState("");
   const [chatSortMode, setChatSortMode] = useState(false);
   const [sortHoverIdx, setSortHoverIdx] = useState(null);
+  const [pendingSortCriteria, setPendingSortCriteria] = useState(null);
+  const [sortTypedCount, setSortTypedCount] = useState(0);
+  const SORT_STATUS_TEXT = "정렬 명령어를 수행하고 있습니다...";
 
   const toggleChat = () => {
     if (chatOpen) {
@@ -78,6 +81,7 @@ export default function Alloy() {
     } else {
       setChatOpen(true);
       setChatSortMode(false);
+      setPendingSortCriteria(null);
       requestAnimationFrame(() => setChatVisible(true));
     }
   };
@@ -466,6 +470,9 @@ export default function Alloy() {
         if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
+        } else if (pendingSortCriteria) {
+          e.preventDefault();
+          setPendingSortCriteria(null);
         } else if (chatSortMode) {
           e.preventDefault();
           setChatSortMode(false);
@@ -485,7 +492,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, chatOpen, chatSortMode]);
+  }, [modalOpen, chatOpen, chatSortMode, pendingSortCriteria]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -565,24 +572,58 @@ export default function Alloy() {
   const cashToUSD = (c) =>
     c.currency === "USD" ? c.amount : c.amount / todayRate;
 
-  // 터미널 /sort 명령어: 비중/금액/수량 기준 자동 정렬
+  // 터미널 /sort 명령어: 이름/비중/수량 기준 자동 정렬
   const handleSortSelect = (criteria) => {
     setHoldings((prev) => {
       const sorted = [...prev];
-      sorted.sort((a, b) =>
-        criteria === "quantity" ? b.quantity - a.quantity : toUSD(b) - toUSD(a)
-      );
+      sorted.sort((a, b) => {
+        if (criteria === "name") return a.ticker.localeCompare(b.ticker);
+        if (criteria === "quantity") return b.quantity - a.quantity;
+        return toUSD(b) - toUSD(a);
+      });
       return sorted;
     });
     setCashHoldings((prev) => {
       const sorted = [...prev];
-      sorted.sort((a, b) => cashToUSD(b) - cashToUSD(a));
+      sorted.sort((a, b) => {
+        if (criteria === "name") return a.currency.localeCompare(b.currency);
+        return cashToUSD(b) - cashToUSD(a);
+      });
       return sorted;
     });
     setChatSortMode(false);
     setSortHoverIdx(null);
     setChatMessage("");
   };
+
+  const handleSortSelectRef = useRef(handleSortSelect);
+  handleSortSelectRef.current = handleSortSelect;
+
+  // 정렬 선택 후 타이핑 효과로 3초간 안내 문구 표기 -> 삭제 -> 실제 정렬 실행
+  useEffect(() => {
+    if (!pendingSortCriteria) return;
+    setSortTypedCount(0);
+    const totalChars = SORT_STATUS_TEXT.length;
+    const typeDuration = 1500;
+    const charInterval = typeDuration / totalChars;
+    let i = 0;
+    const typeTimer = setInterval(() => {
+      i++;
+      setSortTypedCount(i);
+      if (i >= totalChars) clearInterval(typeTimer);
+    }, charInterval);
+
+    const execTimer = setTimeout(() => {
+      setSortTypedCount(0);
+      handleSortSelectRef.current(pendingSortCriteria);
+      setPendingSortCriteria(null);
+    }, 3000);
+
+    return () => {
+      clearInterval(typeTimer);
+      clearTimeout(execTimer);
+    };
+  }, [pendingSortCriteria]);
 
   const totalStockValueUSD = holdings.reduce((sum, h) => sum + toUSD(h), 0);
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
@@ -2132,15 +2173,30 @@ export default function Alloy() {
                   gap: 8,
                 }}
               >
-              {chatSortMode ? (
+              {pendingSortCriteria ? (
+                <div
+                  style={{
+                    flex: 1,
+                    height: 40,
+                    display: "flex",
+                    alignItems: "center",
+                    padding: "0 14px",
+                    fontSize: 14,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                  }}
+                >
+                  <b>{SORT_STATUS_TEXT.slice(0, Math.min(sortTypedCount, 2))}</b>
+                  {SORT_STATUS_TEXT.slice(2, sortTypedCount)}
+                </div>
+              ) : chatSortMode ? (
                 [
-                  { key: "percent", label: "1. 비중" },
-                  { key: "amount", label: "2. 금액" },
+                  { key: "name", label: "1. 이름" },
+                  { key: "percent", label: "2. 비중" },
                   { key: "quantity", label: "3. 수량" },
                 ].map((opt, i) => (
                   <button
                     key={opt.key}
-                    onClick={() => handleSortSelect(opt.key)}
+                    onClick={() => setPendingSortCriteria(opt.key)}
                     onMouseEnter={() => setSortHoverIdx(i)}
                     onMouseLeave={() =>
                       setSortHoverIdx((prev) => (prev === i ? null : prev))
