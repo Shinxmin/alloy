@@ -1145,7 +1145,7 @@ export default function Alloy() {
             zIndex: -1,
             pointerEvents: "none",
             background:
-              "radial-gradient(circle at 50% 22%, rgba(255,140,90,0.16), rgba(255,90,120,0.08) 45%, transparent 72%)",
+              "radial-gradient(circle at 50% 50%, rgba(255,130,90,0.20), rgba(255,80,110,0.10) 40%, transparent 75%)",
           }}
         />
       )}
