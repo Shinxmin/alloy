@@ -1791,10 +1791,7 @@ export default function Alloy() {
                                 draggedInfo.index !== h.originalIndex
                                   ? "2px solid #8FA7FF"
                                   : "2px solid transparent",
-                              borderBottom:
-                                i < category.holdings.length - 1
-                                  ? (isLight ? "1px solid rgba(20,22,26,0.08)" : "1px solid rgba(255,255,255,0.08)")
-                                  : "none",
+                              borderBottom: "none",
                             }}
                             onMouseEnter={(e) =>
                               (e.currentTarget.style.background = (isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.04)"))
@@ -1941,10 +1938,7 @@ export default function Alloy() {
                                 draggedInfo.index !== c.originalIndex
                                   ? "2px solid #8FA7FF"
                                   : "2px solid transparent",
-                              borderBottom:
-                                i < category.holdings.length - 1
-                                  ? (isLight ? "1px solid rgba(20,22,26,0.08)" : "1px solid rgba(255,255,255,0.08)")
-                                  : "none",
+                              borderBottom: "none",
                             }}
                             onMouseEnter={(e) =>
                               (e.currentTarget.style.background = (isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.04)"))
