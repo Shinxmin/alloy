@@ -79,6 +79,10 @@ export default function Alloy() {
     }
   };
 
+  const handleChatSend = () => {
+    setChatMessage("");
+  };
+
   const [theme, setTheme] = useState("dark"); // "dark" | "light"
   const [themeHovered, setThemeHovered] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
@@ -436,6 +440,40 @@ export default function Alloy() {
 
     closeModal();
   };
+
+  // ESC로 취소, ENTER로 확인 (모달/명령어 입력창 공통)
+  const closeModalRef = useRef(closeModal);
+  closeModalRef.current = closeModal;
+  const handleConfirmRef = useRef(handleConfirm);
+  handleConfirmRef.current = handleConfirm;
+  const toggleChatRef = useRef(toggleChat);
+  toggleChatRef.current = toggleChat;
+  const handleChatSendRef = useRef(handleChatSend);
+  handleChatSendRef.current = handleChatSend;
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        if (modalOpen) {
+          e.preventDefault();
+          closeModalRef.current();
+        } else if (chatOpen) {
+          e.preventDefault();
+          toggleChatRef.current();
+        }
+      } else if (e.key === "Enter") {
+        if (modalOpen) {
+          e.preventDefault();
+          handleConfirmRef.current();
+        } else if (chatOpen) {
+          e.preventDefault();
+          handleChatSendRef.current();
+        }
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [modalOpen, chatOpen]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -2026,7 +2064,7 @@ export default function Alloy() {
                 }}
               />
               <button
-                onClick={() => setChatMessage("")}
+                onClick={handleChatSend}
                 aria-label="전송"
                 style={{
                   width: 40,
