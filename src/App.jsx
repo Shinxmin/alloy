@@ -186,29 +186,15 @@ export default function Alloy() {
     }
   };
 
-  // 터미널 AI 모드: 입력한 질문을 Gemini API로 전달하고 응답을 받아옴
-  const AI_SYSTEM_PROMPT =
-    "1. 최대 15줄 이내로 답변할 것\n" +
-    "2. 볼드체(*) 사용하지 말 것\n" +
-    "3. 빠르고 간략하게 사실인 내용만 확인하여 답할 것\n\n";
+  // 터미널 AI 모드: 입력한 질문을 Supabase Edge Function(gemini-proxy)에 전달하고 응답을 받아옴
+  // Gemini API 키는 클라이언트에 노출되지 않도록 서버(Edge Function) 시크릿으로만 보관됨
   const callGemini = async (prompt) => {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY;
-    if (!apiKey) return "API 키가 설정되지 않았습니다";
     try {
-      const res = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: AI_SYSTEM_PROMPT + prompt }] }],
-            generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
-          }),
-        }
-      );
-      const data = await res.json();
-      const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
-      return text ? text.trim() : "응답을 가져오지 못했습니다";
+      const { data, error } = await supabase.functions.invoke("gemini-proxy", {
+        body: { prompt },
+      });
+      if (error) throw error;
+      return data?.text ? data.text.trim() : "응답을 가져오지 못했습니다";
     } catch (e) {
       console.error("Gemini API 호출 실패:", e);
       return "응답을 가져오지 못했습니다";
