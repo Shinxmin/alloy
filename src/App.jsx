@@ -132,6 +132,9 @@ export default function Alloy() {
 
   const toggleChat = () => {
     if (chatOpen) {
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
       setChatVisible(false);
       setTimeout(() => setChatOpen(false), 300);
     } else {
@@ -170,6 +173,18 @@ export default function Alloy() {
     }
     setChatMessage("");
   };
+
+  // 입력창이 사라지는 상태로 전환되면(선택지/실행중/완료) 아이폰 사파리 키보드를
+  // 명시적으로 닫아줌 - input을 DOM에서 없애는 것만으로는 키보드가 자동으로
+  // 닫히지 않는 경우가 있어, 키보드가 계속 열려있으면 터미널 패널이 원위치로
+  // 돌아오지 않는 문제가 생김
+  useEffect(() => {
+    if (chatSortMode || chatThemeMode || pendingCommand || chatDoneNotice) {
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+    }
+  }, [chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
 
   const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset"
   const [themeHovered, setThemeHovered] = useState(false);
@@ -1083,6 +1098,23 @@ export default function Alloy() {
     marginBottom: 7,
   };
 
+  // 상단 헤더(제목 + 테마/추가 버튼) 스티키 공통 스타일: 스크롤해도 화면 최상단에
+  // 계속 고정되어 보이고 눌려야 하므로, 탭 콘텐츠의 좌우 패딩을 상쇄하는 음수
+  // 마진으로 배경을 화면 끝까지 채워 뒤에 스크롤되는 콘텐츠를 가려줌
+  const stickyHeaderStyle = {
+    position: "sticky",
+    top: 0,
+    zIndex: 5,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    margin: "0 -20px 24px -20px",
+    padding: "22px 20px 14px 20px",
+    background: isLight ? "rgba(248,249,250,0.82)" : "rgba(23,25,29,0.82)",
+    backdropFilter: "blur(20px) saturate(180%)",
+    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+  };
+
   const inputStyle = {
     width: "100%",
     height: 42,
@@ -1305,20 +1337,13 @@ export default function Alloy() {
           minHeight: vh,
           width: "100%",
           boxSizing: "border-box",
-          padding: "22px 20px 140px 20px",
+          padding: "0 20px 140px 20px",
         }}
       >
         {active === 0 && (
           <>
-            {/* 상단 헤더: 제목 + 테마 토글 (B탭 헤더 참고) */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 24,
-              }}
-            >
+            {/* 상단 헤더: 제목 + 테마 토글 (스크롤해도 화면 상단에 고정) */}
+            <div style={stickyHeaderStyle}>
               <div>
                 <h1
                   style={{
@@ -1453,15 +1478,8 @@ export default function Alloy() {
 
         {active === 1 && (
           <>
-            {/* 상단 헤더: 제목 + 테마 토글 */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 24,
-              }}
-            >
+            {/* 상단 헤더: 제목 + 테마 토글 (스크롤해도 화면 상단에 고정) */}
+            <div style={stickyHeaderStyle}>
               <div>
                 <h1
                   style={{
@@ -2017,15 +2035,8 @@ export default function Alloy() {
 
         {active === 2 && (
           <>
-            {/* 상단 헤더: 제목 + 테마 토글 (A탭과 동일한 위치/구성) */}
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 24,
-              }}
-            >
+            {/* 상단 헤더: 제목 + 테마 토글 (스크롤해도 화면 상단에 고정) */}
+            <div style={stickyHeaderStyle}>
               <div>
                 <h1
                   style={{
@@ -2570,7 +2581,7 @@ export default function Alloy() {
           <div
             style={{
               position: "fixed",
-              bottom: 24 + BAR_HEIGHT + 14 + keyboardOffset,
+              bottom: keyboardOffset > 0 ? keyboardOffset + 14 : 24 + BAR_HEIGHT + 14,
               left: "50%",
               zIndex: 10,
               width: "min(360px, 88vw)",
