@@ -2933,7 +2933,7 @@ export default function Alloy() {
                   letterSpacing: 0.2,
                 }}
               >
-                원달러 환율
+                환율
               </h2>
               <span
                 style={{
@@ -2942,7 +2942,7 @@ export default function Alloy() {
                   color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                 }}
               >
-                최근 1개월
+                (KRW/USD) 최근 1개월
               </span>
             </div>
 
