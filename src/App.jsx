@@ -76,6 +76,7 @@ export default function Alloy() {
   const [chatDoneText, setChatDoneText] = useState("");
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
+  const [chatPlaceholder, setChatPlaceholder] = useState("명령어를 입력하세요");
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
@@ -108,8 +109,7 @@ export default function Alloy() {
       if (parts.length === 3 && parts[1] && isFinite(percent)) {
         setPendingCommand({ kind: "target", ticker: parts[1], percent });
       } else {
-        setChatDoneText("사용법: /target [티커] [%]");
-        setChatDoneNotice(true);
+        setChatPlaceholder("사용법: /target [티커] [%]");
       }
       setChatMessage("");
       return;
@@ -673,18 +673,20 @@ export default function Alloy() {
 
     const execTimer = setTimeout(() => {
       setRunningTypedCount(0);
-      let resultText = "완료";
-      if (pendingCommand.kind === "sort") {
-        handleSortSelectRef.current(pendingCommand.criteria);
-      } else if (pendingCommand.kind === "target") {
-        resultText = computeTargetResultRef.current(pendingCommand.ticker, pendingCommand.percent);
-      }
       setChatSortMode(false);
       setSortHoverIdx(null);
       setChatMessage("");
       setPendingCommand(null);
-      setChatDoneText(resultText);
-      setChatDoneNotice(true);
+      if (pendingCommand.kind === "sort") {
+        handleSortSelectRef.current(pendingCommand.criteria);
+        setChatDoneText("완료");
+        setChatDoneNotice(true);
+      } else if (pendingCommand.kind === "target") {
+        // /target 결과는 자동으로 사라지지 않고 입력창 placeholder 자리에 유지됨
+        setChatPlaceholder(
+          computeTargetResultRef.current(pendingCommand.ticker, pendingCommand.percent)
+        );
+      }
     }, 2000);
 
     return () => {
@@ -2418,7 +2420,7 @@ export default function Alloy() {
                     autoFocus
                     value={chatMessage}
                     onChange={(e) => setChatMessage(e.target.value)}
-                    placeholder="명령어를 입력하세요"
+                    placeholder={chatPlaceholder}
                     style={{
                       flex: 1,
                       height: 40,
