@@ -39,29 +39,62 @@ Deno.serve(async (req) => {
     });
   }
 
-  try {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: AI_SYSTEM_PROMPT + prompt }] }],
-          generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
-        }),
-      }
-    );
-    const data = await res.json();
-    const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+  // gemini-flash-latest는 "high demand"로 인한 일시적 503(UNAVAILABLE)이 종종
+  // 발생함 (약 20% 빈도로 관측됨) - 재시도 없이는 사용자에게 실패로 보임
+  const MAX_ATTEMPTS = 3;
+  const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-    return new Response(JSON.stringify({ text: text ? text.trim() : null }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
-  } catch (e) {
-    console.error("Gemini API 호출 실패:", e);
-    return new Response(JSON.stringify({ error: "응답을 가져오지 못했습니다" }), {
-      status: 502,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent?key=${apiKey}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: AI_SYSTEM_PROMPT + prompt }] }],
+            generationConfig: { thinkingConfig: { thinkingBudget: 0 } },
+          }),
+        }
+      );
+
+      if (res.ok) {
+        const data = await res.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        return new Response(JSON.stringify({ text: text ? text.trim() : null }), {
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const isRetryable = res.status === 503 || res.status === 429;
+      const errBody = await res.text().catch(() => "");
+      console.error(`Gemini API 오류 (attempt ${attempt}, status ${res.status}):`, errBody);
+
+      if (isRetryable && attempt < MAX_ATTEMPTS) {
+        await sleep(400 * attempt);
+        continue;
+      }
+
+      return new Response(JSON.stringify({ error: "응답을 가져오지 못했습니다" }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    } catch (e) {
+      console.error(`Gemini API 호출 실패 (attempt ${attempt}):`, e);
+      if (attempt < MAX_ATTEMPTS) {
+        await sleep(400 * attempt);
+        continue;
+      }
+      return new Response(JSON.stringify({ error: "응답을 가져오지 못했습니다" }), {
+        status: 502,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
   }
+
+  // 이론상 도달하지 않음 (루프의 각 반복이 항상 return으로 종료됨)
+  return new Response(JSON.stringify({ error: "응답을 가져오지 못했습니다" }), {
+    status: 502,
+    headers: { ...corsHeaders, "Content-Type": "application/json" },
+  });
 });
