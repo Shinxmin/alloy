@@ -6,7 +6,7 @@ const corsHeaders = {
 };
 
 type Holding = { ticker: string; currency: string };
-type FmpQuote = { symbol: string; price: number; change?: number; changesPercentage?: number };
+type FmpQuote = { symbol: string; price: number; change?: number; changePercentage?: number };
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -36,46 +36,64 @@ Deno.serve(async (req) => {
   const dayChange: Record<string, { amount: number; percent: number }> = {};
 
   // ---- USD 종목: FMP (현재가 + 전일 대비 변동) ----
+  // 2025-08-31 이후 발급된 키는 레거시 /api/v3/ 엔드포인트가 막혀 있어 신규 /stable/ 엔드포인트를 사용해야 함
   const fmpApiKey = Deno.env.get("FMP_API_KEY");
   if (usdHoldings.length > 0 && fmpApiKey) {
-    const fetchFmpQuotes = async (symbols: string[]): Promise<FmpQuote[]> => {
+    const fetchBatch = async (symbols: string[]): Promise<FmpQuote[]> => {
       if (symbols.length === 0) return [];
-      const url = `https://financialmodelingprep.com/api/v3/quote/${symbols
+      const url = `https://financialmodelingprep.com/stable/batch-quote?symbols=${symbols
         .map((s) => encodeURIComponent(s))
-        .join(",")}?apikey=${fmpApiKey}`;
+        .join(",")}&apikey=${fmpApiKey}`;
       try {
         const res = await fetch(url);
         const bodyText = await res.text();
         if (!res.ok) {
-          console.error(`FMP 오류 (symbols=${symbols.join(",")}, status=${res.status}):`, bodyText);
+          console.error(`FMP batch-quote 오류 (symbols=${symbols.join(",")}, status=${res.status}):`, bodyText);
           return [];
         }
         const data = JSON.parse(bodyText);
         if (!Array.isArray(data)) {
-          console.error(`FMP 응답이 배열이 아님 (symbols=${symbols.join(",")}):`, bodyText);
+          console.error(`FMP batch-quote 응답이 배열이 아님 (symbols=${symbols.join(",")}):`, bodyText);
           return [];
         }
         return data;
       } catch (e) {
-        console.error(`FMP 호출 실패 (symbols=${symbols.join(",")}):`, e);
+        console.error(`FMP batch-quote 호출 실패 (symbols=${symbols.join(",")}):`, e);
         return [];
       }
     };
 
+    const fetchSingle = async (symbol: string): Promise<FmpQuote | null> => {
+      const url = `https://financialmodelingprep.com/stable/quote?symbol=${encodeURIComponent(symbol)}&apikey=${fmpApiKey}`;
+      try {
+        const res = await fetch(url);
+        const bodyText = await res.text();
+        if (!res.ok) {
+          console.error(`FMP quote 오류 (symbol=${symbol}, status=${res.status}):`, bodyText);
+          return null;
+        }
+        const data = JSON.parse(bodyText);
+        return Array.isArray(data) ? data[0] ?? null : data ?? null;
+      } catch (e) {
+        console.error(`FMP quote 호출 실패 (symbol=${symbol}):`, e);
+        return null;
+      }
+    };
+
     const symbols = usdHoldings.map((h) => h.ticker);
-    let results = await fetchFmpQuotes(symbols);
-    // 무료 플랜에서 배치(콤마 구분 다중 심볼) 요청이 막혀 빈 배열이 오는 경우를 대비해 종목별 개별 재시도
-    if (results.length === 0 && symbols.length > 1) {
-      const individualResults = await Promise.all(symbols.map((s) => fetchFmpQuotes([s])));
-      results = individualResults.flat();
+    let results = await fetchBatch(symbols);
+    // 배치 요청이 막혀 빈 배열이 오는 경우를 대비해 종목별 개별 재시도
+    if (results.length === 0 && symbols.length > 0) {
+      const individualResults = await Promise.all(symbols.map((s) => fetchSingle(s)));
+      results = individualResults.filter((q): q is FmpQuote => q !== null);
     }
     usdHoldings.forEach((h) => {
       const quote = results.find((q) => q.symbol === h.ticker);
       if (quote && isFinite(quote.price) && quote.price > 0) {
         prices[h.ticker] = quote.price;
       }
-      if (quote && isFinite(quote.change) && isFinite(quote.changesPercentage)) {
-        dayChange[h.ticker] = { amount: quote.change as number, percent: quote.changesPercentage as number };
+      if (quote && isFinite(quote.change) && isFinite(quote.changePercentage)) {
+        dayChange[h.ticker] = { amount: quote.change as number, percent: quote.changePercentage as number };
       }
     });
   } else if (usdHoldings.length > 0 && !fmpApiKey) {
