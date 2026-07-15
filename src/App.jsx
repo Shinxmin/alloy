@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from "recharts";
-import { createChart, AreaSeries } from "lightweight-charts";
 import { supabase } from "./supabaseClient";
 
 // 텍스트를 한 글자씩 타이핑되는 것처럼 보여주는 공용 훅 (버튼 등 UI 요소가 아닌 설명 텍스트용)
@@ -374,13 +373,10 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // 종목 정보 모달 (종목 클릭 시 표시, 가격 차트)
+  // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
   const [infoHolding, setInfoHolding] = useState(null);
-  const [infoHistoryLoading, setInfoHistoryLoading] = useState(false);
-  const [infoHistory, setInfoHistory] = useState([]);
-  const [infoSupported, setInfoSupported] = useState(true);
   const infoChartContainerRef = useRef(null);
 
   const openInfoModal = (originalIndex) => {
@@ -398,73 +394,51 @@ export default function Alloy() {
   const closeInfoModalRef = useRef(closeInfoModal);
   closeInfoModalRef.current = closeInfoModal;
 
-  // 정보 모달이 열리면 해당 종목의 최근 시세 히스토리를 조회 (원화 종목만 지원)
+  // 정보 모달이 열리면 TradingView 심볼 개요 위젯을 삽입 (티커명으로 종목 조회, 원화 종목은 KRX 거래소 지정)
   useEffect(() => {
     if (!infoModalOpen || !infoHolding) return;
-    let cancelled = false;
-    setInfoHistoryLoading(true);
-    setInfoHistory([]);
-    setInfoSupported(true);
-    supabase.functions
-      .invoke("stock-history-proxy", {
-        body: { ticker: infoHolding.ticker, currency: infoHolding.currency },
-      })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setInfoHistoryLoading(false);
-        if (error || !data) {
-          setInfoHistory([]);
-          return;
-        }
-        setInfoSupported(data.supported !== false);
-        setInfoHistory(Array.isArray(data.history) ? data.history : []);
-      })
-      .catch(() => {
-        if (!cancelled) setInfoHistoryLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [infoModalOpen, infoHolding]);
-
-  // 정보 모달의 차트 컨테이너가 준비되면 lightweight-charts로 렌더링
-  useEffect(() => {
-    if (!infoModalOpen || infoHistoryLoading || infoHistory.length === 0) return;
     const container = infoChartContainerRef.current;
     if (!container) return;
+    container.innerHTML = "";
 
-    const chart = createChart(container, {
-      width: container.clientWidth,
-      height: 180,
-      layout: {
-        background: { color: "transparent" },
-        textColor: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
-      },
-      grid: {
-        vertLines: { visible: false },
-        horzLines: { color: isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)" },
-      },
-      rightPriceScale: { borderVisible: false },
-      timeScale: { borderVisible: false },
-    });
-    const color = (infoHolding && infoHolding.color) || "#8FA7FF";
-    const series = chart.addSeries(AreaSeries, {
-      lineColor: color,
-      topColor: `${color}55`,
-      bottomColor: `${color}00`,
+    const widgetDiv = document.createElement("div");
+    widgetDiv.className = "tradingview-widget-container__widget";
+    container.appendChild(widgetDiv);
+
+    const symbol =
+      infoHolding.currency === "KRW" ? `KRX:${infoHolding.ticker}` : infoHolding.ticker;
+
+    const script = document.createElement("script");
+    script.type = "text/javascript";
+    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
+    script.async = true;
+    script.text = JSON.stringify({
+      symbols: [[symbol]],
+      chartOnly: true,
+      width: "100%",
+      height: "180",
+      locale: "kr",
+      colorTheme: isLight ? "light" : "dark",
+      isTransparent: true,
+      autosize: false,
+      showVolume: false,
+      hideDateRanges: false,
+      hideMarketStatus: true,
+      hideSymbolLogo: true,
+      scalePosition: "no",
+      scaleMode: "Normal",
+      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+      valuesTracking: "1",
+      changeMode: "price-and-percent",
       lineWidth: 2,
+      lineType: 0,
     });
-    series.setData(infoHistory);
-    chart.timeScale().fitContent();
-
-    const handleResize = () => chart.applyOptions({ width: container.clientWidth });
-    window.addEventListener("resize", handleResize);
+    container.appendChild(script);
 
     return () => {
-      window.removeEventListener("resize", handleResize);
-      chart.remove();
+      container.innerHTML = "";
     };
-  }, [infoModalOpen, infoHistoryLoading, infoHistory, isLight, infoHolding]);
+  }, [infoModalOpen, infoHolding, isLight]);
 
   // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
@@ -3419,48 +3393,27 @@ export default function Alloy() {
             </div>
 
             <div style={{ width: "100%", height: 180 }}>
-              {infoHistoryLoading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  불러오는 중...
-                </div>
-              ) : !infoSupported ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  이 종목은 아직 차트를 지원하지 않아요
-                </div>
-              ) : infoHistory.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  시세 정보를 불러올 수 없어요
-                </div>
-              ) : (
-                <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
-              )}
+              <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
+            </div>
+            <div
+              style={{
+                textAlign: "center",
+                marginTop: 6,
+                fontSize: 10,
+                opacity: 0.4,
+              }}
+            >
+              <a
+                href="https://www.tradingview.com/"
+                target="_blank"
+                rel="noopener noreferrer"
+                style={{
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  textDecoration: "none",
+                }}
+              >
+                TradingView 제공
+              </a>
             </div>
           </div>
         </div>
