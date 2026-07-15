@@ -420,6 +420,7 @@ export default function Alloy() {
       width: "100%",
       height: "180",
       locale: "kr",
+      timezone: "Asia/Seoul",
       colorTheme: isLight ? "light" : "dark",
       isTransparent: true,
       autosize: false,
