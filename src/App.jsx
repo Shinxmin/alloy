@@ -134,36 +134,27 @@ export default function Alloy() {
   const [chatHovered, setChatHovered] = useState(false);
   const [chatMessage, setChatMessage] = useState("");
   const [chatSortMode, setChatSortMode] = useState(false);
-  const [chatThemeMode, setChatThemeMode] = useState(false);
   const [sortHoverIdx, setSortHoverIdx] = useState(null);
-  const [pendingCommand, setPendingCommand] = useState(null); // { kind: "sort", criteria } | { kind: "target", ticker, percent } | { kind: "theme", choice }
+  const [pendingCommand, setPendingCommand] = useState(null); // { kind: "sort", criteria } | { kind: "target", ticker, percent }
   const [runningTypedCount, setRunningTypedCount] = useState(0);
   const [chatDoneNotice, setChatDoneNotice] = useState(false);
   const [chatDoneText, setChatDoneText] = useState("");
   const [doneTypedCount, setDoneTypedCount] = useState(0);
   const [cmdHoverIdx, setCmdHoverIdx] = useState(null);
   const [targetNoticeText, setTargetNoticeText] = useState(null);
-  // AI 모드 (터미널 입력창 우측 스위치): 켜면 명령어 대신 Gemini에게 자유 질문
-  const [aiMode, setAiMode] = useState(false);
-  const [aiSwitchHovered, setAiSwitchHovered] = useState(false);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiResponseText, setAiResponseText] = useState(null);
-  const AI_LOADING_TEXT = "응답을 생성하고 있습니다";
-  const [aiLoadingTypedCount, setAiLoadingTypedCount] = useState(0);
-  const sortThemePromptText =
+  const [targetGridHoverIdx, setTargetGridHoverIdx] = useState(null);
+  const sortPromptText =
     chatSortMode && !pendingCommand && !chatDoneNotice
       ? "어떤 기준으로 정렬할까요?"
-      : chatThemeMode && !pendingCommand && !chatDoneNotice
-      ? "어떤 테마를 적용할까요?"
       : "";
-  const typedSortThemePrompt = useTypedText(sortThemePromptText);
+  const typedSortPrompt = useTypedText(sortPromptText);
   const typedTargetNotice = useTypedText(targetNoticeText || "");
-  const typedAiResponse = useTypedText(aiResponseText || "");
+  // /target 명령에서 티커를 아직 선택하지 않은 상태(비중까지 입력하면 두 번째 공백이 생겨 false가 됨)
+  const isTargetTickerSelect = /^\/target( [^\s]*)?$/.test(chatMessage);
   const COMMAND_RUNNING_TEXT = "명령어를 실행하고 있습니다";
   const COMMANDS = [
     { name: "sort", desc: "정렬" },
     { name: "target", desc: "목표 비중", usage: "[종목] [비중(%)]" },
-    { name: "theme", desc: "테마" },
   ];
 
   const toggleChat = () => {
@@ -176,54 +167,17 @@ export default function Alloy() {
     } else {
       setChatOpen(true);
       setChatSortMode(false);
-      setChatThemeMode(false);
       setPendingCommand(null);
       setChatDoneNotice(false);
       setTargetNoticeText(null);
-      setAiResponseText(null);
-      setAiLoading(false);
       requestAnimationFrame(() => setChatVisible(true));
-    }
-  };
-
-  // 터미널 AI 모드: 입력한 질문을 Supabase Edge Function(gemini-proxy)에 전달하고 응답을 받아옴
-  // Gemini API 키는 클라이언트에 노출되지 않도록 서버(Edge Function) 시크릿으로만 보관됨
-  const callGemini = async (prompt) => {
-    try {
-      const { data, error } = await supabase.functions.invoke("gemini-proxy", {
-        body: { prompt },
-      });
-      if (error) throw error;
-      return data?.text ? data.text.trim() : "응답을 가져오지 못했습니다";
-    } catch (e) {
-      console.error("Gemini API 호출 실패:", e);
-      return "응답을 가져오지 못했습니다";
     }
   };
 
   const handleChatSend = () => {
     const trimmed = chatMessage.trim();
-    if (aiMode) {
-      if (!trimmed || usagePercent >= 100) return;
-      setChatMessage("");
-      setAiResponseText(null);
-      setAiLoading(true);
-      callGemini(trimmed).then((text) => {
-        setAiLoading(false);
-        setAiResponseText(text);
-        const next = Math.min(100, usagePercent + 10);
-        setUsagePercent(next);
-        if (next >= 100) setAiMode(false);
-      });
-      return;
-    }
     if (trimmed === "/sort") {
       setChatSortMode(true);
-      setChatMessage("");
-      return;
-    }
-    if (trimmed === "/theme") {
-      setChatThemeMode(true);
       setChatMessage("");
       return;
     }
@@ -246,12 +200,12 @@ export default function Alloy() {
   // 닫히지 않는 경우가 있어, 키보드가 계속 열려있으면 터미널 패널이 원위치로
   // 돌아오지 않는 문제가 생김
   useEffect(() => {
-    if (chatSortMode || chatThemeMode || pendingCommand || chatDoneNotice) {
+    if (chatSortMode || pendingCommand || chatDoneNotice) {
       if (document.activeElement && document.activeElement.blur) {
         document.activeElement.blur();
       }
     }
-  }, [chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
+  }, [chatSortMode, pendingCommand, chatDoneNotice]);
 
   const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset" | "forest"
   // 테마별 대표 색상/그라데이션 (배경 레이어와 /theme 선택지 원형 스와치에서 공용으로 사용)
@@ -418,127 +372,9 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // 사용량 한도 (터미널 입력창 진행률 바와 동기화, 매일 태평양 표준시(PST) 자정에 0%로 초기화)
-  // America/Los_Angeles 타임존 기준으로 계산 (Intl API가 서머타임 전환을 자동 처리)
-  const getPSTInfo = () => {
-    const now = new Date();
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "America/Los_Angeles",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(now);
-    const map = {};
-    parts.forEach((p) => {
-      if (p.type !== "literal") map[p.type] = p.value;
-    });
-    const dateStr = `${map.year}-${map.month}-${map.day}`;
-    const msSinceMidnight =
-      (parseInt(map.hour, 10) * 3600 + parseInt(map.minute, 10) * 60 + parseInt(map.second, 10)) *
-        1000 +
-      now.getMilliseconds();
-    const msUntilMidnight = 86400000 - msSinceMidnight;
-    return { dateStr, msUntilMidnight };
-  };
-
-  const [usagePercent, setUsagePercent] = useState(0);
-  const [usageLoaded, setUsageLoaded] = useState(false);
-  const [usageModalOpen, setUsageModalOpen] = useState(false);
-  const [usageModalVisible, setUsageModalVisible] = useState(false);
-  const [usageCountdownText, setUsageCountdownText] = useState("");
-  const [promoOpen, setPromoOpen] = useState(false);
-  const [promoCode, setPromoCode] = useState("");
-
-  const handlePromoSubmit = () => {
-    const isValid = promoCode.trim().toLowerCase() === "dev";
-    setPromoCode("");
-    setPromoOpen(false);
-    closeUsageModal();
-    if (isValid) {
-      setUsagePercent(0);
-      showSubActionNotice("프로모션이 적용되었습니다");
-    } else {
-      showSubActionNotice("프로모션 코드가 일치하지 않습니다", true);
-    }
-  };
-
+  // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
-    const { dateStr } = getPSTInfo();
-    try {
-      const savedDate = localStorage.getItem("alloy_usageResetDate");
-      const savedPercent = parseFloat(localStorage.getItem("alloy_usagePercent"));
-      if (savedDate === dateStr && isFinite(savedPercent)) {
-        setUsagePercent(savedPercent);
-      } else {
-        localStorage.setItem("alloy_usageResetDate", dateStr);
-        localStorage.setItem("alloy_usagePercent", "0");
-      }
-    } catch (e) {}
-    setUsageLoaded(true);
-  }, []);
-
-  useEffect(() => {
-    if (!usageLoaded) return;
-    try {
-      localStorage.setItem("alloy_usagePercent", String(usagePercent));
-    } catch (e) {}
-  }, [usagePercent, usageLoaded]);
-
-  // 태평양 표준시(PST) 자정마다 실제로 0%로 초기화 (앱을 켜둔 채로 자정을 넘겨도 동작)
-  useEffect(() => {
-    let timer;
-    const scheduleReset = () => {
-      const { msUntilMidnight } = getPSTInfo();
-      timer = setTimeout(() => {
-        setUsagePercent(0);
-        const { dateStr } = getPSTInfo();
-        try {
-          localStorage.setItem("alloy_usageResetDate", dateStr);
-          localStorage.setItem("alloy_usagePercent", "0");
-        } catch (e) {}
-        scheduleReset();
-      }, msUntilMidnight + 500);
-    };
-    scheduleReset();
-    return () => clearTimeout(timer);
-  }, []);
-
-  const openUsageModal = () => {
-    setPromoOpen(false);
-    setPromoCode("");
-    setUsageModalOpen(true);
-    requestAnimationFrame(() => setUsageModalVisible(true));
-  };
-
-  const closeUsageModal = () => {
-    setUsageModalVisible(false);
-    setTimeout(() => setUsageModalOpen(false), 300);
-  };
-  const closeUsageModalRef = useRef(closeUsageModal);
-  closeUsageModalRef.current = closeUsageModal;
-
-  // 모달이 열려있는 동안 PST 자정까지 남은 시간을 1초마다 갱신
-  useEffect(() => {
-    if (!usageModalOpen) return;
-    const update = () => {
-      const { msUntilMidnight } = getPSTInfo();
-      const totalMinutes = Math.floor(msUntilMidnight / 60000);
-      const hh = Math.floor(totalMinutes / 60);
-      const mm = totalMinutes % 60;
-      setUsageCountdownText(`${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`);
-    };
-    update();
-    const interval = setInterval(update, 1000);
-    return () => clearInterval(interval);
-  }, [usageModalOpen]);
-
-  // 모달(종목 추가/수정, 환율 차트, 사용량 한도, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
-  useEffect(() => {
-    const anyModalOpen = modalOpen || rateModalOpen || usageModalOpen || chatOpen;
+    const anyModalOpen = modalOpen || rateModalOpen || chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -553,7 +389,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, usageModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -892,10 +728,7 @@ export default function Alloy() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        if (usageModalOpen) {
-          e.preventDefault();
-          closeUsageModalRef.current();
-        } else if (rateModalOpen) {
+        if (rateModalOpen) {
           e.preventDefault();
           closeRateModalRef.current();
         } else if (modalOpen) {
@@ -910,9 +743,6 @@ export default function Alloy() {
         } else if (chatSortMode) {
           e.preventDefault();
           setChatSortMode(false);
-        } else if (chatThemeMode) {
-          e.preventDefault();
-          setChatThemeMode(false);
         } else if (chatOpen) {
           e.preventDefault();
           toggleChatRef.current();
@@ -929,7 +759,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, rateModalOpen, usageModalOpen, chatOpen, chatSortMode, chatThemeMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, rateModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -1084,17 +914,12 @@ export default function Alloy() {
     const execTimer = setTimeout(() => {
       setRunningTypedCount(0);
       setChatSortMode(false);
-      setChatThemeMode(false);
       setSortHoverIdx(null);
       setChatMessage("");
       setPendingCommand(null);
       if (pendingCommand.kind === "sort") {
         handleSortSelectRef.current(pendingCommand.criteria);
-        setChatDoneText("완료");
-        setChatDoneNotice(true);
-      } else if (pendingCommand.kind === "theme") {
-        setTheme(pendingCommand.choice);
-        setChatDoneText("완료");
+        setChatDoneText("완료했습니다");
         setChatDoneNotice(true);
       } else if (pendingCommand.kind === "target") {
         // /target 결과는 자동으로 사라지지 않고 입력창 자리에 일반 텍스트로 유지됨 (주식 현재가 조회는 비동기)
@@ -1109,25 +934,6 @@ export default function Alloy() {
       clearTimeout(execTimer);
     };
   }, [pendingCommand]);
-
-  // AI 모드 응답 대기 중 빠른 타이핑 효과로 "응답을 생성하고 있습니다" 표기
-  useEffect(() => {
-    if (!aiLoading) {
-      setAiLoadingTypedCount(0);
-      return;
-    }
-    setAiLoadingTypedCount(0);
-    const totalChars = AI_LOADING_TEXT.length;
-    const typeDuration = 700;
-    const charInterval = typeDuration / totalChars;
-    let i = 0;
-    const typeTimer = setInterval(() => {
-      i++;
-      setAiLoadingTypedCount(i);
-      if (i >= totalChars) clearInterval(typeTimer);
-    }, charInterval);
-    return () => clearInterval(typeTimer);
-  }, [aiLoading]);
 
   // 결과 안내를 빠른 타이핑 효과로 표기 후 원래 입력창으로 복귀
   useEffect(() => {
@@ -1201,6 +1007,27 @@ export default function Alloy() {
     return hash % length;
   };
 
+  // 종목별 색상: 해시로 우선 배정하되, 이미 다른 보유 종목이 같은 색을 쓰고 있으면
+  // 팔레트 내 비어있는 다음 색상으로 넘겨 색이 겹치지 않도록 함 (팔레트보다 종목이 많으면 중복 허용)
+  const stockColorByTicker = {};
+  {
+    const usedColorIdx = new Set();
+    holdings.forEach((h) => {
+      let idx = hashToIndex(h.ticker, palette.length);
+      if (usedColorIdx.has(idx)) {
+        for (let offset = 1; offset < palette.length; offset++) {
+          const candidate = (idx + offset) % palette.length;
+          if (!usedColorIdx.has(candidate)) {
+            idx = candidate;
+            break;
+          }
+        }
+      }
+      usedColorIdx.add(idx);
+      stockColorByTicker[h.ticker] = palette[idx];
+    });
+  }
+
   const stockHoldings = holdings.map((h, i) => {
     const value = h.avgPrice * h.quantity; // 표기용 (원래 입력 통화)
     const usdValue = toUSD(h);
@@ -1212,7 +1039,7 @@ export default function Alloy() {
       value: formatAmount(value, h.currency),
       avgPrice: formatAmount(h.avgPrice, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
-      color: palette[hashToIndex(h.ticker, palette.length)],
+      color: stockColorByTicker[h.ticker],
       originalIndex: i,
     };
   });
@@ -2510,51 +2337,6 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 구독 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
-            <h2
-              style={{
-                margin: "0 0 14px 0",
-                fontSize: 18,
-                fontWeight: 700,
-                color: isLight ? "#14161A" : "#FFFFFF",
-              }}
-            >
-              구독
-            </h2>
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 36 }}>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  padding: "4px 14px",
-                  borderRadius: 999,
-                  letterSpacing: 0.2,
-                  background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.08)",
-                  backdropFilter: "blur(20px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)"}`,
-                  color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
-                }}
-              >
-                Basic
-              </span>
-              <span
-                onClick={openUsageModal}
-                role="button"
-                tabIndex={0}
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  cursor: "pointer",
-                  textDecoration: "underline",
-                  textUnderlineOffset: 3,
-                }}
-              >
-                사용량 한도
-              </span>
-            </div>
-
             {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
             <h2
               style={{
@@ -2876,105 +2658,8 @@ export default function Alloy() {
                 >
                   터미널
                 </span>
-                <div
-                  style={{
-                    flex: "0 0 33%",
-                    height: 4,
-                    borderRadius: 999,
-                    overflow: "hidden",
-                    background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
-                  }}
-                >
-                  <div
-                    style={{
-                      width: `${usagePercent}%`,
-                      height: "100%",
-                      borderRadius: 999,
-                      background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
-                      transition: "width 0.3s ease",
-                    }}
-                  />
-                </div>
-                <span
-                  style={{
-                    fontSize: 11,
-                    fontWeight: 600,
-                    letterSpacing: 0.2,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    flexShrink: 0,
-                  }}
-                >
-                  {Math.round(usagePercent)}%
-                </span>
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 6,
-                    marginLeft: "auto",
-                    flexShrink: 0,
-                    opacity: usagePercent >= 100 ? 0.4 : 1,
-                    transition: "opacity 0.2s ease",
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      letterSpacing: 0.2,
-                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    }}
-                  >
-                    Gemini API
-                  </span>
-                  <button
-                    onClick={() => {
-                      if (usagePercent >= 100) return;
-                      setAiMode((v) => !v);
-                    }}
-                    onMouseEnter={() => setAiSwitchHovered(true)}
-                    onMouseLeave={() => setAiSwitchHovered(false)}
-                    disabled={usagePercent >= 100}
-                    aria-label="AI 모드 전환"
-                    style={{
-                      width: 34,
-                      height: 20,
-                      borderRadius: 999,
-                      border: "none",
-                      padding: 2,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: aiMode ? "flex-end" : "flex-start",
-                      cursor: usagePercent >= 100 ? "not-allowed" : "pointer",
-                      outline: "none",
-                      flexShrink: 0,
-                      background: aiMode
-                        ? isLight
-                          ? "rgba(20,22,26,0.55)"
-                          : "rgba(255,255,255,0.65)"
-                        : isLight
-                        ? "rgba(20,22,26,0.14)"
-                        : "rgba(255,255,255,0.16)",
-                      transform: aiSwitchHovered && usagePercent < 100 ? "scale(1.08)" : "scale(1)",
-                      transition: "background 0.25s ease, transform 0.15s ease",
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: 16,
-                        height: 16,
-                        borderRadius: "50%",
-                        background: isLight ? "#FFFFFF" : "#17191D",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.35)",
-                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                    />
-                  </button>
-                </div>
               </div>
-              {!aiMode &&
-                !chatSortMode &&
-                !chatThemeMode &&
+              {!chatSortMode &&
                 !pendingCommand &&
                 !chatDoneNotice &&
                 chatMessage.startsWith("/") &&
@@ -3006,9 +2691,6 @@ export default function Alloy() {
                           onClick={() => {
                             if (cmd.name === "sort") {
                               setChatSortMode(true);
-                              setChatMessage("");
-                            } else if (cmd.name === "theme") {
-                              setChatThemeMode(true);
                               setChatMessage("");
                             } else if (cmd.name === "target" && !chatMessage.includes(" ")) {
                               setChatMessage("/target ");
@@ -3069,31 +2751,64 @@ export default function Alloy() {
                     </div>
                   );
                 })()}
-              {aiLoading && (
-                <div
-                  style={{
-                    padding: "4px 14px",
-                    fontSize: 14,
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                  }}
-                >
-                  {AI_LOADING_TEXT.slice(0, aiLoadingTypedCount)}
-                </div>
-              )}
-              {!aiLoading && aiResponseText && (
-                <div
-                  style={{
-                    padding: "4px 14px",
-                    fontSize: 14,
-                    lineHeight: 1.4,
-                    whiteSpace: "normal",
-                    wordBreak: "break-word",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                  }}
-                >
-                  {typedAiResponse}
-                </div>
-              )}
+              {isTargetTickerSelect &&
+                !pendingCommand &&
+                !chatDoneNotice &&
+                stockHoldings.length > 0 && (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      gap: 6,
+                      padding: "0 4px",
+                    }}
+                  >
+                    {stockHoldings.map((h, i) => (
+                      <button
+                        key={h.ticker}
+                        onClick={() => setChatMessage(`/target ${h.ticker} `)}
+                        onMouseEnter={() => setTargetGridHoverIdx(i)}
+                        onMouseLeave={() =>
+                          setTargetGridHoverIdx((prev) => (prev === i ? null : prev))
+                        }
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          gap: 6,
+                          height: 34,
+                          padding: "0 10px",
+                          borderRadius: 10,
+                          border: "none",
+                          background:
+                            targetGridHoverIdx === i
+                              ? isLight
+                                ? "rgba(20,22,26,0.10)"
+                                : "rgba(255,255,255,0.12)"
+                              : isLight
+                              ? "rgba(20,22,26,0.05)"
+                              : "rgba(255,255,255,0.06)",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          cursor: "pointer",
+                          outline: "none",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        <span
+                          style={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: "50%",
+                            background: h.color,
+                            flexShrink: 0,
+                          }}
+                        />
+                        {h.ticker}
+                      </button>
+                    ))}
+                  </div>
+                )}
               {targetNoticeText && (
                 <div
                   style={{
@@ -3108,7 +2823,7 @@ export default function Alloy() {
                   {typedTargetNotice}
                 </div>
               )}
-              {(chatSortMode || chatThemeMode) && !pendingCommand && !chatDoneNotice && (
+              {chatSortMode && !pendingCommand && !chatDoneNotice && (
                 <div
                   style={{
                     padding: "0 14px",
@@ -3117,7 +2832,7 @@ export default function Alloy() {
                     color: "#FFFFFF",
                   }}
                 >
-                  {typedSortThemePrompt}
+                  {typedSortPrompt}
                 </div>
               )}
               <div
@@ -3194,51 +2909,6 @@ export default function Alloy() {
                     {opt.label}
                   </button>
                 ))
-              ) : chatThemeMode ? (
-                [
-                  { key: "light", label: "라이트" },
-                  { key: "dark", label: "다크" },
-                  { key: "sunset", label: "선셋" },
-                  { key: "forest", label: "포레스트" },
-                ].map((opt, i) => (
-                  <button
-                    key={opt.key}
-                    onClick={() => setPendingCommand({ kind: "theme", choice: opt.key })}
-                    onMouseEnter={() => setSortHoverIdx(i)}
-                    onMouseLeave={() =>
-                      setSortHoverIdx((prev) => (prev === i ? null : prev))
-                    }
-                    style={{
-                      flex: 1,
-                      height: 40,
-                      borderRadius: 999,
-                      border: "none",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 4,
-                      padding: "0 2px",
-                      background:
-                        sortHoverIdx === i
-                          ? isLight
-                            ? "rgba(20,22,26,0.18)"
-                            : "rgba(255,255,255,0.22)"
-                          : isLight
-                          ? "rgba(20,22,26,0.10)"
-                          : "rgba(255,255,255,0.12)",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      whiteSpace: "nowrap",
-                      cursor: "pointer",
-                      outline: "none",
-                      transform: sortHoverIdx === i ? "scale(1.04)" : "scale(1)",
-                      transition: "transform 0.2s ease, background 0.2s ease",
-                    }}
-                  >
-                    {opt.label}
-                  </button>
-                ))
               ) : (
                 <>
                   <input
@@ -3248,10 +2918,8 @@ export default function Alloy() {
                     onChange={(e) => {
                       setChatMessage(e.target.value);
                       if (targetNoticeText) setTargetNoticeText(null);
-                      if (aiResponseText) setAiResponseText(null);
                     }}
-                    disabled={aiLoading}
-                    placeholder={aiMode ? "AI에게 질문해보세요" : "명령어를 입력하세요"}
+                    placeholder="명령어를 입력하세요"
                     style={{
                       flex: 1,
                       height: 40,
@@ -3455,176 +3123,6 @@ export default function Alloy() {
                     />
                   </AreaChart>
                 </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* 사용량 한도 모달 (터미널 입력창 진행률 바와 동기화, 추가하기 모달과 동일한 크기) */}
-      {usageModalOpen && (
-        <div
-          onClick={closeUsageModal}
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10,
-            background: usageModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: usageModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: usageModalVisible ? "blur(6px)" : "blur(0px)",
-            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "relative",
-              width: "min(304px, 80vw)",
-              padding: "22px 20px",
-              borderRadius: 20,
-              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
-              backdropFilter: "blur(28px) saturate(180%)",
-              WebkitBackdropFilter: "blur(28px) saturate(180%)",
-              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-              boxShadow:
-                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: usageModalVisible ? 1 : 0,
-              transform: usageModalVisible
-                ? "scale(1) translateY(0)"
-                : "scale(0.9) translateY(16px)",
-              transition:
-                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-              boxSizing: "border-box",
-            }}
-          >
-            <h2
-              style={{
-                margin: "0 0 18px 0",
-                fontSize: 17,
-                fontWeight: 600,
-                color: isLight ? "#14161A" : "#FFFFFF",
-                letterSpacing: 0.2,
-              }}
-            >
-              사용량 한도
-            </h2>
-
-            <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-              <div
-                style={{
-                  flex: 1,
-                  height: 6,
-                  borderRadius: 999,
-                  overflow: "hidden",
-                  background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.14)",
-                }}
-              >
-                <div
-                  style={{
-                    width: `${usagePercent}%`,
-                    height: "100%",
-                    borderRadius: 999,
-                    background: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.65)",
-                    transition: "width 0.3s ease",
-                  }}
-                />
-              </div>
-              <span
-                style={{
-                  fontSize: 13,
-                  fontWeight: 700,
-                  flexShrink: 0,
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                }}
-              >
-                {Math.round(usagePercent)}%
-              </span>
-            </div>
-
-            <div
-              style={{
-                marginTop: 10,
-                fontSize: 11,
-                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-              }}
-            >
-              PST 00:00 까지 {usageCountdownText} 남았습니다
-            </div>
-
-            {/* 프로모션 코드 (사용량 한도 모달 최하단) */}
-            <div style={{ marginTop: 16 }}>
-              {!promoOpen ? (
-                <span
-                  onClick={() => setPromoOpen(true)}
-                  role="button"
-                  tabIndex={0}
-                  style={{
-                    display: "inline-block",
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    cursor: "pointer",
-                    textDecoration: "underline",
-                    textUnderlineOffset: 3,
-                  }}
-                >
-                  프로모션 코드가 있어요
-                </span>
-              ) : (
-                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                  <input
-                    type="text"
-                    autoFocus
-                    value={promoCode}
-                    onChange={(e) => setPromoCode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handlePromoSubmit();
-                      if (e.key === "Escape") {
-                        setPromoCode("");
-                        setPromoOpen(false);
-                      }
-                    }}
-                    style={{
-                      width: "33%",
-                      flexShrink: 0,
-                      height: 28,
-                      padding: "0 10px",
-                      borderRadius: 8,
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.05)",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 13,
-                      outline: "none",
-                      boxSizing: "border-box",
-                    }}
-                  />
-                  <button
-                    onClick={handlePromoSubmit}
-                    aria-label="프로모션 코드 보내기"
-                    style={{
-                      width: 26,
-                      height: 26,
-                      flexShrink: 0,
-                      borderRadius: "50%",
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                      background: "transparent",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      outline: "none",
-                      padding: 0,
-                    }}
-                  >
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                      <path d="M5 12h14M13 6l6 6-6 6" />
-                    </svg>
-                  </button>
-                </div>
               )}
             </div>
           </div>
