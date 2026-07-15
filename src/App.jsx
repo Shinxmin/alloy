@@ -550,45 +550,6 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 KRX Open API로 조회 (원화 종목만 지원)
-  // (KRX API 키는 클라이언트에 노출되지 않도록 서버 시크릿으로만 보관되며, 서버 경유로 브라우저 CORS 문제도 없음)
-  const [stockPrices, setStockPrices] = useState({});
-  const [stockDayChange, setStockDayChange] = useState({}); // { [ticker]: { amount, percent } } - 전일 대비
-  const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
-
-  useEffect(() => {
-    if (holdings.length === 0) {
-      setStockPrices({});
-      setStockDayChange({});
-      return;
-    }
-    let cancelled = false;
-    const fetchAll = async () => {
-      try {
-        const { data, error } = await supabase.functions.invoke("stock-price-proxy", {
-          body: { holdings: holdings.map((h) => ({ ticker: h.ticker, currency: h.currency })) },
-        });
-        if (cancelled) return;
-        if (error || !data?.prices) {
-          setStockPrices({});
-          setStockDayChange({});
-          return;
-        }
-        setStockPrices(data.prices);
-        setStockDayChange(data.dayChange || {});
-      } catch (e) {
-        if (!cancelled) {
-          setStockPrices({});
-          setStockDayChange({});
-        }
-      }
-    };
-    fetchAll();
-    return () => {
-      cancelled = true;
-    };
-  }, [holdingsTickerKey]);
-
   // 로그인한 사용자의 Supabase portfolios 테이블에서 데이터 불러오기
   useEffect(() => {
     if (!session) {
@@ -1152,23 +1113,14 @@ export default function Alloy() {
     const usdValue = toUSD(h);
     const percent =
       grandTotalUSD > 0 ? Math.round((usdValue / grandTotalUSD) * 100) : 0;
-    const currentPrice = stockPrices[h.ticker];
-    const returnPercent =
-      isFinite(currentPrice) && h.avgPrice > 0
-        ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100
-        : null;
-    const dayChange = stockDayChange[h.ticker] || null;
     return {
       ticker: h.ticker,
       name: h.name || "",
       currency: h.currency,
       avgPrice: h.avgPrice,
-      currentPrice: isFinite(currentPrice) ? currentPrice : null,
-      dayChange,
       percent,
       value: formatAmount(value, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
-      returnPercent,
       color: stockColorByTicker[h.ticker],
       originalIndex: i,
     };
@@ -2028,15 +1980,6 @@ export default function Alloy() {
                                       {h.ticker}
                                     </span>
                                   )}
-                                  <span
-                                    style={{
-                                      fontSize: 12,
-                                      color: (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)"),
-                                      marginLeft: 5,
-                                    }}
-                                  >
-                                    ({h.percent}%)
-                                  </span>
                                   <button
                                     onClick={(e) => {
                                       e.stopPropagation();
@@ -2116,22 +2059,14 @@ export default function Alloy() {
                                 >
                                   {h.shares}
                                 </span>
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: 16,
-                                  fontWeight: 600,
-                                  color:
-                                    h.returnPercent == null
-                                      ? (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)")
-                                      : h.returnPercent >= 0
-                                      ? "#39FF8A"
-                                      : "#E97C7C",
-                                }}
-                              >
-                                {h.returnPercent == null
-                                  ? "-"
-                                  : `${h.returnPercent >= 0 ? "+" : ""}${h.returnPercent.toFixed(2)}%`}
+                                <span
+                                  style={{
+                                    fontSize: 12,
+                                    color: (isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"),
+                                  }}
+                                >
+                                  ({h.percent}%)
+                                </span>
                               </span>
                             </div>
                           </div>
@@ -2215,23 +2150,25 @@ export default function Alloy() {
                               >
                                 {c.currency}
                               </span>
+                            </span>
+                            <span style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                              <span
+                                style={{
+                                  fontSize: 16,
+                                  fontWeight: 700,
+                                  color: (isLight ? "#14161A" : "#FFFFFF"),
+                                }}
+                              >
+                                {c.amount}
+                              </span>
                               <span
                                 style={{
                                   fontSize: 12,
-                                  color: (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)"),
+                                  color: (isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"),
                                 }}
                               >
                                 ({c.percent}%)
                               </span>
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 16,
-                                fontWeight: 700,
-                                color: (isLight ? "#14161A" : "#FFFFFF"),
-                              }}
-                            >
-                              {c.amount}
                             </span>
                           </div>
                         ))}
@@ -3385,7 +3322,7 @@ export default function Alloy() {
               )}
             </div>
 
-            <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "10px 0 16px 0" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 16px 0" }}>
               <span
                 style={{
                   fontSize: 22,
@@ -3393,43 +3330,17 @@ export default function Alloy() {
                   color: isLight ? "#14161A" : "#FFFFFF",
                 }}
               >
-                {infoHolding.currentPrice != null
-                  ? formatAmount(infoHolding.currentPrice, infoHolding.currency)
-                  : formatAmount(infoHolding.avgPrice, infoHolding.currency)}
+                {formatAmount(infoHolding.avgPrice, infoHolding.currency)}
               </span>
               <span
                 style={{
                   fontSize: 13,
-                  fontWeight: 600,
-                  color:
-                    infoHolding.returnPercent == null
-                      ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
-                      : infoHolding.returnPercent >= 0
-                      ? "#39FF8A"
-                      : "#E97C7C",
+                  fontWeight: 500,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                 }}
               >
-                {infoHolding.returnPercent == null
-                  ? "-"
-                  : `${infoHolding.returnPercent >= 0 ? "+" : ""}${infoHolding.returnPercent.toFixed(2)}%`}
+                평균단가
               </span>
-              {infoHolding.dayChange && (
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color:
-                      infoHolding.dayChange.amount >= 0
-                        ? "#39FF8A"
-                        : "#E97C7C",
-                  }}
-                >
-                  ({infoHolding.dayChange.amount >= 0 ? "+" : "-"}
-                  {formatAmount(Math.abs(infoHolding.dayChange.amount), infoHolding.currency)}{" "}
-                  {infoHolding.dayChange.percent >= 0 ? "+" : ""}
-                  {infoHolding.dayChange.percent.toFixed(2)}%)
-                </span>
-              )}
             </div>
 
             <div style={{ width: "100%", height: 180, position: "relative" }}>
