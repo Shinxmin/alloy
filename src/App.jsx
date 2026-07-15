@@ -477,7 +477,8 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 보유 종목 현재가 (수익률 계산용) - 무료/키 불필요 Yahoo Finance 시세 조회, 원화 종목은 KOSPI(.KS)로 우선 조회 후 실패 시 KOSDAQ(.KQ)로 재시도
+  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 FMP API로 조회
+  // (FMP API 키는 클라이언트에 노출되지 않도록 서버 시크릿으로만 보관되며, 서버 경유로 브라우저 CORS 문제도 없음)
   const [stockPrices, setStockPrices] = useState({});
   const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
 
@@ -487,39 +488,20 @@ export default function Alloy() {
       return;
     }
     let cancelled = false;
-    const fetchPrice = async (ticker, currency) => {
-      const symbols = currency === "KRW" ? [`${ticker}.KS`, `${ticker}.KQ`] : [ticker];
-      for (const symbol of symbols) {
-        try {
-          const res = await fetch(
-            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
-          );
-          const data = await res.json();
-          const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
-          if (isFinite(price) && price > 0) return price;
-        } catch (e) {}
-      }
-      return null;
-    };
     const fetchAll = async () => {
-      const uniqueTickers = [];
-      const seen = new Set();
-      holdings.forEach((h) => {
-        const key = `${h.ticker}:${h.currency}`;
-        if (!seen.has(key)) {
-          seen.add(key);
-          uniqueTickers.push(h);
+      try {
+        const { data, error } = await supabase.functions.invoke("stock-price-proxy", {
+          body: { holdings: holdings.map((h) => ({ ticker: h.ticker, currency: h.currency })) },
+        });
+        if (cancelled) return;
+        if (error || !data?.prices) {
+          setStockPrices({});
+          return;
         }
-      });
-      const entries = await Promise.all(
-        uniqueTickers.map(async (h) => [h.ticker, await fetchPrice(h.ticker, h.currency)])
-      );
-      if (cancelled) return;
-      const next = {};
-      entries.forEach(([ticker, price]) => {
-        if (price !== null) next[ticker] = price;
-      });
-      setStockPrices(next);
+        setStockPrices(data.prices);
+      } catch (e) {
+        if (!cancelled) setStockPrices({});
+      }
     };
     fetchAll();
     return () => {
