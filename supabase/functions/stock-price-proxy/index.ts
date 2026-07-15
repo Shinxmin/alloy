@@ -32,9 +32,10 @@ Deno.serve(async (req) => {
   });
 
   const prices: Record<string, number> = {};
+  const dayChange: Record<string, { amount: number; percent: number }> = {};
 
   if (krwHoldings.length === 0) {
-    return new Response(JSON.stringify({ prices }), {
+    return new Response(JSON.stringify({ prices, dayChange }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -42,7 +43,7 @@ Deno.serve(async (req) => {
   const krxApiKey = Deno.env.get("KRX_API_KEY");
   if (!krxApiKey) {
     console.error("KRX_API_KEY가 설정되지 않아 원화 종목 시세를 조회할 수 없습니다");
-    return new Response(JSON.stringify({ prices }), {
+    return new Response(JSON.stringify({ prices, dayChange }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
@@ -98,6 +99,7 @@ Deno.serve(async (req) => {
     console.error("KRX: 최근 10일 내 거래일 데이터를 찾지 못했습니다");
   } else {
     const priceByCode: Record<string, number> = {};
+    const changeByCode: Record<string, { amount: number; percent: number }> = {};
     rows.forEach((row) => {
       const code = row?.ISU_SRT_CD ?? row?.ISU_CD;
       const priceStr = row?.TDD_CLSPRC ?? row?.CLSPRC;
@@ -105,9 +107,18 @@ Deno.serve(async (req) => {
         const price = parseFloat(priceStr.replace(/,/g, ""));
         if (isFinite(price) && price > 0) priceByCode[code] = price;
       }
+      // 전일 대비 변동(금액/등락률) - KRX 응답에 이미 포함되어 별도 조회 없이 사용 가능
+      const changeStr = row?.CMPPREVDD_PRC;
+      const rateStr = row?.FLUC_RT;
+      if (typeof code === "string" && typeof changeStr === "string" && typeof rateStr === "string") {
+        const amount = parseFloat(changeStr.replace(/,/g, ""));
+        const percent = parseFloat(rateStr.replace(/,/g, ""));
+        if (isFinite(amount) && isFinite(percent)) changeByCode[code] = { amount, percent };
+      }
     });
     krwHoldings.forEach((h) => {
       if (h.ticker in priceByCode) prices[h.ticker] = priceByCode[h.ticker];
+      if (h.ticker in changeByCode) dayChange[h.ticker] = changeByCode[h.ticker];
     });
     console.log(
       `KRX 조회 결과 (기준일 ${resolvedDate}, 응답 행 수 ${rows.length}): ${
@@ -116,7 +127,7 @@ Deno.serve(async (req) => {
     );
   }
 
-  return new Response(JSON.stringify({ prices }), {
+  return new Response(JSON.stringify({ prices, dayChange }), {
     headers: { ...corsHeaders, "Content-Type": "application/json" },
   });
 });
