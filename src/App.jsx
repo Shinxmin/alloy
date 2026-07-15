@@ -477,6 +477,56 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
+  // 보유 종목 현재가 (수익률 계산용) - 무료/키 불필요 Yahoo Finance 시세 조회, 원화 종목은 KOSPI(.KS)로 우선 조회 후 실패 시 KOSDAQ(.KQ)로 재시도
+  const [stockPrices, setStockPrices] = useState({});
+  const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
+
+  useEffect(() => {
+    if (holdings.length === 0) {
+      setStockPrices({});
+      return;
+    }
+    let cancelled = false;
+    const fetchPrice = async (ticker, currency) => {
+      const symbols = currency === "KRW" ? [`${ticker}.KS`, `${ticker}.KQ`] : [ticker];
+      for (const symbol of symbols) {
+        try {
+          const res = await fetch(
+            `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(symbol)}?interval=1d&range=1d`
+          );
+          const data = await res.json();
+          const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+          if (isFinite(price) && price > 0) return price;
+        } catch (e) {}
+      }
+      return null;
+    };
+    const fetchAll = async () => {
+      const uniqueTickers = [];
+      const seen = new Set();
+      holdings.forEach((h) => {
+        const key = `${h.ticker}:${h.currency}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          uniqueTickers.push(h);
+        }
+      });
+      const entries = await Promise.all(
+        uniqueTickers.map(async (h) => [h.ticker, await fetchPrice(h.ticker, h.currency)])
+      );
+      if (cancelled) return;
+      const next = {};
+      entries.forEach(([ticker, price]) => {
+        if (price !== null) next[ticker] = price;
+      });
+      setStockPrices(next);
+    };
+    fetchAll();
+    return () => {
+      cancelled = true;
+    };
+  }, [holdingsTickerKey]);
+
   // 로그인한 사용자의 Supabase portfolios 테이블에서 데이터 불러오기
   useEffect(() => {
     if (!session) {
@@ -1033,12 +1083,17 @@ export default function Alloy() {
     const usdValue = toUSD(h);
     const percent =
       grandTotalUSD > 0 ? Math.round((usdValue / grandTotalUSD) * 100) : 0;
+    const currentPrice = stockPrices[h.ticker];
+    const returnPercent =
+      isFinite(currentPrice) && h.avgPrice > 0
+        ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100
+        : null;
     return {
       ticker: h.ticker,
       percent,
       value: formatAmount(value, h.currency),
-      avgPrice: formatAmount(h.avgPrice, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
+      returnPercent,
       color: stockColorByTicker[h.ticker],
       originalIndex: i,
     };
@@ -1946,16 +2001,24 @@ export default function Alloy() {
                                     color: (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)"),
                                   }}
                                 >
-                                  평균 단가 {h.avgPrice}
+                                  {h.shares}
                                 </span>
                               </span>
                               <span
                                 style={{
                                   fontSize: 16,
-                                  color: (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)"),
+                                  fontWeight: 600,
+                                  color:
+                                    h.returnPercent == null
+                                      ? (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)")
+                                      : h.returnPercent >= 0
+                                      ? "#39FF8A"
+                                      : "#E97C7C",
                                 }}
                               >
-                                {h.shares}
+                                {h.returnPercent == null
+                                  ? "-"
+                                  : `${h.returnPercent >= 0 ? "+" : ""}${h.returnPercent.toFixed(2)}%`}
                               </span>
                             </div>
                           </div>
