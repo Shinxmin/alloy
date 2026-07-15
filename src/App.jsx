@@ -477,8 +477,8 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 FMP API로 조회
-  // (FMP API 키는 클라이언트에 노출되지 않도록 서버 시크릿으로만 보관되며, 서버 경유로 브라우저 CORS 문제도 없음)
+  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 KRX Open API로 조회 (원화 종목만 지원)
+  // (KRX API 키는 클라이언트에 노출되지 않도록 서버 시크릿으로만 보관되며, 서버 경유로 브라우저 CORS 문제도 없음)
   const [stockPrices, setStockPrices] = useState({});
   const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
 
