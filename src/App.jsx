@@ -2015,8 +2015,19 @@ export default function Alloy() {
                                       color: (isLight ? "#14161A" : "#FFFFFF"),
                                     }}
                                   >
-                                    {h.ticker}
+                                    {h.name || h.ticker}
                                   </span>
+                                  {h.name && (
+                                    <span
+                                      style={{
+                                        fontSize: 11,
+                                        color: (isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"),
+                                        marginLeft: 4,
+                                      }}
+                                    >
+                                      {h.ticker}
+                                    </span>
+                                  )}
                                   <span
                                     style={{
                                       fontSize: 12,
@@ -3359,7 +3370,7 @@ export default function Alloy() {
                   letterSpacing: 0.2,
                 }}
               >
-                {infoHolding.ticker}
+                {infoHolding.name || infoHolding.ticker}
               </h2>
               {infoHolding.name && (
                 <span
@@ -3369,7 +3380,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                   }}
                 >
-                  {infoHolding.name}
+                  {infoHolding.ticker}
                 </span>
               )}
             </div>
