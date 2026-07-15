@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from "react";
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from "recharts";
+import { createChart, AreaSeries } from "lightweight-charts";
 import { supabase } from "./supabaseClient";
 
 // 텍스트를 한 글자씩 타이핑되는 것처럼 보여주는 공용 훅 (버튼 등 UI 요소가 아닌 설명 텍스트용)
@@ -253,6 +254,7 @@ export default function Alloy() {
   const [draggedInfo, setDraggedInfo] = useState(null); // { key: 'stocks'|'cash', index }
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [ticker, setTicker] = useState("");
+  const [stockName, setStockName] = useState("");
   const [quantity, setQuantity] = useState("");
   const [price, setPrice] = useState("");
   const [currency, setCurrency] = useState("KRW"); // "KRW" | "USD"
@@ -372,9 +374,101 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
+  // 종목 정보 모달 (종목 클릭 시 표시, 가격 차트)
+  const [infoModalOpen, setInfoModalOpen] = useState(false);
+  const [infoModalVisible, setInfoModalVisible] = useState(false);
+  const [infoHolding, setInfoHolding] = useState(null);
+  const [infoHistoryLoading, setInfoHistoryLoading] = useState(false);
+  const [infoHistory, setInfoHistory] = useState([]);
+  const [infoSupported, setInfoSupported] = useState(true);
+  const infoChartContainerRef = useRef(null);
+
+  const openInfoModal = (originalIndex) => {
+    const h = holdings[originalIndex];
+    const derived = stockHoldings.find((sh) => sh.originalIndex === originalIndex);
+    setInfoHolding({ ...h, ...derived });
+    setInfoModalOpen(true);
+    requestAnimationFrame(() => setInfoModalVisible(true));
+  };
+
+  const closeInfoModal = () => {
+    setInfoModalVisible(false);
+    setTimeout(() => setInfoModalOpen(false), 300);
+  };
+  const closeInfoModalRef = useRef(closeInfoModal);
+  closeInfoModalRef.current = closeInfoModal;
+
+  // 정보 모달이 열리면 해당 종목의 최근 시세 히스토리를 조회 (원화 종목만 지원)
+  useEffect(() => {
+    if (!infoModalOpen || !infoHolding) return;
+    let cancelled = false;
+    setInfoHistoryLoading(true);
+    setInfoHistory([]);
+    setInfoSupported(true);
+    supabase.functions
+      .invoke("stock-history-proxy", {
+        body: { ticker: infoHolding.ticker, currency: infoHolding.currency },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setInfoHistoryLoading(false);
+        if (error || !data) {
+          setInfoHistory([]);
+          return;
+        }
+        setInfoSupported(data.supported !== false);
+        setInfoHistory(Array.isArray(data.history) ? data.history : []);
+      })
+      .catch(() => {
+        if (!cancelled) setInfoHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [infoModalOpen, infoHolding]);
+
+  // 정보 모달의 차트 컨테이너가 준비되면 lightweight-charts로 렌더링
+  useEffect(() => {
+    if (!infoModalOpen || infoHistoryLoading || infoHistory.length === 0) return;
+    const container = infoChartContainerRef.current;
+    if (!container) return;
+
+    const chart = createChart(container, {
+      width: container.clientWidth,
+      height: 180,
+      layout: {
+        background: { color: "transparent" },
+        textColor: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)",
+      },
+      grid: {
+        vertLines: { visible: false },
+        horzLines: { color: isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)" },
+      },
+      rightPriceScale: { borderVisible: false },
+      timeScale: { borderVisible: false },
+    });
+    const color = (infoHolding && infoHolding.color) || "#8FA7FF";
+    const series = chart.addSeries(AreaSeries, {
+      lineColor: color,
+      topColor: `${color}55`,
+      bottomColor: `${color}00`,
+      lineWidth: 2,
+    });
+    series.setData(infoHistory);
+    chart.timeScale().fitContent();
+
+    const handleResize = () => chart.applyOptions({ width: container.clientWidth });
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+      chart.remove();
+    };
+  }, [infoModalOpen, infoHistoryLoading, infoHistory, isLight, infoHolding]);
+
   // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
-    const anyModalOpen = modalOpen || rateModalOpen || chatOpen;
+    const anyModalOpen = modalOpen || rateModalOpen || infoModalOpen || chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -389,7 +483,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -418,6 +512,7 @@ export default function Alloy() {
   const resetForm = () => {
     setAssetType("stock");
     setTicker("");
+    setStockName("");
     setQuantity("");
     setPrice("");
     setCurrency("KRW");
@@ -445,6 +540,7 @@ export default function Alloy() {
       const h = holdings[index];
       setAssetType("stock");
       setTicker(h.ticker);
+      setStockName(h.name || "");
       setQuantity(String(h.quantity));
       setPrice(String(h.avgPrice));
       setCurrency(h.currency);
@@ -682,6 +778,7 @@ export default function Alloy() {
     }
 
     const t = ticker.trim().toUpperCase();
+    const name = stockName.trim();
     const qtyNum = parseFloat(quantity);
     const priceNum = parseFloat(price);
     const rateNum = parseFloat(exchangeRate);
@@ -698,6 +795,7 @@ export default function Alloy() {
         const updated = [...prev];
         updated[editIndex] = {
           ticker: t,
+          name,
           quantity: qtyNum,
           avgPrice: priceNum,
           currency,
@@ -726,6 +824,7 @@ export default function Alloy() {
         const updated = [...prev];
         updated[idx] = {
           ...existing,
+          name: name || existing.name,
           quantity: newQty,
           avgPrice: newAvgPrice,
           exchangeRate: newRate,
@@ -736,6 +835,7 @@ export default function Alloy() {
         ...prev,
         {
           ticker: t,
+          name,
           quantity: qtyNum,
           avgPrice: priceNum,
           currency,
@@ -760,7 +860,10 @@ export default function Alloy() {
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === "Escape") {
-        if (rateModalOpen) {
+        if (infoModalOpen) {
+          e.preventDefault();
+          closeInfoModalRef.current();
+        } else if (rateModalOpen) {
           e.preventDefault();
           closeRateModalRef.current();
         } else if (modalOpen) {
@@ -791,7 +894,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, rateModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -1072,6 +1175,10 @@ export default function Alloy() {
         : null;
     return {
       ticker: h.ticker,
+      name: h.name || "",
+      currency: h.currency,
+      avgPrice: h.avgPrice,
+      currentPrice: isFinite(currentPrice) ? currentPrice : null,
       percent,
       value: formatAmount(value, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
@@ -1853,7 +1960,7 @@ export default function Alloy() {
                       ? category.holdings.map((h, i) => (
                           <div
                             key={i}
-                            onClick={() => openEditModal("stock", h.originalIndex)}
+                            onClick={() => openInfoModal(h.originalIndex)}
                             onDragOver={handleDragOver("stocks", h.originalIndex)}
                             onDrop={handleDrop("stocks", h.originalIndex)}
                             style={{
@@ -1933,6 +2040,33 @@ export default function Alloy() {
                                   >
                                     ({h.percent}%)
                                   </span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      openEditModal("stock", h.originalIndex);
+                                    }}
+                                    aria-label="종목 수정"
+                                    style={{
+                                      display: "inline-flex",
+                                      alignItems: "center",
+                                      justifyContent: "center",
+                                      width: 20,
+                                      height: 20,
+                                      marginLeft: 4,
+                                      padding: 0,
+                                      border: "none",
+                                      background: "transparent",
+                                      color: (isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"),
+                                      cursor: "pointer",
+                                      outline: "none",
+                                      verticalAlign: "middle",
+                                    }}
+                                  >
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                      <path d="M12 20h9" />
+                                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                                    </svg>
+                                  </button>
                                 </span>
                               </div>
                               <span
@@ -2802,10 +2936,16 @@ export default function Alloy() {
                 stockHoldings.length > 0 && (
                   <div
                     style={{
+                      maxHeight: 80,
+                      overflowY: "auto",
+                      padding: "0 4px",
+                    }}
+                  >
+                  <div
+                    style={{
                       display: "grid",
                       gridTemplateColumns: "1fr 1fr",
                       gap: 6,
-                      padding: "0 4px",
                     }}
                   >
                     {stockHoldings.map((h, i) => (
@@ -2852,6 +2992,7 @@ export default function Alloy() {
                         {h.ticker}
                       </button>
                     ))}
+                  </div>
                   </div>
                 )}
               {targetNoticeText && (
@@ -3174,6 +3315,157 @@ export default function Alloy() {
         </div>
       )}
 
+      {/* 종목 정보 모달 (종목 클릭 시 표시, 가격 차트) */}
+      {infoModalOpen && infoHolding && (
+        <div
+          onClick={closeInfoModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: infoModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: infoModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: infoModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(320px, 84vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: infoModalVisible ? 1 : 0,
+              transform: infoModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+              <span
+                style={{
+                  width: 9,
+                  height: 9,
+                  borderRadius: "50%",
+                  background: infoHolding.color,
+                  flexShrink: 0,
+                }}
+              />
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  letterSpacing: 0.2,
+                }}
+              >
+                {infoHolding.ticker}
+              </h2>
+              {infoHolding.name && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  {infoHolding.name}
+                </span>
+              )}
+            </div>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: 10, margin: "10px 0 16px 0" }}>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {infoHolding.currentPrice != null
+                  ? formatAmount(infoHolding.currentPrice, infoHolding.currency)
+                  : formatAmount(infoHolding.avgPrice, infoHolding.currency)}
+              </span>
+              <span
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color:
+                    infoHolding.returnPercent == null
+                      ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                      : infoHolding.returnPercent >= 0
+                      ? "#39FF8A"
+                      : "#E97C7C",
+                }}
+              >
+                {infoHolding.returnPercent == null
+                  ? "-"
+                  : `${infoHolding.returnPercent >= 0 ? "+" : ""}${infoHolding.returnPercent.toFixed(2)}%`}
+              </span>
+            </div>
+
+            <div style={{ width: "100%", height: 180 }}>
+              {infoHistoryLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : !infoSupported ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  이 종목은 아직 차트를 지원하지 않아요
+                </div>
+              ) : infoHistory.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  시세 정보를 불러올 수 없어요
+                </div>
+              ) : (
+                <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 종목 모달 */}
       {modalOpen && (
         <div
@@ -3341,101 +3633,122 @@ export default function Alloy() {
 
             {assetType === "stock" ? (
               <>
-                {/* 티커 */}
-                <label style={fieldLabelStyle}>티커</label>
-                <input
-                  type="text"
-                  value={ticker}
-                  onChange={(e) => setTicker(e.target.value)}
-                  style={inputStyle}
-                  onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                  onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                />
-
-                {/* 수량 */}
-                <label style={fieldLabelStyle}>수량</label>
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  value={formatWithCommas(quantity)}
-                  onChange={handleNumericChange(setQuantity)}
-                  style={inputStyle}
-                  onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                  onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                />
-
-                {/* 단가 */}
-                <label style={fieldLabelStyle}>단가</label>
-                <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    value={formatWithCommas(price)}
-                    onChange={handleNumericChange(setPrice)}
-                    style={{ ...inputStyle, marginBottom: 0, flex: 1 }}
-                    onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
-                    onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
-                  />
-
-                  {/* ₩ / $ 토글 버튼 */}
-                  <div
-                    style={{
-                      position: "relative",
-                      display: "flex",
-                      height: 42,
-                      padding: 4,
-                      borderRadius: 12,
-                      background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
-                      border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
-                      flexShrink: 0,
-                    }}
-                  >
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 4,
-                        left: currencyIndicator.left,
-                        width: currencyIndicator.width,
-                        height: "calc(100% - 8px)",
-                        borderRadius: 9,
-                        background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
-                        boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                        transition:
-                          "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
+                {/* 티커 / 종목명 (2열) */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1 }}>
+                    <label style={fieldLabelStyle}>티커</label>
+                    <input
+                      type="text"
+                      value={ticker}
+                      onChange={(e) => setTicker(e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
                     />
-                    {[
-                      { key: "KRW", label: "₩" },
-                      { key: "USD", label: "$" },
-                    ].map((c, i) => (
-                      <button
-                        key={c.key}
-                        ref={(el) => (currencyBtnRefs.current[i] = el)}
-                        onClick={() => setCurrency(c.key)}
-                        style={{
-                          position: "relative",
-                          zIndex: 1,
-                          width: 34,
-                          height: "100%",
-                          border: "none",
-                          background: "transparent",
-                          borderRadius: 9,
-                          color:
-                            currency === c.key
-                              ? (isLight ? "#14161A" : "#FFFFFF")
-                              : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
-                          fontSize: 14,
-                          fontWeight: 600,
-                          cursor: "pointer",
-                          outline: "none",
-                          transition: "color 0.3s ease",
-                        }}
-                      >
-                        {c.label}
-                      </button>
-                    ))}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <label style={fieldLabelStyle}>종목명</label>
+                    <input
+                      type="text"
+                      value={stockName}
+                      onChange={(e) => setStockName(e.target.value)}
+                      style={{ ...inputStyle, marginBottom: 0 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                    />
                   </div>
                 </div>
+                <div style={{ marginBottom: 16 }} />
+
+                {/* 수량 / 단가 / 통화 (3열) */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <label style={fieldLabelStyle}>수량</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formatWithCommas(quantity)}
+                      onChange={handleNumericChange(setQuantity)}
+                      style={{ ...inputStyle, marginBottom: 0 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                    />
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <label style={fieldLabelStyle}>단가</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formatWithCommas(price)}
+                      onChange={handleNumericChange(setPrice)}
+                      style={{ ...inputStyle, marginBottom: 0 }}
+                      onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                      onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+                    />
+                  </div>
+                  <div style={{ flexShrink: 0 }}>
+                    <label style={fieldLabelStyle}>통화</label>
+                    {/* ₩ / $ 토글 버튼 */}
+                    <div
+                      style={{
+                        position: "relative",
+                        display: "flex",
+                        height: 42,
+                        padding: 3,
+                        borderRadius: 12,
+                        background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
+                        border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
+                        flexShrink: 0,
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: currencyIndicator.left,
+                          width: currencyIndicator.width,
+                          height: "calc(100% - 6px)",
+                          borderRadius: 9,
+                          background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
+                          boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                          transition:
+                            "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      />
+                      {[
+                        { key: "KRW", label: "₩" },
+                        { key: "USD", label: "$" },
+                      ].map((c, i) => (
+                        <button
+                          key={c.key}
+                          ref={(el) => (currencyBtnRefs.current[i] = el)}
+                          onClick={() => setCurrency(c.key)}
+                          style={{
+                            position: "relative",
+                            zIndex: 1,
+                            width: 26,
+                            height: "100%",
+                            border: "none",
+                            background: "transparent",
+                            borderRadius: 9,
+                            color:
+                              currency === c.key
+                                ? (isLight ? "#14161A" : "#FFFFFF")
+                                : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
+                            fontSize: 13,
+                            fontWeight: 600,
+                            cursor: "pointer",
+                            outline: "none",
+                            transition: "color 0.3s ease",
+                          }}
+                        >
+                          {c.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+                <div style={{ marginBottom: 20 }} />
 
                 {/* 환율 (구매 시점 환율 기록용) */}
                 <label
