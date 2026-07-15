@@ -394,26 +394,28 @@ export default function Alloy() {
   const closeInfoModalRef = useRef(closeInfoModal);
   closeInfoModalRef.current = closeInfoModal;
 
-  // 정보 모달이 열리면 TradingView 심볼 개요 위젯을 삽입 (티커명으로 종목 조회, 원화 종목은 KRX 거래소 지정)
+  // 티커가 순수 영문(알파벳)일 때만 TradingView에서 종목을 찾을 수 있음 (숫자/한글 티커는 차트 미지원)
+  const isChartableTicker = (ticker) => /^[A-Za-z.\-]+$/.test(ticker || "");
+
+  // 정보 모달이 열리면 TradingView 심볼 개요 위젯을 삽입 (티커명으로 종목 조회, 영문 티커만 지원)
   useEffect(() => {
     if (!infoModalOpen || !infoHolding) return;
     const container = infoChartContainerRef.current;
     if (!container) return;
     container.innerHTML = "";
 
+    if (!isChartableTicker(infoHolding.ticker)) return;
+
     const widgetDiv = document.createElement("div");
     widgetDiv.className = "tradingview-widget-container__widget";
     container.appendChild(widgetDiv);
-
-    const symbol =
-      infoHolding.currency === "KRW" ? `KRX:${infoHolding.ticker}` : infoHolding.ticker;
 
     const script = document.createElement("script");
     script.type = "text/javascript";
     script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
     script.async = true;
     script.text = JSON.stringify({
-      symbols: [[symbol]],
+      symbols: [[infoHolding.ticker]],
       chartOnly: true,
       width: "100%",
       height: "180",
@@ -423,6 +425,7 @@ export default function Alloy() {
       autosize: false,
       showVolume: false,
       hideDateRanges: false,
+      dateRanges: ["1d|1", "1m|30", "3m|60", "12m|1D"],
       hideMarketStatus: true,
       hideSymbolLogo: true,
       scalePosition: "no",
@@ -550,11 +553,13 @@ export default function Alloy() {
   // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 KRX Open API로 조회 (원화 종목만 지원)
   // (KRX API 키는 클라이언트에 노출되지 않도록 서버 시크릿으로만 보관되며, 서버 경유로 브라우저 CORS 문제도 없음)
   const [stockPrices, setStockPrices] = useState({});
+  const [stockDayChange, setStockDayChange] = useState({}); // { [ticker]: { amount, percent } } - 전일 대비
   const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
 
   useEffect(() => {
     if (holdings.length === 0) {
       setStockPrices({});
+      setStockDayChange({});
       return;
     }
     let cancelled = false;
@@ -566,11 +571,16 @@ export default function Alloy() {
         if (cancelled) return;
         if (error || !data?.prices) {
           setStockPrices({});
+          setStockDayChange({});
           return;
         }
         setStockPrices(data.prices);
+        setStockDayChange(data.dayChange || {});
       } catch (e) {
-        if (!cancelled) setStockPrices({});
+        if (!cancelled) {
+          setStockPrices({});
+          setStockDayChange({});
+        }
       }
     };
     fetchAll();
@@ -1147,12 +1157,14 @@ export default function Alloy() {
       isFinite(currentPrice) && h.avgPrice > 0
         ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100
         : null;
+    const dayChange = stockDayChange[h.ticker] || null;
     return {
       ticker: h.ticker,
       name: h.name || "",
       currency: h.currency,
       avgPrice: h.avgPrice,
       currentPrice: isFinite(currentPrice) ? currentPrice : null,
+      dayChange,
       percent,
       value: formatAmount(value, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
@@ -3390,31 +3402,65 @@ export default function Alloy() {
                   ? "-"
                   : `${infoHolding.returnPercent >= 0 ? "+" : ""}${infoHolding.returnPercent.toFixed(2)}%`}
               </span>
+              {infoHolding.dayChange && (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color:
+                      infoHolding.dayChange.amount >= 0
+                        ? "#39FF8A"
+                        : "#E97C7C",
+                  }}
+                >
+                  ({infoHolding.dayChange.amount >= 0 ? "+" : "-"}
+                  {formatAmount(Math.abs(infoHolding.dayChange.amount), infoHolding.currency)}{" "}
+                  {infoHolding.dayChange.percent >= 0 ? "+" : ""}
+                  {infoHolding.dayChange.percent.toFixed(2)}%)
+                </span>
+              )}
             </div>
 
-            <div style={{ width: "100%", height: 180 }}>
+            <div style={{ width: "100%", height: 180, position: "relative" }}>
               <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
+              {!isChartableTicker(infoHolding.ticker) && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  차트가 지원되지 않는 종목입니다
+                </div>
+              )}
             </div>
-            <div
-              style={{
-                textAlign: "center",
-                marginTop: 6,
-                fontSize: 10,
-                opacity: 0.4,
-              }}
-            >
-              <a
-                href="https://www.tradingview.com/"
-                target="_blank"
-                rel="noopener noreferrer"
+            {isChartableTicker(infoHolding.ticker) && (
+              <div
                 style={{
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  textDecoration: "none",
+                  textAlign: "center",
+                  marginTop: 6,
+                  fontSize: 10,
+                  opacity: 0.4,
                 }}
               >
-                TradingView 제공
-              </a>
-            </div>
+                <a
+                  href="https://www.tradingview.com/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    textDecoration: "none",
+                  }}
+                >
+                  TradingView 제공
+                </a>
+              </div>
+            )}
           </div>
         </div>
       )}
