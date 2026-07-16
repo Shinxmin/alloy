@@ -1,5 +1,17 @@
 import React, { useState, useRef, useEffect } from "react";
-import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, AreaChart, Area, XAxis, YAxis } from "recharts";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+  AreaChart,
+  Area,
+  XAxis,
+  YAxis,
+  ComposedChart,
+  Bar,
+} from "recharts";
 import { supabase } from "./supabaseClient";
 
 // 텍스트를 한 글자씩 타이핑되는 것처럼 보여주는 공용 훅 (버튼 등 UI 요소가 아닌 설명 텍스트용)
@@ -20,6 +32,147 @@ function useTypedText(text) {
     return () => clearInterval(interval);
   }, [text]);
   return text ? text.slice(0, count) : "";
+}
+
+// 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
+const INDEX_CANDLE_PERIODS = [
+  { key: "1d", label: "1일", range: "1d", interval: "5m" },
+  { key: "1w", label: "1주", range: "5d", interval: "15m" },
+  { key: "3mo", label: "3달", range: "3mo", interval: "1d" },
+  { key: "1y", label: "1년", range: "1y", interval: "1wk" },
+];
+
+// 캔들(봉) 모양 커스텀 렌더러 - recharts Bar의 dataKey를 [low, high] 범위로 넘겨
+// y/height가 이미 저가~고가 구간에 맞춰져 있으므로, 그 안에서 시가/종가 위치만 비례 계산해 몸통을 그린다.
+function IndexCandleShape(props) {
+  const { x, y, width, height, payload } = props;
+  const { open, close, high, low } = payload;
+  if (high === low || !isFinite(height) || height <= 0) return null;
+  const isUp = close >= open;
+  const color = isUp ? "#FF5C5C" : "#4D9FFF";
+  const scale = height / (high - low);
+  const openY = y + (high - open) * scale;
+  const closeY = y + (high - close) * scale;
+  const bodyTop = Math.min(openY, closeY);
+  const bodyHeight = Math.max(Math.abs(closeY - openY), 1);
+  const bodyWidth = Math.max(width * 0.6, 2);
+  const bodyX = x + (width - bodyWidth) / 2;
+  const wickX = x + width / 2;
+  return (
+    <g>
+      <line x1={wickX} y1={y} x2={wickX} y2={y + height} stroke={color} strokeWidth={1} />
+      <rect x={bodyX} y={bodyTop} width={bodyWidth} height={bodyHeight} fill={color} />
+    </g>
+  );
+}
+
+// 나스닥/S&P500 모달에서 공용으로 쓰는 캔들차트 + 표기 주기 탭 (1일/1주/3달/1년)
+function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoading }) {
+  return (
+    <div>
+      <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 8 }}>
+        {INDEX_CANDLE_PERIODS.map((p) => (
+          <button
+            key={p.key}
+            onClick={() => onPeriodChange(p.key)}
+            style={{
+              padding: "3px 8px",
+              borderRadius: 8,
+              border: "none",
+              background:
+                period === p.key
+                  ? isLight
+                    ? "rgba(20,22,26,0.14)"
+                    : "rgba(255,255,255,0.14)"
+                  : "transparent",
+              color:
+                period === p.key
+                  ? isLight
+                    ? "#14161A"
+                    : "#FFFFFF"
+                  : isLight
+                  ? "rgba(20,22,26,0.4)"
+                  : "rgba(255,255,255,0.4)",
+              fontSize: 11,
+              fontWeight: 600,
+              cursor: "pointer",
+              outline: "none",
+              transition: "background 0.2s ease, color 0.2s ease",
+            }}
+          >
+            {p.label}
+          </button>
+        ))}
+      </div>
+      <div style={{ width: "100%", height: 150 }}>
+        {candlesLoading ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              fontSize: 12,
+              color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+            }}
+          >
+            불러오는 중...
+          </div>
+        ) : candles.length === 0 ? (
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              height: "100%",
+              fontSize: 12,
+              color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+            }}
+          >
+            차트 정보를 불러올 수 없어요
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
+            <ComposedChart data={candles} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+              <XAxis
+                dataKey="date"
+                tick={{
+                  fontSize: 9,
+                  fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                }}
+                axisLine={false}
+                tickLine={false}
+                interval="preserveStartEnd"
+                minTickGap={40}
+              />
+              <YAxis hide domain={["dataMin", "dataMax"]} />
+              <Tooltip
+                contentStyle={{
+                  background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  borderRadius: 10,
+                  fontSize: 11,
+                  padding: "6px 10px",
+                }}
+                labelStyle={{
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontWeight: 600,
+                  marginBottom: 2,
+                }}
+                itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
+                formatter={(_value, _name, item) => {
+                  const d = item.payload;
+                  const fmt = (n) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+                  return [`시 ${fmt(d.open)} 고 ${fmt(d.high)} 저 ${fmt(d.low)} 종 ${fmt(d.close)}`, ""];
+                }}
+              />
+              <Bar dataKey={(d) => [d.low, d.high]} shape={IndexCandleShape} isAnimationActive={false} />
+            </ComposedChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </div>
+  );
 }
 
 export default function Alloy() {
@@ -373,7 +526,7 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // S&P500 지수(실시간) - 홈 탭 상단, 클릭 시 최근 30일 추이 차트 모달 (야후 파이낸스, API 키 불필요)
+  // S&P500 지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
   const [snp500Index, setSnp500Index] = useState(null); // { name, price, date, changeAmount, changePercent, history }
   const [snp500IndexLoading, setSnp500IndexLoading] = useState(true);
   const [snp500IndexModalOpen, setSnp500IndexModalOpen] = useState(false);
@@ -411,7 +564,37 @@ export default function Alloy() {
   const closeSnp500IndexModalRef = useRef(closeSnp500IndexModal);
   closeSnp500IndexModalRef.current = closeSnp500IndexModal;
 
-  // 나스닥 종합지수(실시간) - 홈 탭 상단, 클릭 시 최근 30일 추이 차트 모달 (야후 파이낸스, API 키 불필요)
+  // S&P500 모달의 캔들차트 (표기 주기: 1일/1주/3달/1년, 모달이 열려있거나 주기를 바꿀 때마다 재조회)
+  const [snp500Period, setSnp500Period] = useState("1d");
+  const [snp500Candles, setSnp500Candles] = useState([]);
+  const [snp500CandlesLoading, setSnp500CandlesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!snp500IndexModalOpen) return;
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === snp500Period) || INDEX_CANDLE_PERIODS[0];
+    setSnp500CandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol: "^GSPC", name: "S&P500", range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setSnp500Candles(!error && data && Array.isArray(data.history) ? data.history : []);
+        setSnp500CandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSnp500Candles([]);
+          setSnp500CandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [snp500IndexModalOpen, snp500Period]);
+
+  // 나스닥 종합지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
   const [nasdaqIndex, setNasdaqIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
   const [nasdaqIndexLoading, setNasdaqIndexLoading] = useState(true);
   const [nasdaqIndexModalOpen, setNasdaqIndexModalOpen] = useState(false);
@@ -448,6 +631,36 @@ export default function Alloy() {
   };
   const closeNasdaqIndexModalRef = useRef(closeNasdaqIndexModal);
   closeNasdaqIndexModalRef.current = closeNasdaqIndexModal;
+
+  // 나스닥 모달의 캔들차트 (표기 주기: 1일/1주/3달/1년, 모달이 열려있거나 주기를 바꿀 때마다 재조회)
+  const [nasdaqPeriod, setNasdaqPeriod] = useState("1d");
+  const [nasdaqCandles, setNasdaqCandles] = useState([]);
+  const [nasdaqCandlesLoading, setNasdaqCandlesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!nasdaqIndexModalOpen) return;
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === nasdaqPeriod) || INDEX_CANDLE_PERIODS[0];
+    setNasdaqCandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol: "^IXIC", name: "나스닥", range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setNasdaqCandles(!error && data && Array.isArray(data.history) ? data.history : []);
+        setNasdaqCandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNasdaqCandles([]);
+          setNasdaqCandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [nasdaqIndexModalOpen, nasdaqPeriod]);
 
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
@@ -1786,7 +1999,7 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* 지수 위젯(S&P500, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 최근 30일 추이 차트 모달 */}
+            {/* 지수 위젯(S&P500, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 캔들차트 모달 */}
             <div
               style={{
                 display: "flex",
@@ -3547,7 +3760,7 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* S&P500 지수 차트 모달 (최근 30일 종가 추이, 환율 모달과 동일한 크기/스타일) */}
+      {/* S&P500 지수 캔들차트 모달 (환율 모달과 동일한 크기/스타일) */}
       {snp500IndexModalOpen && snp500Index && (
         <div
           onClick={closeSnp500IndexModal}
@@ -3586,35 +3799,17 @@ export default function Alloy() {
               boxSizing: "border-box",
             }}
           >
-            <div
+            <h2
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 4,
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
               }}
             >
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  letterSpacing: 0.2,
-                }}
-              >
-                {snp500Index.name}
-              </h2>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                }}
-              >
-                최근 30일
-              </span>
-            </div>
+              {snp500Index.name}
+            </h2>
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
               <span
@@ -3645,88 +3840,18 @@ export default function Alloy() {
               )}
             </div>
 
-            <div style={{ width: "100%", height: 150 }}>
-              {snp500Index.history.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  지수 정보를 불러올 수 없어요
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={snp500Index.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="snp500IndexGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop
-                          offset="0%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0.35}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="date"
-                      tick={{
-                        fontSize: 9,
-                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                      }}
-                      tickFormatter={(d) => d.slice(5).replace("-", "/")}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
-                    <Tooltip
-                      contentStyle={{
-                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                        borderRadius: 10,
-                        fontSize: 11,
-                        padding: "6px 10px",
-                      }}
-                      labelStyle={{
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        fontWeight: 600,
-                        marginBottom: 2,
-                      }}
-                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
-                      formatter={(value) => [
-                        Number(value).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        }),
-                        snp500Index.name,
-                      ]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="price"
-                      stroke={isLight ? "#14161A" : "#FFFFFF"}
-                      strokeWidth={2}
-                      fill="url(#snp500IndexGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+            <IndexCandleChart
+              isLight={isLight}
+              period={snp500Period}
+              onPeriodChange={setSnp500Period}
+              candles={snp500Candles}
+              candlesLoading={snp500CandlesLoading}
+            />
           </div>
         </div>
       )}
 
-      {/* 나스닥 지수 차트 모달 (최근 30일 종가 추이, S&P500 지수 모달과 동일한 크기/스타일) */}
+      {/* 나스닥 지수 캔들차트 모달 (S&P500 지수 모달과 동일한 크기/스타일) */}
       {nasdaqIndexModalOpen && nasdaqIndex && (
         <div
           onClick={closeNasdaqIndexModal}
@@ -3765,35 +3890,17 @@ export default function Alloy() {
               boxSizing: "border-box",
             }}
           >
-            <div
+            <h2
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 4,
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
               }}
             >
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  letterSpacing: 0.2,
-                }}
-              >
-                {nasdaqIndex.name}
-              </h2>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                }}
-              >
-                최근 30일
-              </span>
-            </div>
+              {nasdaqIndex.name}
+            </h2>
 
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
               <span
@@ -3824,83 +3931,13 @@ export default function Alloy() {
               )}
             </div>
 
-            <div style={{ width: "100%", height: 150 }}>
-              {nasdaqIndex.history.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  지수 정보를 불러올 수 없어요
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={nasdaqIndex.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="nasdaqIndexGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop
-                          offset="0%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0.35}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="date"
-                      tick={{
-                        fontSize: 9,
-                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                      }}
-                      tickFormatter={(d) => d.slice(5).replace("-", "/")}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
-                    <Tooltip
-                      contentStyle={{
-                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                        borderRadius: 10,
-                        fontSize: 11,
-                        padding: "6px 10px",
-                      }}
-                      labelStyle={{
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        fontWeight: 600,
-                        marginBottom: 2,
-                      }}
-                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
-                      formatter={(value) => [
-                        Number(value).toLocaleString(undefined, {
-                          minimumFractionDigits: 2,
-                          maximumFractionDigits: 2,
-                        }),
-                        nasdaqIndex.name,
-                      ]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="price"
-                      stroke={isLight ? "#14161A" : "#FFFFFF"}
-                      strokeWidth={2}
-                      fill="url(#nasdaqIndexGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
+            <IndexCandleChart
+              isLight={isLight}
+              period={nasdaqPeriod}
+              onPeriodChange={setNasdaqPeriod}
+              candles={nasdaqCandles}
+              candlesLoading={nasdaqCandlesLoading}
+            />
           </div>
         </div>
       )}
