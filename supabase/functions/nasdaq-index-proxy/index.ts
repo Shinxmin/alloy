@@ -1,19 +1,31 @@
 // 브라우저에서 야후 파이낸스 API를 직접 호출하면 CORS로 막히기 때문에 서버 경유용 프록시 함수.
-// 별도 API 키가 필요 없는 야후 파이낸스 비공식 차트 API로 나스닥 종합지수(^IXIC) 실시간가/최근 30일 추이를 조회한다.
+// 별도 API 키가 필요 없는 야후 파이낸스 비공식 차트 API로 미국 지수의 실시간가/최근 30일 추이를 조회한다.
+// 요청 바디로 { symbol, name }을 넘기면 해당 심볼을 조회하고, 없으면 나스닥 종합지수(^IXIC)가 기본값이다.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const SYMBOL = "%5EIXIC"; // ^IXIC (NASDAQ Composite)
-const YAHOO_URL = `https://query1.finance.yahoo.com/v8/finance/chart/${SYMBOL}?range=1mo&interval=1d`;
+const DEFAULT_SYMBOL = "%5EIXIC"; // ^IXIC (NASDAQ Composite)
+const DEFAULT_NAME = "나스닥";
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
-  const empty = { name: "나스닥", price: null, date: null, changeAmount: null, changePercent: null, history: [] };
+  let symbol = DEFAULT_SYMBOL;
+  let name = DEFAULT_NAME;
+  try {
+    const body = await req.json();
+    if (typeof body?.symbol === "string" && body.symbol) symbol = encodeURIComponent(body.symbol);
+    if (typeof body?.name === "string" && body.name) name = body.name;
+  } catch (e) {
+    // no-op, use defaults
+  }
+
+  const empty = { name, price: null, date: null, changeAmount: null, changePercent: null, history: [] };
+  const YAHOO_URL = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=1mo&interval=1d`;
 
   try {
     const res = await fetch(YAHOO_URL, {
@@ -23,7 +35,7 @@ Deno.serve(async (req) => {
       },
     });
     if (!res.ok) {
-      console.error(`야후 파이낸스 오류 (status=${res.status})`);
+      console.error(`야후 파이낸스 오류 (symbol=${symbol}, status=${res.status})`);
       return new Response(JSON.stringify(empty), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -31,7 +43,7 @@ Deno.serve(async (req) => {
     const data = await res.json();
     const result = data?.chart?.result?.[0];
     if (!result) {
-      console.error("야후 파이낸스: chart.result가 비어 있음", JSON.stringify(data?.chart?.error ?? {}));
+      console.error(`야후 파이낸스: chart.result가 비어 있음 (symbol=${symbol})`, JSON.stringify(data?.chart?.error ?? {}));
       return new Response(JSON.stringify(empty), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -49,27 +61,27 @@ Deno.serve(async (req) => {
         price: p.price,
       }));
 
-    const currentPrice = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : null;
-    const previousClose =
-      typeof meta.previousClose === "number"
-        ? meta.previousClose
-        : typeof meta.chartPreviousClose === "number"
-        ? meta.chartPreviousClose
-        : null;
+    // 전일 대비는 meta.chartPreviousClose(요청한 range 시작 이전 날짜의 종가라 "전일"이 아닐 수 있음)를
+    // 신뢰하지 않고, 실제로 받아온 일별 종가 히스토리의 마지막 두 값(가장 최근 거래일 vs 그 직전 거래일)으로 계산한다.
+    const last = history.length > 0 ? history[history.length - 1] : null;
+    const prev = history.length > 1 ? history[history.length - 2] : null;
+
+    const currentPrice = typeof meta.regularMarketPrice === "number" ? meta.regularMarketPrice : last?.price ?? null;
+    const previousClose = prev ? prev.price : typeof meta.previousClose === "number" ? meta.previousClose : null;
 
     const changeAmount = currentPrice != null && previousClose != null ? currentPrice - previousClose : null;
     const changePercent =
       changeAmount != null && previousClose ? (changeAmount / previousClose) * 100 : null;
 
     console.log(
-      `나스닥 조회 결과: 현재가=${currentPrice ?? "없음"}, 히스토리 ${history.length}개 확보`
+      `${name} 조회 결과: 현재가=${currentPrice ?? "없음"}, 전일종가=${previousClose ?? "없음"}, 히스토리 ${history.length}개 확보`
     );
 
     return new Response(
       JSON.stringify({
-        name: "나스닥",
+        name,
         price: currentPrice,
-        date: history.length > 0 ? history[history.length - 1].date : null,
+        date: last ? last.date : null,
         changeAmount,
         changePercent,
         history,
@@ -77,7 +89,7 @@ Deno.serve(async (req) => {
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );
   } catch (e) {
-    console.error("야후 파이낸스 호출 실패:", e);
+    console.error(`야후 파이낸스 호출 실패 (symbol=${symbol}):`, e);
     return new Response(JSON.stringify(empty), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
