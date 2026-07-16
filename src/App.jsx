@@ -412,6 +412,44 @@ export default function Alloy() {
   const closeKrxIndexModalRef = useRef(closeKrxIndexModal);
   closeKrxIndexModalRef.current = closeKrxIndexModal;
 
+  // 나스닥 종합지수(실시간) - 홈 탭 상단, 클릭 시 최근 30일 추이 차트 모달 (야후 파이낸스, API 키 불필요)
+  const [nasdaqIndex, setNasdaqIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
+  const [nasdaqIndexLoading, setNasdaqIndexLoading] = useState(true);
+  const [nasdaqIndexModalOpen, setNasdaqIndexModalOpen] = useState(false);
+  const [nasdaqIndexModalVisible, setNasdaqIndexModalVisible] = useState(false);
+  const [nasdaqIndexHovered, setNasdaqIndexHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {})
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setNasdaqIndex(!error && data && data.price != null ? data : null);
+        setNasdaqIndexLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNasdaqIndex(null);
+          setNasdaqIndexLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openNasdaqIndexModal = () => {
+    setNasdaqIndexModalOpen(true);
+    requestAnimationFrame(() => setNasdaqIndexModalVisible(true));
+  };
+  const closeNasdaqIndexModal = () => {
+    setNasdaqIndexModalVisible(false);
+    setTimeout(() => setNasdaqIndexModalOpen(false), 300);
+  };
+  const closeNasdaqIndexModalRef = useRef(closeNasdaqIndexModal);
+  closeNasdaqIndexModalRef.current = closeNasdaqIndexModal;
+
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
@@ -518,7 +556,8 @@ export default function Alloy() {
 
   // 모달(종목 추가/수정, 환율 차트, KRX 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
-    const anyModalOpen = modalOpen || rateModalOpen || infoModalOpen || krxIndexModalOpen || chatOpen;
+    const anyModalOpen =
+      modalOpen || rateModalOpen || infoModalOpen || krxIndexModalOpen || nasdaqIndexModalOpen || chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -533,7 +572,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, nasdaqIndexModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -921,6 +960,9 @@ export default function Alloy() {
         } else if (krxIndexModalOpen) {
           e.preventDefault();
           closeKrxIndexModalRef.current();
+        } else if (nasdaqIndexModalOpen) {
+          e.preventDefault();
+          closeNasdaqIndexModalRef.current();
         } else if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
@@ -949,7 +991,17 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
+  }, [
+    modalOpen,
+    rateModalOpen,
+    infoModalOpen,
+    krxIndexModalOpen,
+    nasdaqIndexModalOpen,
+    chatOpen,
+    chatSortMode,
+    pendingCommand,
+    chatDoneNotice,
+  ]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -1730,90 +1782,113 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* KRX 지수(오늘 장마감 종가) - 홈 탭 상단 중앙, 클릭 시 최근 30일 추이 차트 모달 */}
+            {/* 지수 위젯(KRX 300, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 최근 30일 추이 차트 모달 */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "center",
+                gap: 36,
                 marginTop: 56,
               }}
             >
-              {krxIndexLoading ? (
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  지수 불러오는 중...
-                </span>
-              ) : !krxIndex ? (
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  지수 정보를 불러올 수 없어요
-                </span>
-              ) : (
-                <div
-                  onClick={openKrxIndexModal}
-                  onMouseEnter={() => setKrxIndexHovered(true)}
-                  onMouseLeave={() => setKrxIndexHovered(false)}
-                  role="button"
-                  tabIndex={0}
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    gap: 4,
-                    cursor: "pointer",
-                    opacity: krxIndexHovered ? 0.7 : 1,
-                    transition: "opacity 0.2s ease",
-                    outline: "none",
-                  }}
-                >
+              {[
+                {
+                  key: "krx",
+                  loading: krxIndexLoading,
+                  index: krxIndex,
+                  hovered: krxIndexHovered,
+                  setHovered: setKrxIndexHovered,
+                  open: openKrxIndexModal,
+                },
+                {
+                  key: "nasdaq",
+                  loading: nasdaqIndexLoading,
+                  index: nasdaqIndex,
+                  hovered: nasdaqIndexHovered,
+                  setHovered: setNasdaqIndexHovered,
+                  open: openNasdaqIndexModal,
+                },
+              ].map((w) =>
+                w.loading ? (
                   <span
+                    key={w.key}
                     style={{
-                      fontSize: 13,
+                      fontSize: 12,
                       fontWeight: 600,
-                      color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                     }}
                   >
-                    {krxIndex.name}
+                    지수 불러오는 중...
                   </span>
+                ) : !w.index ? (
                   <span
+                    key={w.key}
                     style={{
-                      fontSize: 32,
-                      fontWeight: 700,
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      letterSpacing: 0.2,
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                     }}
                   >
-                    {krxIndex.price.toLocaleString(undefined, {
-                      minimumFractionDigits: 2,
-                      maximumFractionDigits: 2,
-                    })}
+                    지수 정보를 불러올 수 없어요
                   </span>
-                  {krxIndex.changeAmount != null && krxIndex.changePercent != null && (
+                ) : (
+                  <div
+                    key={w.key}
+                    onClick={w.open}
+                    onMouseEnter={() => w.setHovered(true)}
+                    onMouseLeave={() => w.setHovered(false)}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      cursor: "pointer",
+                      opacity: w.hovered ? 0.7 : 1,
+                      transition: "opacity 0.2s ease",
+                      outline: "none",
+                    }}
+                  >
                     <span
                       style={{
                         fontSize: 13,
                         fontWeight: 600,
-                        color: krxIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                        color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                       }}
                     >
-                      {krxIndex.changeAmount >= 0 ? "▲ " : "▼ "}
-                      {Math.abs(krxIndex.changeAmount).toFixed(2)} (
-                      {krxIndex.changePercent >= 0 ? "+" : ""}
-                      {krxIndex.changePercent.toFixed(2)}%)
+                      {w.index.name}
                     </span>
-                  )}
-                </div>
+                    <span
+                      style={{
+                        fontSize: 26,
+                        fontWeight: 700,
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      {w.index.price.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    {w.index.changeAmount != null && w.index.changePercent != null && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                        }}
+                      >
+                        {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                        {Math.abs(w.index.changeAmount).toFixed(2)} (
+                        {w.index.changePercent >= 0 ? "+" : ""}
+                        {w.index.changePercent.toFixed(2)}%)
+                      </span>
+                    )}
+                  </div>
+                )
               )}
             </div>
           </>
@@ -3638,6 +3713,185 @@ export default function Alloy() {
                       stroke={isLight ? "#14161A" : "#FFFFFF"}
                       strokeWidth={2}
                       fill="url(#krxIndexGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 나스닥 지수 차트 모달 (최근 30일 종가 추이, KRX 지수 모달과 동일한 크기/스타일) */}
+      {nasdaqIndexModalOpen && nasdaqIndex && (
+        <div
+          onClick={closeNasdaqIndexModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: nasdaqIndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: nasdaqIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: nasdaqIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: nasdaqIndexModalVisible ? 1 : 0,
+              transform: nasdaqIndexModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  letterSpacing: 0.2,
+                }}
+              >
+                {nasdaqIndex.name}
+              </h2>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                최근 30일
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {nasdaqIndex.price.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              {nasdaqIndex.changeAmount != null && nasdaqIndex.changePercent != null && (
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: nasdaqIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                  }}
+                >
+                  {nasdaqIndex.changeAmount >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(nasdaqIndex.changeAmount).toFixed(2)} (
+                  {nasdaqIndex.changePercent >= 0 ? "+" : ""}
+                  {nasdaqIndex.changePercent.toFixed(2)}%)
+                </span>
+              )}
+            </div>
+
+            <div style={{ width: "100%", height: 150 }}>
+              {nasdaqIndex.history.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  지수 정보를 불러올 수 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={nasdaqIndex.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="nasdaqIndexGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0.35}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      tickFormatter={(d) => d.slice(5).replace("-", "/")}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+                    <Tooltip
+                      contentStyle={{
+                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        borderRadius: 10,
+                        fontSize: 11,
+                        padding: "6px 10px",
+                      }}
+                      labelStyle={{
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontWeight: 600,
+                        marginBottom: 2,
+                      }}
+                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
+                      formatter={(value) => [
+                        Number(value).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }),
+                        nasdaqIndex.name,
+                      ]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="price"
+                      stroke={isLight ? "#14161A" : "#FFFFFF"}
+                      strokeWidth={2}
+                      fill="url(#nasdaqIndexGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
