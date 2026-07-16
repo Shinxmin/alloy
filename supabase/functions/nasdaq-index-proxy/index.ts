@@ -64,24 +64,27 @@ Deno.serve(async (req) => {
     const lows: (number | null)[] = quote.low ?? [];
     const closes: (number | null)[] = quote.close ?? [];
 
+    // 환율(특히 JPYKRW=X 같은 계산된 교차환율) 등은 분봉에서 open/high/low가 비어있고
+    // close만 오는 경우가 많다. close만 있어도 캔들을 그릴 수 있도록 open=high=low=close로 채워 넣는다
+    // (완전히 비어있는 경우에만 제외해, 실제로 존재하는 종가 데이터가 빈 차트로 드롭되지 않게 한다).
     const history = timestamps
       .map((ts, i) => ({ ts, open: opens[i], high: highs[i], low: lows[i], close: closes[i] }))
-      .filter(
-        (p): p is { ts: number; open: number; high: number; low: number; close: number } =>
-          typeof p.open === "number" &&
-          typeof p.high === "number" &&
-          typeof p.low === "number" &&
-          typeof p.close === "number" &&
-          isFinite(p.close)
+      .filter((p): p is { ts: number; open: number | null; high: number | null; low: number | null; close: number } =>
+        typeof p.close === "number" && isFinite(p.close)
       )
-      .map((p) => ({
-        ts: p.ts, // 초 단위 UNIX epoch. 라벨/툴팁 표기는 프론트에서 선택된 기간에 맞춰 KST로 변환한다.
-        open: p.open,
-        high: p.high,
-        low: p.low,
-        close: p.close,
-        price: p.close, // 캔들이 아닌 단순 라인 표시가 필요한 곳에서도 재사용 가능하도록 유지
-      }));
+      .map((p) => {
+        const open = typeof p.open === "number" ? p.open : p.close;
+        const high = typeof p.high === "number" ? p.high : Math.max(open, p.close);
+        const low = typeof p.low === "number" ? p.low : Math.min(open, p.close);
+        return {
+          ts: p.ts, // 초 단위 UNIX epoch. 라벨/툴팁 표기는 프론트에서 선택된 기간에 맞춰 KST로 변환한다.
+          open,
+          high,
+          low,
+          close: p.close,
+          price: p.close, // 캔들이 아닌 단순 라인 표시가 필요한 곳에서도 재사용 가능하도록 유지
+        };
+      });
 
     // 전일 대비는 meta.chartPreviousClose(요청한 range 시작 이전 날짜의 종가라 "전일"이 아닐 수 있음)를
     // 신뢰하지 않고, 실제로 받아온 종가 히스토리의 마지막 두 값(가장 최근 봉 vs 그 직전 봉)으로 계산한다.

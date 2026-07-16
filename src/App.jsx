@@ -132,17 +132,24 @@ function IndexCandleTooltip({ active, payload, isLight, interval }) {
 function IndexCandleShape(props) {
   const { x, y, width, height, payload } = props;
   const { open, close, high, low } = payload;
-  if (high === low || !isFinite(height) || height <= 0) return null;
+  if (!isFinite(y) || !isFinite(height) || height < 0) return null;
   const isUp = close >= open;
   const color = isUp ? "#FF5C5C" : "#4D9FFF";
+  const bodyWidth = Math.max(width * 0.6, 2);
+  const bodyX = x + (width - bodyWidth) / 2;
+  const wickX = x + width / 2;
+
+  if (high === low || height === 0) {
+    // 고가/저가가 없어 시가=고가=저가=종가로 대체된 지점(예: 분봉 환율 데이터)은
+    // 캔들 몸통 대신 해당 가격 위치에 납작한 마커만 그려 값이 아예 안 보이지 않게 한다.
+    return <rect x={bodyX} y={y - 1} width={bodyWidth} height={2} fill={color} />;
+  }
+
   const scale = height / (high - low);
   const openY = y + (high - open) * scale;
   const closeY = y + (high - close) * scale;
   const bodyTop = Math.min(openY, closeY);
   const bodyHeight = Math.max(Math.abs(closeY - openY), 1);
-  const bodyWidth = Math.max(width * 0.6, 2);
-  const bodyX = x + (width - bodyWidth) / 2;
-  const wickX = x + width / 2;
   return (
     <g>
       <line x1={wickX} y1={y} x2={wickX} y2={y + height} stroke={color} strokeWidth={1} />
@@ -2491,7 +2498,9 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* 지수 위젯 카드: 하단 점 버튼 또는 좌우 드래그(스와이프)로 "주가지수 4종" / "환율·미국채" 두 페이지 전환 */}
+            {/* 지수 위젯 카드: 하단 점 버튼 또는 좌우 드래그(스와이프)로 "주가지수 4종" / "환율·미국채" 두 페이지 전환.
+                두 페이지를 가로로 나란히 두고 translateX로 슬라이드시키는 방식이라, 두 페이지 모두 항상 DOM에 떠있으며
+                내용이 더 큰 쪽 높이에 flex stretch로 맞춰져 카드 테두리 세로폭이 두 페이지에서 항상 동일하다. */}
             <div
               onMouseDown={handleIndexDragStart}
               onMouseMove={handleIndexDragMove}
@@ -2509,11 +2518,19 @@ export default function Alloy() {
                 touchAction: "pan-y",
                 userSelect: "none",
                 cursor: "grab",
+                overflow: "hidden",
               }}
             >
-              {indexPage === 0 ? (
-                <>
-                  {/* 지수 위젯(S&P500, 나스닥) - 클릭 시 각각 캔들차트 모달 */}
+              <div
+                style={{
+                  display: "flex",
+                  width: "200%",
+                  transform: `translateX(${indexPage === 0 ? "0%" : "-50%"})`,
+                  transition: "transform 0.4s cubic-bezier(0.22, 1, 0.36, 1)",
+                }}
+              >
+                {/* 1페이지: 지수 위젯(S&P500, 나스닥, 코스피, 코스닥) - 클릭 시 각각 캔들차트 모달 */}
+                <div style={{ width: "50%", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div
                     style={{
                       display: "flex",
@@ -2622,7 +2639,6 @@ export default function Alloy() {
                     )}
                   </div>
 
-                  {/* 지수 위젯 2열(코스피, 코스닥) - 클릭 시 각각 캔들차트 모달 */}
                   <div
                     style={{
                       display: "flex",
@@ -2731,125 +2747,119 @@ export default function Alloy() {
                       )
                     )}
                   </div>
-                </>
-              ) : (
-                /* 환율(원/달러, 원/엔) + 미국채(3개월/5년/10년/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움.
-                   각 셀은 "이름 가격" 한 줄 + "화살표 등락률%" 한 줄로만 표기 (주가지수 4종 페이지와 세로폭을 맞추기 위해 압축) */
-                <div
-                  style={{
-                    display: "grid",
-                    gridTemplateColumns: "1fr 1fr",
-                    borderRadius: 16,
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                    overflow: "hidden",
-                  }}
-                >
-                  {[
-                    { key: "fxKrwUsd", ...fxKrwUsd },
-                    { key: "ust1y", ...ust1y },
-                    { key: "fxKrwJpy", ...fxKrwJpy },
-                    { key: "ust5y", ...ust5y },
-                    null,
-                    { key: "ust10y", ...ust10y },
-                    null,
-                    { key: "ust30y", ...ust30y },
-                  ].map((w, i) => {
-                    const col = i % 2;
-                    const row = Math.floor(i / 2);
-                    const borderColor = isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)";
-                    const cellStyle = {
-                      borderRight: col === 0 ? `1px solid ${borderColor}` : "none",
-                      borderBottom: row === 3 ? "none" : `1px solid ${borderColor}`,
-                      minHeight: 34,
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      gap: 1,
-                      padding: "4px 6px",
-                    };
-                    if (!w) return <div key={`index-grid-empty-${i}`} style={cellStyle} />;
-                    return (
-                      <div
-                        key={w.key}
-                        onClick={!w.loading && w.index ? w.open : undefined}
-                        onMouseEnter={() => w.setHovered(true)}
-                        onMouseLeave={() => w.setHovered(false)}
-                        role="button"
-                        tabIndex={0}
-                        style={{
-                          ...cellStyle,
-                          cursor: !w.loading && w.index ? "pointer" : "default",
-                          opacity: w.hovered ? 0.7 : 1,
-                          transition: "opacity 0.2s ease",
-                          outline: "none",
-                        }}
-                      >
-                        {w.loading ? (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                            }}
-                          >
-                            불러오는 중...
-                          </span>
-                        ) : !w.index ? (
-                          <span
-                            style={{
-                              fontSize: 11,
-                              fontWeight: 600,
-                              color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                            }}
-                          >
-                            정보 없음
-                          </span>
-                        ) : (
-                          <>
-                            <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                              <span
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                                }}
-                              >
-                                {w.index.name}
-                              </span>
-                              <span
-                                style={{
-                                  fontSize: 13,
-                                  fontWeight: 700,
-                                  color: isLight ? "#14161A" : "#FFFFFF",
-                                }}
-                              >
-                                {w.index.price.toLocaleString(undefined, {
-                                  minimumFractionDigits: 2,
-                                  maximumFractionDigits: 2,
-                                })}
-                              </span>
-                            </div>
-                            {w.index.changeAmount != null && w.index.changePercent != null && (
-                              <span
-                                style={{
-                                  fontSize: 10,
-                                  fontWeight: 600,
-                                  color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
-                                }}
-                              >
-                                {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
-                                {w.index.changePercent >= 0 ? "+" : ""}
-                                {w.index.changePercent.toFixed(2)}%
-                              </span>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    );
-                  })}
                 </div>
-              )}
+
+                {/* 2페이지: 환율(원/달러, 원/엔) + 미국채(3개월/5년/10년/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움.
+                    셀 사이 구분선 없이 간격만으로 배치하고, 각 셀은 "이름 가격" 한 줄 + "화살표 등락률%" 한 줄로 표기 */}
+                <div style={{ width: "50%", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "1fr 1fr",
+                      rowGap: 14,
+                      columnGap: 8,
+                    }}
+                  >
+                    {[
+                      { key: "fxKrwUsd", ...fxKrwUsd },
+                      { key: "ust1y", ...ust1y },
+                      { key: "fxKrwJpy", ...fxKrwJpy },
+                      { key: "ust5y", ...ust5y },
+                      null,
+                      { key: "ust10y", ...ust10y },
+                      null,
+                      { key: "ust30y", ...ust30y },
+                    ].map((w, i) => {
+                      const cellStyle = {
+                        display: "flex",
+                        flexDirection: "column",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        gap: 2,
+                      };
+                      if (!w) return <div key={`index-grid-empty-${i}`} style={cellStyle} />;
+                      return (
+                        <div
+                          key={w.key}
+                          onClick={!w.loading && w.index ? w.open : undefined}
+                          onMouseEnter={() => w.setHovered(true)}
+                          onMouseLeave={() => w.setHovered(false)}
+                          role="button"
+                          tabIndex={0}
+                          style={{
+                            ...cellStyle,
+                            cursor: !w.loading && w.index ? "pointer" : "default",
+                            opacity: w.hovered ? 0.7 : 1,
+                            transition: "opacity 0.2s ease",
+                            outline: "none",
+                          }}
+                        >
+                          {w.loading ? (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                              }}
+                            >
+                              불러오는 중...
+                            </span>
+                          ) : !w.index ? (
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                              }}
+                            >
+                              정보 없음
+                            </span>
+                          ) : (
+                            <>
+                              <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                                <span
+                                  style={{
+                                    fontSize: 11,
+                                    fontWeight: 600,
+                                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                                  }}
+                                >
+                                  {w.index.name}
+                                </span>
+                                <span
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: 700,
+                                    color: isLight ? "#14161A" : "#FFFFFF",
+                                  }}
+                                >
+                                  {w.index.price.toLocaleString(undefined, {
+                                    minimumFractionDigits: 2,
+                                    maximumFractionDigits: 2,
+                                  })}
+                                </span>
+                              </div>
+                              {w.index.changeAmount != null && w.index.changePercent != null && (
+                                <span
+                                  style={{
+                                    fontSize: 10,
+                                    fontWeight: 600,
+                                    color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                                  }}
+                                >
+                                  {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                                  {w.index.changePercent >= 0 ? "+" : ""}
+                                  {w.index.changePercent.toFixed(2)}%
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
 
               {/* 페이지 전환 점 버튼: 첫번째 = 주가지수 4종, 두번째 = 환율·미국채 그리드 */}
               <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16 }}>
