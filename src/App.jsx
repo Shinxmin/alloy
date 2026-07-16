@@ -250,31 +250,9 @@ function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoa
   );
 }
 
-// 미국채 지수(^IRX/^FVX/^TNX/^TYX)는 CBOE 관례상 실제 수익률(%)의 10배로 표기되므로,
-// scale=10을 넘기면 가격/캔들 OHLC를 모두 10으로 나눠 실제 수익률 값으로 보정한다.
-function scaleIndexPayload(data, scale) {
-  if (!data || scale === 1) return data;
-  const div = (n) => (typeof n === "number" ? n / scale : n);
-  return {
-    ...data,
-    price: div(data.price),
-    changeAmount: div(data.changeAmount),
-    history: Array.isArray(data.history)
-      ? data.history.map((c) => ({
-          ...c,
-          open: div(c.open),
-          high: div(c.high),
-          low: div(c.low),
-          close: div(c.close),
-          price: div(c.price),
-        }))
-      : data.history,
-  };
-}
-
 // 야후 파이낸스 지수(주가지수/환율/금리) 공통 데이터 조회 훅.
 // S&P500/나스닥/코스피/코스닥과 동일한 헤더값+캔들차트 조회 패턴을 재사용한다.
-function useYahooIndex(symbol, name, scale = 1) {
+function useYahooIndex(symbol, name) {
   const [index, setIndex] = useState(null);
   const [loading, setLoading] = useState(true);
   const [modalOpen, setModalOpen] = useState(false);
@@ -290,7 +268,7 @@ function useYahooIndex(symbol, name, scale = 1) {
       .invoke("nasdaq-index-proxy", { body: { symbol, name } })
       .then(({ data, error }) => {
         if (cancelled) return;
-        setIndex(!error && data && data.price != null ? scaleIndexPayload(data, scale) : null);
+        setIndex(!error && data && data.price != null ? data : null);
         setLoading(false);
       })
       .catch(() => {
@@ -326,8 +304,7 @@ function useYahooIndex(symbol, name, scale = 1) {
       })
       .then(({ data, error }) => {
         if (cancelled) return;
-        const history = !error && data && Array.isArray(data.history) ? data.history : [];
-        setCandles(scaleIndexPayload({ history }, scale).history);
+        setCandles(!error && data && Array.isArray(data.history) ? data.history : []);
         setCandlesLoading(false);
       })
       .catch(() => {
@@ -1075,17 +1052,52 @@ export default function Alloy() {
   // 지수 위젯 카드 하단 점 버튼으로 전환되는 두 페이지: 0 = 주가지수 4종, 1 = 환율/미국채
   const [indexPage, setIndexPage] = useState(0);
 
+  // 지수 위젯 카드 내 좌우 드래그(스와이프)로도 점 버튼과 동일하게 페이지 전환
+  const indexDragRef = useRef({ startX: 0, startY: 0, dragging: false, moved: false });
+  const handleIndexDragStart = (e) => {
+    const p = e.touches ? e.touches[0] : e;
+    indexDragRef.current = { startX: p.clientX, startY: p.clientY, dragging: true, moved: false };
+  };
+  const handleIndexDragMove = (e) => {
+    if (!indexDragRef.current.dragging) return;
+    const p = e.touches ? e.touches[0] : e;
+    const dx = p.clientX - indexDragRef.current.startX;
+    const dy = p.clientY - indexDragRef.current.startY;
+    if (!indexDragRef.current.moved && Math.abs(dx) > 8 && Math.abs(dx) > Math.abs(dy)) {
+      indexDragRef.current.moved = true;
+    }
+  };
+  const handleIndexDragEnd = (e) => {
+    if (!indexDragRef.current.dragging) return;
+    const p = e.changedTouches ? e.changedTouches[0] : e;
+    const dx = p.clientX - indexDragRef.current.startX;
+    indexDragRef.current.dragging = false;
+    if (Math.abs(dx) > 40) {
+      setIndexPage(dx < 0 ? 1 : 0);
+    }
+  };
+  const handleIndexDragCancel = () => {
+    indexDragRef.current.dragging = false;
+  };
+  // 드래그(스와이프)로 페이지가 전환된 경우, 뒤이어 발생하는 클릭이 위젯을 열지 않도록 차단
+  const handleIndexClickCapture = (e) => {
+    if (indexDragRef.current.moved) {
+      e.preventDefault();
+      e.stopPropagation();
+      indexDragRef.current.moved = false;
+    }
+  };
+
   // 환율(원/달러, 원/엔) - 야후 파이낸스, 지수 위젯과 동일한 위젯+모달+캔들차트 구성
   const fxKrwUsd = useYahooIndex("KRW=X", "원/달러");
   const fxKrwJpy = useYahooIndex("JPYKRW=X", "원/엔");
 
-  // 미국채 금리(1년/5년/10년/30년) - 야후 파이낸스(CBOE 금리지수)
-  // ^IRX(13주)/^FVX(5년)/^TNX(10년)/^TYX(30년)는 실제 수익률(%)의 10배로 표기되어 scale=10으로 보정한다.
+  // 미국채 금리(3개월/5년/10년/30년) - 야후 파이낸스(CBOE 금리지수), 원시값이 실제 수익률(%) 그대로라 별도 보정 없음.
   // 1년물은 야후에 전용 티커가 없어 가장 근접한 단기물인 13주(3개월) 국채로 대체한다.
-  const ust1y = useYahooIndex("^IRX", "미국채1년", 10);
-  const ust5y = useYahooIndex("^FVX", "미국채5년", 10);
-  const ust10y = useYahooIndex("^TNX", "미국채10년", 10);
-  const ust30y = useYahooIndex("^TYX", "미국채30년", 10);
+  const ust1y = useYahooIndex("^IRX", "미국채3개월");
+  const ust5y = useYahooIndex("^FVX", "미국채5년");
+  const ust10y = useYahooIndex("^TNX", "미국채10년");
+  const ust30y = useYahooIndex("^TYX", "미국채30년");
 
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
@@ -2479,13 +2491,24 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* 지수 위젯 카드: 하단 점 버튼으로 "주가지수 4종" / "환율·미국채" 두 페이지 전환 */}
+            {/* 지수 위젯 카드: 하단 점 버튼 또는 좌우 드래그(스와이프)로 "주가지수 4종" / "환율·미국채" 두 페이지 전환 */}
             <div
+              onMouseDown={handleIndexDragStart}
+              onMouseMove={handleIndexDragMove}
+              onMouseUp={handleIndexDragEnd}
+              onMouseLeave={handleIndexDragCancel}
+              onTouchStart={handleIndexDragStart}
+              onTouchMove={handleIndexDragMove}
+              onTouchEnd={handleIndexDragEnd}
+              onClickCapture={handleIndexClickCapture}
               style={{
                 marginTop: 56,
                 padding: "20px 16px 16px",
                 borderRadius: 24,
                 border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                touchAction: "pan-y",
+                userSelect: "none",
+                cursor: "grab",
               }}
             >
               {indexPage === 0 ? (
@@ -2710,7 +2733,8 @@ export default function Alloy() {
                   </div>
                 </>
               ) : (
-                /* 환율(원/달러, 원/엔) + 미국채(1/5/10/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움 */
+                /* 환율(원/달러, 원/엔) + 미국채(3개월/5년/10년/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움.
+                   각 셀은 "이름 가격" 한 줄 + "화살표 등락률%" 한 줄로만 표기 (주가지수 4종 페이지와 세로폭을 맞추기 위해 압축) */
                 <div
                   style={{
                     display: "grid",
@@ -2736,13 +2760,13 @@ export default function Alloy() {
                     const cellStyle = {
                       borderRight: col === 0 ? `1px solid ${borderColor}` : "none",
                       borderBottom: row === 3 ? "none" : `1px solid ${borderColor}`,
-                      minHeight: 64,
+                      minHeight: 34,
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 3,
-                      padding: "10px 6px",
+                      gap: 1,
+                      padding: "4px 6px",
                     };
                     if (!w) return <div key={`index-grid-empty-${i}`} style={cellStyle} />;
                     return (
@@ -2783,27 +2807,29 @@ export default function Alloy() {
                           </span>
                         ) : (
                           <>
-                            <span
-                              style={{
-                                fontSize: 11,
-                                fontWeight: 600,
-                                color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                              }}
-                            >
-                              {w.index.name}
-                            </span>
-                            <span
-                              style={{
-                                fontSize: 15,
-                                fontWeight: 700,
-                                color: isLight ? "#14161A" : "#FFFFFF",
-                              }}
-                            >
-                              {w.index.price.toLocaleString(undefined, {
-                                minimumFractionDigits: 2,
-                                maximumFractionDigits: 2,
-                              })}
-                            </span>
+                            <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                              <span
+                                style={{
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                                }}
+                              >
+                                {w.index.name}
+                              </span>
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  fontWeight: 700,
+                                  color: isLight ? "#14161A" : "#FFFFFF",
+                                }}
+                              >
+                                {w.index.price.toLocaleString(undefined, {
+                                  minimumFractionDigits: 2,
+                                  maximumFractionDigits: 2,
+                                })}
+                              </span>
+                            </div>
                             {w.index.changeAmount != null && w.index.changePercent != null && (
                               <span
                                 style={{
