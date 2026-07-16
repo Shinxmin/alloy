@@ -373,6 +373,45 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
+  // KRX 지수(오늘 장마감 종가) - 홈 탭 상단 중앙 표시, 클릭 시 최근 30일 추이 차트 모달
+  // (KRX_API_KEY가 "지수" 상품만 승인되어 있어 개별 종목이 아닌 대표 지수만 조회 가능)
+  const [krxIndex, setKrxIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
+  const [krxIndexLoading, setKrxIndexLoading] = useState(true);
+  const [krxIndexModalOpen, setKrxIndexModalOpen] = useState(false);
+  const [krxIndexModalVisible, setKrxIndexModalVisible] = useState(false);
+  const [krxIndexHovered, setKrxIndexHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("krx-index-proxy", {})
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setKrxIndex(!error && data && data.price != null ? data : null);
+        setKrxIndexLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKrxIndex(null);
+          setKrxIndexLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openKrxIndexModal = () => {
+    setKrxIndexModalOpen(true);
+    requestAnimationFrame(() => setKrxIndexModalVisible(true));
+  };
+  const closeKrxIndexModal = () => {
+    setKrxIndexModalVisible(false);
+    setTimeout(() => setKrxIndexModalOpen(false), 300);
+  };
+  const closeKrxIndexModalRef = useRef(closeKrxIndexModal);
+  closeKrxIndexModalRef.current = closeKrxIndexModal;
+
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
@@ -477,9 +516,9 @@ export default function Alloy() {
     };
   }, [infoModalOpen, infoHolding]);
 
-  // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  // 모달(종목 추가/수정, 환율 차트, KRX 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
-    const anyModalOpen = modalOpen || rateModalOpen || infoModalOpen || chatOpen;
+    const anyModalOpen = modalOpen || rateModalOpen || infoModalOpen || krxIndexModalOpen || chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -494,7 +533,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, infoModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -879,6 +918,9 @@ export default function Alloy() {
         } else if (rateModalOpen) {
           e.preventDefault();
           closeRateModalRef.current();
+        } else if (krxIndexModalOpen) {
+          e.preventDefault();
+          closeKrxIndexModalRef.current();
         } else if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
@@ -907,7 +949,7 @@ export default function Alloy() {
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [modalOpen, rateModalOpen, infoModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, chatOpen, chatSortMode, pendingCommand, chatDoneNotice]);
 
   const handleDelete = () => {
     if (editIndex === null) {
@@ -1686,6 +1728,93 @@ export default function Alloy() {
                   +
                 </button>
               </div>
+            </div>
+
+            {/* KRX 지수(오늘 장마감 종가) - 홈 탭 상단 중앙, 클릭 시 최근 30일 추이 차트 모달 */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                marginTop: 56,
+              }}
+            >
+              {krxIndexLoading ? (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  지수 불러오는 중...
+                </span>
+              ) : !krxIndex ? (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  지수 정보를 불러올 수 없어요
+                </span>
+              ) : (
+                <div
+                  onClick={openKrxIndexModal}
+                  onMouseEnter={() => setKrxIndexHovered(true)}
+                  onMouseLeave={() => setKrxIndexHovered(false)}
+                  role="button"
+                  tabIndex={0}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    cursor: "pointer",
+                    opacity: krxIndexHovered ? 0.7 : 1,
+                    transition: "opacity 0.2s ease",
+                    outline: "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                    }}
+                  >
+                    {krxIndex.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 32,
+                      fontWeight: 700,
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    {krxIndex.price.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  {krxIndex.changeAmount != null && krxIndex.changePercent != null && (
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: krxIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                      }}
+                    >
+                      {krxIndex.changeAmount >= 0 ? "▲ " : "▼ "}
+                      {Math.abs(krxIndex.changeAmount).toFixed(2)} (
+                      {krxIndex.changePercent >= 0 ? "+" : ""}
+                      {krxIndex.changePercent.toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -3330,6 +3459,185 @@ export default function Alloy() {
                       stroke={isLight ? "#14161A" : "#FFFFFF"}
                       strokeWidth={2}
                       fill="url(#rateGradient)"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* KRX 지수 차트 모달 (최근 30일 종가 추이, 환율 모달과 동일한 크기/스타일) */}
+      {krxIndexModalOpen && krxIndex && (
+        <div
+          onClick={closeKrxIndexModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: krxIndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: krxIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: krxIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: krxIndexModalVisible ? 1 : 0,
+              transform: krxIndexModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                marginBottom: 4,
+              }}
+            >
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  letterSpacing: 0.2,
+                }}
+              >
+                {krxIndex.name}
+              </h2>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                }}
+              >
+                최근 30일
+              </span>
+            </div>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {krxIndex.price.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              {krxIndex.changeAmount != null && krxIndex.changePercent != null && (
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: krxIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                  }}
+                >
+                  {krxIndex.changeAmount >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(krxIndex.changeAmount).toFixed(2)} (
+                  {krxIndex.changePercent >= 0 ? "+" : ""}
+                  {krxIndex.changePercent.toFixed(2)}%)
+                </span>
+              )}
+            </div>
+
+            <div style={{ width: "100%", height: 150 }}>
+              {krxIndex.history.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  지수 정보를 불러올 수 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={krxIndex.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="krxIndexGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop
+                          offset="0%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0.35}
+                        />
+                        <stop
+                          offset="100%"
+                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
+                          stopOpacity={0}
+                        />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="date"
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      tickFormatter={(d) => d.slice(5).replace("-", "/")}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
+                    <Tooltip
+                      contentStyle={{
+                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        borderRadius: 10,
+                        fontSize: 11,
+                        padding: "6px 10px",
+                      }}
+                      labelStyle={{
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontWeight: 600,
+                        marginBottom: 2,
+                      }}
+                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
+                      formatter={(value) => [
+                        Number(value).toLocaleString(undefined, {
+                          minimumFractionDigits: 2,
+                          maximumFractionDigits: 2,
+                        }),
+                        krxIndex.name,
+                      ]}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="price"
+                      stroke={isLight ? "#14161A" : "#FFFFFF"}
+                      strokeWidth={2}
+                      fill="url(#krxIndexGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
