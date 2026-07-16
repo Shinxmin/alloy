@@ -250,6 +250,205 @@ function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoa
   );
 }
 
+// 미국채 지수(^IRX/^FVX/^TNX/^TYX)는 CBOE 관례상 실제 수익률(%)의 10배로 표기되므로,
+// scale=10을 넘기면 가격/캔들 OHLC를 모두 10으로 나눠 실제 수익률 값으로 보정한다.
+function scaleIndexPayload(data, scale) {
+  if (!data || scale === 1) return data;
+  const div = (n) => (typeof n === "number" ? n / scale : n);
+  return {
+    ...data,
+    price: div(data.price),
+    changeAmount: div(data.changeAmount),
+    history: Array.isArray(data.history)
+      ? data.history.map((c) => ({
+          ...c,
+          open: div(c.open),
+          high: div(c.high),
+          low: div(c.low),
+          close: div(c.close),
+          price: div(c.price),
+        }))
+      : data.history,
+  };
+}
+
+// 야후 파이낸스 지수(주가지수/환율/금리) 공통 데이터 조회 훅.
+// S&P500/나스닥/코스피/코스닥과 동일한 헤더값+캔들차트 조회 패턴을 재사용한다.
+function useYahooIndex(symbol, name, scale = 1) {
+  const [index, setIndex] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalVisible, setModalVisible] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [period, setPeriod] = useState("1d");
+  const [candles, setCandles] = useState([]);
+  const [candlesLoading, setCandlesLoading] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("nasdaq-index-proxy", { body: { symbol, name } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setIndex(!error && data && data.price != null ? scaleIndexPayload(data, scale) : null);
+        setLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setIndex(null);
+          setLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const open = () => {
+    setModalOpen(true);
+    requestAnimationFrame(() => setModalVisible(true));
+  };
+  const close = () => {
+    setModalVisible(false);
+    setTimeout(() => setModalOpen(false), 300);
+  };
+  const closeRef = useRef(close);
+  closeRef.current = close;
+
+  useEffect(() => {
+    if (!modalOpen) return;
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === period) || INDEX_CANDLE_PERIODS[0];
+    setCandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol, name, range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        const history = !error && data && Array.isArray(data.history) ? data.history : [];
+        setCandles(scaleIndexPayload({ history }, scale).history);
+        setCandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCandles([]);
+          setCandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modalOpen, period]);
+
+  return {
+    index,
+    loading,
+    modalOpen,
+    modalVisible,
+    hovered,
+    setHovered,
+    open,
+    close,
+    closeRef,
+    period,
+    setPeriod,
+    candles,
+    candlesLoading,
+  };
+}
+
+// useYahooIndex 상태를 받아 캔들차트 모달을 렌더링 (S&P500/코스피 모달과 동일한 크기/스타일)
+function IndexModal({ isLight, state }) {
+  if (!state.modalOpen || !state.index) return null;
+  return (
+    <div
+      onClick={state.close}
+      style={{
+        position: "fixed",
+        inset: 0,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        zIndex: 10,
+        background: state.modalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+        backdropFilter: state.modalVisible ? "blur(6px)" : "blur(0px)",
+        WebkitBackdropFilter: state.modalVisible ? "blur(6px)" : "blur(0px)",
+        transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+      }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          position: "relative",
+          width: "min(304px, 80vw)",
+          padding: "22px 20px",
+          borderRadius: 20,
+          background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+          backdropFilter: "blur(28px) saturate(180%)",
+          WebkitBackdropFilter: "blur(28px) saturate(180%)",
+          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+          boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+          opacity: state.modalVisible ? 1 : 0,
+          transform: state.modalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+          transition:
+            "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+          boxSizing: "border-box",
+        }}
+      >
+        <h2
+          style={{
+            margin: "0 0 4px 0",
+            fontSize: 17,
+            fontWeight: 600,
+            color: isLight ? "#14161A" : "#FFFFFF",
+            letterSpacing: 0.2,
+          }}
+        >
+          {state.index.name}
+        </h2>
+
+        <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+          <span
+            style={{
+              fontSize: 22,
+              fontWeight: 700,
+              color: isLight ? "#14161A" : "#FFFFFF",
+            }}
+          >
+            {state.index.price.toLocaleString(undefined, {
+              minimumFractionDigits: 2,
+              maximumFractionDigits: 2,
+            })}
+          </span>
+          {state.index.changeAmount != null && state.index.changePercent != null && (
+            <span
+              style={{
+                fontSize: 13,
+                fontWeight: 600,
+                color: state.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+              }}
+            >
+              {state.index.changeAmount >= 0 ? "▲ " : "▼ "}
+              {Math.abs(state.index.changeAmount).toFixed(2)} (
+              {state.index.changePercent >= 0 ? "+" : ""}
+              {state.index.changePercent.toFixed(2)}%)
+            </span>
+          )}
+        </div>
+
+        <IndexCandleChart
+          isLight={isLight}
+          period={state.period}
+          onPeriodChange={state.setPeriod}
+          candles={state.candles}
+          candlesLoading={state.candlesLoading}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Alloy() {
   const tabs = ["A", "B", "C"];
   const [active, setActive] = useState(0);
@@ -873,6 +1072,21 @@ export default function Alloy() {
     };
   }, [kosdaqIndexModalOpen, kosdaqPeriod]);
 
+  // 지수 위젯 카드 하단 점 버튼으로 전환되는 두 페이지: 0 = 주가지수 4종, 1 = 환율/미국채
+  const [indexPage, setIndexPage] = useState(0);
+
+  // 환율(원/달러, 원/엔) - 야후 파이낸스, 지수 위젯과 동일한 위젯+모달+캔들차트 구성
+  const fxKrwUsd = useYahooIndex("KRW=X", "원/달러");
+  const fxKrwJpy = useYahooIndex("JPYKRW=X", "원/엔");
+
+  // 미국채 금리(1년/5년/10년/30년) - 야후 파이낸스(CBOE 금리지수)
+  // ^IRX(13주)/^FVX(5년)/^TNX(10년)/^TYX(30년)는 실제 수익률(%)의 10배로 표기되어 scale=10으로 보정한다.
+  // 1년물은 야후에 전용 티커가 없어 가장 근접한 단기물인 13주(3개월) 국채로 대체한다.
+  const ust1y = useYahooIndex("^IRX", "미국채1년", 10);
+  const ust5y = useYahooIndex("^FVX", "미국채5년", 10);
+  const ust10y = useYahooIndex("^TNX", "미국채10년", 10);
+  const ust30y = useYahooIndex("^TYX", "미국채30년", 10);
+
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
@@ -987,6 +1201,12 @@ export default function Alloy() {
       nasdaqIndexModalOpen ||
       kospiIndexModalOpen ||
       kosdaqIndexModalOpen ||
+      fxKrwUsd.modalOpen ||
+      fxKrwJpy.modalOpen ||
+      ust1y.modalOpen ||
+      ust5y.modalOpen ||
+      ust10y.modalOpen ||
+      ust30y.modalOpen ||
       chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
@@ -1010,6 +1230,12 @@ export default function Alloy() {
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
     kosdaqIndexModalOpen,
+    fxKrwUsd.modalOpen,
+    fxKrwJpy.modalOpen,
+    ust1y.modalOpen,
+    ust5y.modalOpen,
+    ust10y.modalOpen,
+    ust30y.modalOpen,
     chatOpen,
   ]);
 
@@ -1408,6 +1634,24 @@ export default function Alloy() {
         } else if (kosdaqIndexModalOpen) {
           e.preventDefault();
           closeKosdaqIndexModalRef.current();
+        } else if (fxKrwUsd.modalOpen) {
+          e.preventDefault();
+          fxKrwUsd.closeRef.current();
+        } else if (fxKrwJpy.modalOpen) {
+          e.preventDefault();
+          fxKrwJpy.closeRef.current();
+        } else if (ust1y.modalOpen) {
+          e.preventDefault();
+          ust1y.closeRef.current();
+        } else if (ust5y.modalOpen) {
+          e.preventDefault();
+          ust5y.closeRef.current();
+        } else if (ust10y.modalOpen) {
+          e.preventDefault();
+          ust10y.closeRef.current();
+        } else if (ust30y.modalOpen) {
+          e.preventDefault();
+          ust30y.closeRef.current();
         } else if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
@@ -1444,6 +1688,12 @@ export default function Alloy() {
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
     kosdaqIndexModalOpen,
+    fxKrwUsd.modalOpen,
+    fxKrwJpy.modalOpen,
+    ust1y.modalOpen,
+    ust5y.modalOpen,
+    ust10y.modalOpen,
+    ust30y.modalOpen,
     chatOpen,
     chatSortMode,
     pendingCommand,
@@ -2229,224 +2479,399 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* 지수 위젯(S&P500, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 캔들차트 모달 */}
+            {/* 지수 위젯 카드: 하단 점 버튼으로 "주가지수 4종" / "환율·미국채" 두 페이지 전환 */}
             <div
               style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: 36,
                 marginTop: 56,
+                padding: "20px 16px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
               }}
             >
-              {[
-                {
-                  key: "snp500",
-                  loading: snp500IndexLoading,
-                  index: snp500Index,
-                  hovered: snp500IndexHovered,
-                  setHovered: setSnp500IndexHovered,
-                  open: openSnp500IndexModal,
-                },
-                {
-                  key: "nasdaq",
-                  loading: nasdaqIndexLoading,
-                  index: nasdaqIndex,
-                  hovered: nasdaqIndexHovered,
-                  setHovered: setNasdaqIndexHovered,
-                  open: openNasdaqIndexModal,
-                },
-              ].map((w) =>
-                w.loading ? (
-                  <span
-                    key={w.key}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    지수 불러오는 중...
-                  </span>
-                ) : !w.index ? (
-                  <span
-                    key={w.key}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    지수 정보를 불러올 수 없어요
-                  </span>
-                ) : (
+              {indexPage === 0 ? (
+                <>
+                  {/* 지수 위젯(S&P500, 나스닥) - 클릭 시 각각 캔들차트 모달 */}
                   <div
-                    key={w.key}
-                    onClick={w.open}
-                    onMouseEnter={() => w.setHovered(true)}
-                    onMouseLeave={() => w.setHovered(false)}
-                    role="button"
-                    tabIndex={0}
                     style={{
                       display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
                       justifyContent: "center",
-                      gap: 4,
-                      cursor: "pointer",
-                      opacity: w.hovered ? 0.7 : 1,
-                      transition: "opacity 0.2s ease",
-                      outline: "none",
+                      gap: 36,
                     }}
                   >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                      }}
-                    >
-                      {w.index.name}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 26,
-                        fontWeight: 700,
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        letterSpacing: 0.2,
-                      }}
-                    >
-                      {w.index.price.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                    {w.index.changeAmount != null && w.index.changePercent != null && (
-                      <span
-                        style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
-                        }}
-                      >
-                        {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
-                        {Math.abs(w.index.changeAmount).toFixed(2)} (
-                        {w.index.changePercent >= 0 ? "+" : ""}
-                        {w.index.changePercent.toFixed(2)}%)
-                      </span>
+                    {[
+                      {
+                        key: "snp500",
+                        loading: snp500IndexLoading,
+                        index: snp500Index,
+                        hovered: snp500IndexHovered,
+                        setHovered: setSnp500IndexHovered,
+                        open: openSnp500IndexModal,
+                      },
+                      {
+                        key: "nasdaq",
+                        loading: nasdaqIndexLoading,
+                        index: nasdaqIndex,
+                        hovered: nasdaqIndexHovered,
+                        setHovered: setNasdaqIndexHovered,
+                        open: openNasdaqIndexModal,
+                      },
+                    ].map((w) =>
+                      w.loading ? (
+                        <span
+                          key={w.key}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          지수 불러오는 중...
+                        </span>
+                      ) : !w.index ? (
+                        <span
+                          key={w.key}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          지수 정보를 불러올 수 없어요
+                        </span>
+                      ) : (
+                        <div
+                          key={w.key}
+                          onClick={w.open}
+                          onMouseEnter={() => w.setHovered(true)}
+                          onMouseLeave={() => w.setHovered(false)}
+                          role="button"
+                          tabIndex={0}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                            cursor: "pointer",
+                            opacity: w.hovered ? 0.7 : 1,
+                            transition: "opacity 0.2s ease",
+                            outline: "none",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                            }}
+                          >
+                            {w.index.name}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 26,
+                              fontWeight: 700,
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              letterSpacing: 0.2,
+                            }}
+                          >
+                            {w.index.price.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                          {w.index.changeAmount != null && w.index.changePercent != null && (
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                              }}
+                            >
+                              {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                              {Math.abs(w.index.changeAmount).toFixed(2)} (
+                              {w.index.changePercent >= 0 ? "+" : ""}
+                              {w.index.changePercent.toFixed(2)}%)
+                            </span>
+                          )}
+                        </div>
+                      )
                     )}
                   </div>
-                )
-              )}
-            </div>
 
-            {/* 지수 위젯 2열(코스피, 코스닥) - 홈 탭, 클릭 시 각각 캔들차트 모달 */}
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "center",
-                gap: 36,
-                marginTop: 24,
-              }}
-            >
-              {[
-                {
-                  key: "kospi",
-                  loading: kospiIndexLoading,
-                  index: kospiIndex,
-                  hovered: kospiIndexHovered,
-                  setHovered: setKospiIndexHovered,
-                  open: openKospiIndexModal,
-                },
-                {
-                  key: "kosdaq",
-                  loading: kosdaqIndexLoading,
-                  index: kosdaqIndex,
-                  hovered: kosdaqIndexHovered,
-                  setHovered: setKosdaqIndexHovered,
-                  open: openKosdaqIndexModal,
-                },
-              ].map((w) =>
-                w.loading ? (
-                  <span
-                    key={w.key}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    지수 불러오는 중...
-                  </span>
-                ) : !w.index ? (
-                  <span
-                    key={w.key}
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 600,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    지수 정보를 불러올 수 없어요
-                  </span>
-                ) : (
+                  {/* 지수 위젯 2열(코스피, 코스닥) - 클릭 시 각각 캔들차트 모달 */}
                   <div
-                    key={w.key}
-                    onClick={w.open}
-                    onMouseEnter={() => w.setHovered(true)}
-                    onMouseLeave={() => w.setHovered(false)}
-                    role="button"
-                    tabIndex={0}
                     style={{
+                      display: "flex",
+                      justifyContent: "center",
+                      gap: 36,
+                      marginTop: 24,
+                    }}
+                  >
+                    {[
+                      {
+                        key: "kospi",
+                        loading: kospiIndexLoading,
+                        index: kospiIndex,
+                        hovered: kospiIndexHovered,
+                        setHovered: setKospiIndexHovered,
+                        open: openKospiIndexModal,
+                      },
+                      {
+                        key: "kosdaq",
+                        loading: kosdaqIndexLoading,
+                        index: kosdaqIndex,
+                        hovered: kosdaqIndexHovered,
+                        setHovered: setKosdaqIndexHovered,
+                        open: openKosdaqIndexModal,
+                      },
+                    ].map((w) =>
+                      w.loading ? (
+                        <span
+                          key={w.key}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          지수 불러오는 중...
+                        </span>
+                      ) : !w.index ? (
+                        <span
+                          key={w.key}
+                          style={{
+                            fontSize: 12,
+                            fontWeight: 600,
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          지수 정보를 불러올 수 없어요
+                        </span>
+                      ) : (
+                        <div
+                          key={w.key}
+                          onClick={w.open}
+                          onMouseEnter={() => w.setHovered(true)}
+                          onMouseLeave={() => w.setHovered(false)}
+                          role="button"
+                          tabIndex={0}
+                          style={{
+                            display: "flex",
+                            flexDirection: "column",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            gap: 4,
+                            cursor: "pointer",
+                            opacity: w.hovered ? 0.7 : 1,
+                            transition: "opacity 0.2s ease",
+                            outline: "none",
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                            }}
+                          >
+                            {w.index.name}
+                          </span>
+                          <span
+                            style={{
+                              fontSize: 26,
+                              fontWeight: 700,
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              letterSpacing: 0.2,
+                            }}
+                          >
+                            {w.index.price.toLocaleString(undefined, {
+                              minimumFractionDigits: 2,
+                              maximumFractionDigits: 2,
+                            })}
+                          </span>
+                          {w.index.changeAmount != null && w.index.changePercent != null && (
+                            <span
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 600,
+                                color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                              }}
+                            >
+                              {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                              {Math.abs(w.index.changeAmount).toFixed(2)} (
+                              {w.index.changePercent >= 0 ? "+" : ""}
+                              {w.index.changePercent.toFixed(2)}%)
+                            </span>
+                          )}
+                        </div>
+                      )
+                    )}
+                  </div>
+                </>
+              ) : (
+                /* 환율(원/달러, 원/엔) + 미국채(1/5/10/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움 */
+                <div
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "1fr 1fr",
+                    borderRadius: 16,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                    overflow: "hidden",
+                  }}
+                >
+                  {[
+                    { key: "fxKrwUsd", ...fxKrwUsd },
+                    { key: "ust1y", ...ust1y },
+                    { key: "fxKrwJpy", ...fxKrwJpy },
+                    { key: "ust5y", ...ust5y },
+                    null,
+                    { key: "ust10y", ...ust10y },
+                    null,
+                    { key: "ust30y", ...ust30y },
+                  ].map((w, i) => {
+                    const col = i % 2;
+                    const row = Math.floor(i / 2);
+                    const borderColor = isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)";
+                    const cellStyle = {
+                      borderRight: col === 0 ? `1px solid ${borderColor}` : "none",
+                      borderBottom: row === 3 ? "none" : `1px solid ${borderColor}`,
+                      minHeight: 64,
                       display: "flex",
                       flexDirection: "column",
                       alignItems: "center",
                       justifyContent: "center",
-                      gap: 4,
-                      cursor: "pointer",
-                      opacity: w.hovered ? 0.7 : 1,
-                      transition: "opacity 0.2s ease",
-                      outline: "none",
-                    }}
-                  >
-                    <span
-                      style={{
-                        fontSize: 13,
-                        fontWeight: 600,
-                        color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                      }}
-                    >
-                      {w.index.name}
-                    </span>
-                    <span
-                      style={{
-                        fontSize: 26,
-                        fontWeight: 700,
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        letterSpacing: 0.2,
-                      }}
-                    >
-                      {w.index.price.toLocaleString(undefined, {
-                        minimumFractionDigits: 2,
-                        maximumFractionDigits: 2,
-                      })}
-                    </span>
-                    {w.index.changeAmount != null && w.index.changePercent != null && (
-                      <span
+                      gap: 3,
+                      padding: "10px 6px",
+                    };
+                    if (!w) return <div key={`index-grid-empty-${i}`} style={cellStyle} />;
+                    return (
+                      <div
+                        key={w.key}
+                        onClick={!w.loading && w.index ? w.open : undefined}
+                        onMouseEnter={() => w.setHovered(true)}
+                        onMouseLeave={() => w.setHovered(false)}
+                        role="button"
+                        tabIndex={0}
                         style={{
-                          fontSize: 12,
-                          fontWeight: 600,
-                          color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                          ...cellStyle,
+                          cursor: !w.loading && w.index ? "pointer" : "default",
+                          opacity: w.hovered ? 0.7 : 1,
+                          transition: "opacity 0.2s ease",
+                          outline: "none",
                         }}
                       >
-                        {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
-                        {Math.abs(w.index.changeAmount).toFixed(2)} (
-                        {w.index.changePercent >= 0 ? "+" : ""}
-                        {w.index.changePercent.toFixed(2)}%)
-                      </span>
-                    )}
-                  </div>
-                )
+                        {w.loading ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                            }}
+                          >
+                            불러오는 중...
+                          </span>
+                        ) : !w.index ? (
+                          <span
+                            style={{
+                              fontSize: 11,
+                              fontWeight: 600,
+                              color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                            }}
+                          >
+                            정보 없음
+                          </span>
+                        ) : (
+                          <>
+                            <span
+                              style={{
+                                fontSize: 11,
+                                fontWeight: 600,
+                                color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                              }}
+                            >
+                              {w.index.name}
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 15,
+                                fontWeight: 700,
+                                color: isLight ? "#14161A" : "#FFFFFF",
+                              }}
+                            >
+                              {w.index.price.toLocaleString(undefined, {
+                                minimumFractionDigits: 2,
+                                maximumFractionDigits: 2,
+                              })}
+                            </span>
+                            {w.index.changeAmount != null && w.index.changePercent != null && (
+                              <span
+                                style={{
+                                  fontSize: 10,
+                                  fontWeight: 600,
+                                  color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                                }}
+                              >
+                                {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                                {w.index.changePercent >= 0 ? "+" : ""}
+                                {w.index.changePercent.toFixed(2)}%
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
               )}
+
+              {/* 페이지 전환 점 버튼: 첫번째 = 주가지수 4종, 두번째 = 환율·미국채 그리드 */}
+              <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 16 }}>
+                <button
+                  onClick={() => setIndexPage(0)}
+                  aria-label="주가지수 4종 보기"
+                  style={{
+                    width: 7,
+                    height: 7,
+                    padding: 0,
+                    borderRadius: "50%",
+                    border: "none",
+                    cursor: "pointer",
+                    outline: "none",
+                    background:
+                      indexPage === 0
+                        ? isLight
+                          ? "#14161A"
+                          : "#FFFFFF"
+                        : isLight
+                        ? "rgba(20,22,26,0.2)"
+                        : "rgba(255,255,255,0.2)",
+                    transition: "background 0.2s ease",
+                  }}
+                />
+                <button
+                  onClick={() => setIndexPage(1)}
+                  aria-label="환율·미국채 보기"
+                  style={{
+                    width: 7,
+                    height: 7,
+                    padding: 0,
+                    borderRadius: "50%",
+                    border: "none",
+                    cursor: "pointer",
+                    outline: "none",
+                    background:
+                      indexPage === 1
+                        ? isLight
+                          ? "#14161A"
+                          : "#FFFFFF"
+                        : isLight
+                        ? "rgba(20,22,26,0.2)"
+                        : "rgba(255,255,255,0.2)",
+                    transition: "background 0.2s ease",
+                  }}
+                />
+              </div>
             </div>
           </>
         )}
@@ -4463,6 +4888,14 @@ export default function Alloy() {
           </div>
         </div>
       )}
+
+      {/* 환율(원/달러, 원/엔) + 미국채(1/5/10/30년) 캔들차트 모달 - 지수 모달과 동일한 공용 컴포넌트 사용 */}
+      <IndexModal isLight={isLight} state={fxKrwUsd} />
+      <IndexModal isLight={isLight} state={fxKrwJpy} />
+      <IndexModal isLight={isLight} state={ust1y} />
+      <IndexModal isLight={isLight} state={ust5y} />
+      <IndexModal isLight={isLight} state={ust10y} />
+      <IndexModal isLight={isLight} state={ust30y} />
 
       {/* 종목 정보 모달 (종목 클릭 시 표시, 가격 차트) */}
       {infoModalOpen && infoHolding && (
