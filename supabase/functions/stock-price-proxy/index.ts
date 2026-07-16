@@ -1,6 +1,7 @@
 // 클라이언트가 KRX API 키를 직접 다루지 않도록 하는 프록시 함수 + 브라우저 CORS 우회용 서버 경유.
 // KRX_API_KEY는 Supabase 프로젝트의 서버 전용 시크릿으로만 보관되며 이 함수 밖으로 노출되지 않는다.
-// 원화(KRW) 종목의 현재가를 KRX 정보데이터시스템 Open API(krx_dd_trd)로 조회한다.
+// 주의: 현재 발급된 KRX_API_KEY는 "지수(idx)" 상품만 승인되어 있어 개별 종목(sto) 엔드포인트는 사용할 수 없다.
+// 따라서 원화 종목의 개별 현재가는 조회되지 않으며(항상 빈 결과), 지수 데이터만 idx/krx_dd_trd로 조회 가능하다.
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",

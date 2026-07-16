@@ -1,13 +1,14 @@
 // 클라이언트가 KRX API 키를 직접 다루지 않도록 하는 프록시 함수 + 브라우저 CORS 우회용 서버 경유.
 // KRX_API_KEY는 Supabase 프로젝트의 서버 전용 시크릿으로만 보관되며 이 함수 밖으로 노출되지 않는다.
-// 원화(KRW) 종목의 최근 일별 종가 히스토리를 KRX 정보데이터시스템 Open API(krx_dd_trd)로 조회한다.
+// 주의: 현재 발급된 KRX_API_KEY는 "지수(idx)" 상품만 승인되어 있어 개별 종목(sto) 엔드포인트는 사용할 수 없다.
+// 따라서 원화 종목의 개별 히스토리는 조회되지 않으며(항상 빈 결과), 지수 데이터만 idx/krx_dd_trd로 조회 가능하다.
 // (숫자로만 구성된 티커만 지원)
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const HISTORY_DAYS = 40; // 캘린더 기준 최근 40일 조회 (주말/공휴일 제외하면 약 4~5주 분량의 거래일 확보)
+const HISTORY_DAYS = 30; // 캘린더 기준 최근 30일 조회
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") {
