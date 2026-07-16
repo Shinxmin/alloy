@@ -34,16 +34,6 @@ Deno.serve(async (req) => {
   const empty = { name, price: null, date: null, changeAmount: null, changePercent: null, history: [] };
   const YAHOO_URL = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
 
-  // 일봉/주봉(1d, 1wk, 1mo 등)은 날짜(YYYY-MM-DD), 분/시간봉은 미국 동부시간 기준 시:분으로 라벨 표기
-  const isIntraday = /m$|h$/.test(interval);
-  const formatLabel = (ts: number): string => {
-    const d = new Date(ts * 1000);
-    if (isIntraday) {
-      return d.toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "America/New_York" });
-    }
-    return d.toISOString().slice(0, 10);
-  };
-
   try {
     const res = await fetch(YAHOO_URL, {
       headers: {
@@ -85,7 +75,7 @@ Deno.serve(async (req) => {
           isFinite(p.close)
       )
       .map((p) => ({
-        date: formatLabel(p.ts),
+        ts: p.ts, // 초 단위 UNIX epoch. 라벨/툴팁 표기는 프론트에서 선택된 기간에 맞춰 KST로 변환한다.
         open: p.open,
         high: p.high,
         low: p.low,
@@ -113,7 +103,7 @@ Deno.serve(async (req) => {
       JSON.stringify({
         name,
         price: currentPrice,
-        date: last ? last.date : null,
+        date: last ? new Date(last.ts * 1000).toISOString().slice(0, 10) : null,
         changeAmount,
         changePercent,
         history,

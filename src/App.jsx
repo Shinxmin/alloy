@@ -42,6 +42,77 @@ const INDEX_CANDLE_PERIODS = [
   { key: "1y", label: "1년", range: "1y", interval: "1wk" },
 ];
 
+// Intl.DateTimeFormat의 formatToParts 결과에서 특정 필드만 뽑아내는 헬퍼
+function getDatePart(parts, type) {
+  return parts.find((p) => p.type === type)?.value || "";
+}
+
+// 툴팁 공용 표기: 항상 KST 기준 "월/일 시:분" (예: 07/11 03:50)
+function formatKstDateTime(ts) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(ts * 1000));
+  return `${getDatePart(parts, "month")}/${getDatePart(parts, "day")} ${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
+}
+
+// X축 하단 라벨: 주기별로 KST 기준 표기 형식이 다름
+// 1일 = 시:분(22:00), 1주 = 월/일(07/11), 3달/1년 = 년/월/일(26/07/11)
+function formatKstAxisLabel(ts, periodKey) {
+  const d = new Date(ts * 1000);
+  if (periodKey === "1d") {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Seoul",
+      hour: "2-digit",
+      minute: "2-digit",
+      hourCycle: "h23",
+    }).formatToParts(d);
+    return `${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
+  }
+  if (periodKey === "1w") {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Asia/Seoul",
+      month: "2-digit",
+      day: "2-digit",
+    }).formatToParts(d);
+    return `${getDatePart(parts, "month")}/${getDatePart(parts, "day")}`;
+  }
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    year: "2-digit",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(d);
+  return `${getDatePart(parts, "year")}/${getDatePart(parts, "month")}/${getDatePart(parts, "day")}`;
+}
+
+// 캔들차트 툴팁: "월/일 시:분 종가 26,189" 한 줄로만 표기
+function IndexCandleTooltip({ active, payload, isLight }) {
+  if (!active || !payload || payload.length === 0) return null;
+  const d = payload[0].payload;
+  const close = d.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return (
+    <div
+      style={{
+        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+        borderRadius: 10,
+        fontSize: 11,
+        fontWeight: 600,
+        padding: "6px 10px",
+        color: isLight ? "#14161A" : "#FFFFFF",
+        whiteSpace: "nowrap",
+      }}
+    >
+      {formatKstDateTime(d.ts)} 종가 {close}
+    </div>
+  );
+}
+
 // 캔들(봉) 모양 커스텀 렌더러 - recharts Bar의 dataKey를 [low, high] 범위로 넘겨
 // y/height가 이미 저가~고가 구간에 맞춰져 있으므로, 그 안에서 시가/종가 위치만 비례 계산해 몸통을 그린다.
 function IndexCandleShape(props) {
@@ -135,7 +206,8 @@ function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoa
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={candles} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
               <XAxis
-                dataKey="date"
+                dataKey="ts"
+                tickFormatter={(ts) => formatKstAxisLabel(ts, period)}
                 tick={{
                   fontSize: 9,
                   fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
@@ -146,26 +218,7 @@ function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoa
                 minTickGap={40}
               />
               <YAxis hide domain={["dataMin", "dataMax"]} />
-              <Tooltip
-                contentStyle={{
-                  background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                  borderRadius: 10,
-                  fontSize: 11,
-                  padding: "6px 10px",
-                }}
-                labelStyle={{
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  fontWeight: 600,
-                  marginBottom: 2,
-                }}
-                itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
-                formatter={(_value, _name, item) => {
-                  const d = item.payload;
-                  const fmt = (n) => n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-                  return [`시 ${fmt(d.open)} 고 ${fmt(d.high)} 저 ${fmt(d.low)} 종 ${fmt(d.close)}`, ""];
-                }}
-              />
+              <Tooltip content={(props) => <IndexCandleTooltip {...props} isLight={isLight} />} />
               <Bar dataKey={(d) => [d.low, d.high]} shape={IndexCandleShape} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
