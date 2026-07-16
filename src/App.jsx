@@ -373,27 +373,26 @@ export default function Alloy() {
   const closeRateModalRef = useRef(closeRateModal);
   closeRateModalRef.current = closeRateModal;
 
-  // KRX 지수(오늘 장마감 종가) - 홈 탭 상단 중앙 표시, 클릭 시 최근 30일 추이 차트 모달
-  // (KRX_API_KEY가 "지수" 상품만 승인되어 있어 개별 종목이 아닌 대표 지수만 조회 가능)
-  const [krxIndex, setKrxIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
-  const [krxIndexLoading, setKrxIndexLoading] = useState(true);
-  const [krxIndexModalOpen, setKrxIndexModalOpen] = useState(false);
-  const [krxIndexModalVisible, setKrxIndexModalVisible] = useState(false);
-  const [krxIndexHovered, setKrxIndexHovered] = useState(false);
+  // S&P500 지수(실시간) - 홈 탭 상단, 클릭 시 최근 30일 추이 차트 모달 (야후 파이낸스, API 키 불필요)
+  const [snp500Index, setSnp500Index] = useState(null); // { name, price, date, changeAmount, changePercent, history }
+  const [snp500IndexLoading, setSnp500IndexLoading] = useState(true);
+  const [snp500IndexModalOpen, setSnp500IndexModalOpen] = useState(false);
+  const [snp500IndexModalVisible, setSnp500IndexModalVisible] = useState(false);
+  const [snp500IndexHovered, setSnp500IndexHovered] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     supabase.functions
-      .invoke("krx-index-proxy", {})
+      .invoke("nasdaq-index-proxy", { body: { symbol: "^GSPC", name: "S&P500" } })
       .then(({ data, error }) => {
         if (cancelled) return;
-        setKrxIndex(!error && data && data.price != null ? data : null);
-        setKrxIndexLoading(false);
+        setSnp500Index(!error && data && data.price != null ? data : null);
+        setSnp500IndexLoading(false);
       })
       .catch(() => {
         if (!cancelled) {
-          setKrxIndex(null);
-          setKrxIndexLoading(false);
+          setSnp500Index(null);
+          setSnp500IndexLoading(false);
         }
       });
     return () => {
@@ -401,16 +400,16 @@ export default function Alloy() {
     };
   }, []);
 
-  const openKrxIndexModal = () => {
-    setKrxIndexModalOpen(true);
-    requestAnimationFrame(() => setKrxIndexModalVisible(true));
+  const openSnp500IndexModal = () => {
+    setSnp500IndexModalOpen(true);
+    requestAnimationFrame(() => setSnp500IndexModalVisible(true));
   };
-  const closeKrxIndexModal = () => {
-    setKrxIndexModalVisible(false);
-    setTimeout(() => setKrxIndexModalOpen(false), 300);
+  const closeSnp500IndexModal = () => {
+    setSnp500IndexModalVisible(false);
+    setTimeout(() => setSnp500IndexModalOpen(false), 300);
   };
-  const closeKrxIndexModalRef = useRef(closeKrxIndexModal);
-  closeKrxIndexModalRef.current = closeKrxIndexModal;
+  const closeSnp500IndexModalRef = useRef(closeSnp500IndexModal);
+  closeSnp500IndexModalRef.current = closeSnp500IndexModal;
 
   // 나스닥 종합지수(실시간) - 홈 탭 상단, 클릭 시 최근 30일 추이 차트 모달 (야후 파이낸스, API 키 불필요)
   const [nasdaqIndex, setNasdaqIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
@@ -422,7 +421,7 @@ export default function Alloy() {
   useEffect(() => {
     let cancelled = false;
     supabase.functions
-      .invoke("nasdaq-index-proxy", {})
+      .invoke("nasdaq-index-proxy", { body: { symbol: "^IXIC", name: "나스닥" } })
       .then(({ data, error }) => {
         if (cancelled) return;
         setNasdaqIndex(!error && data && data.price != null ? data : null);
@@ -554,10 +553,15 @@ export default function Alloy() {
     };
   }, [infoModalOpen, infoHolding]);
 
-  // 모달(종목 추가/수정, 환율 차트, KRX 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  // 모달(종목 추가/수정, 환율 차트, 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
     const anyModalOpen =
-      modalOpen || rateModalOpen || infoModalOpen || krxIndexModalOpen || nasdaqIndexModalOpen || chatOpen;
+      modalOpen ||
+      rateModalOpen ||
+      infoModalOpen ||
+      snp500IndexModalOpen ||
+      nasdaqIndexModalOpen ||
+      chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
       document.body.style.position = "fixed";
@@ -572,7 +576,7 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, infoModalOpen, krxIndexModalOpen, nasdaqIndexModalOpen, chatOpen]);
+  }, [modalOpen, rateModalOpen, infoModalOpen, snp500IndexModalOpen, nasdaqIndexModalOpen, chatOpen]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -957,9 +961,9 @@ export default function Alloy() {
         } else if (rateModalOpen) {
           e.preventDefault();
           closeRateModalRef.current();
-        } else if (krxIndexModalOpen) {
+        } else if (snp500IndexModalOpen) {
           e.preventDefault();
-          closeKrxIndexModalRef.current();
+          closeSnp500IndexModalRef.current();
         } else if (nasdaqIndexModalOpen) {
           e.preventDefault();
           closeNasdaqIndexModalRef.current();
@@ -995,7 +999,7 @@ export default function Alloy() {
     modalOpen,
     rateModalOpen,
     infoModalOpen,
-    krxIndexModalOpen,
+    snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     chatOpen,
     chatSortMode,
@@ -1782,7 +1786,7 @@ export default function Alloy() {
               </div>
             </div>
 
-            {/* 지수 위젯(KRX 300, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 최근 30일 추이 차트 모달 */}
+            {/* 지수 위젯(S&P500, 나스닥) - 홈 탭 상단 중앙, 클릭 시 각각 최근 30일 추이 차트 모달 */}
             <div
               style={{
                 display: "flex",
@@ -1793,12 +1797,12 @@ export default function Alloy() {
             >
               {[
                 {
-                  key: "krx",
-                  loading: krxIndexLoading,
-                  index: krxIndex,
-                  hovered: krxIndexHovered,
-                  setHovered: setKrxIndexHovered,
-                  open: openKrxIndexModal,
+                  key: "snp500",
+                  loading: snp500IndexLoading,
+                  index: snp500Index,
+                  hovered: snp500IndexHovered,
+                  setHovered: setSnp500IndexHovered,
+                  open: openSnp500IndexModal,
                 },
                 {
                   key: "nasdaq",
@@ -3543,10 +3547,10 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* KRX 지수 차트 모달 (최근 30일 종가 추이, 환율 모달과 동일한 크기/스타일) */}
-      {krxIndexModalOpen && krxIndex && (
+      {/* S&P500 지수 차트 모달 (최근 30일 종가 추이, 환율 모달과 동일한 크기/스타일) */}
+      {snp500IndexModalOpen && snp500Index && (
         <div
-          onClick={closeKrxIndexModal}
+          onClick={closeSnp500IndexModal}
           style={{
             position: "fixed",
             inset: 0,
@@ -3554,9 +3558,9 @@ export default function Alloy() {
             alignItems: "center",
             justifyContent: "center",
             zIndex: 10,
-            background: krxIndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: krxIndexModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: krxIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            background: snp500IndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: snp500IndexModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: snp500IndexModalVisible ? "blur(6px)" : "blur(0px)",
             transition: "background 0.35s ease, backdrop-filter 0.35s ease",
           }}
         >
@@ -3573,8 +3577,8 @@ export default function Alloy() {
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               boxShadow:
                 "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: krxIndexModalVisible ? 1 : 0,
-              transform: krxIndexModalVisible
+              opacity: snp500IndexModalVisible ? 1 : 0,
+              transform: snp500IndexModalVisible
                 ? "scale(1) translateY(0)"
                 : "scale(0.9) translateY(16px)",
               transition:
@@ -3599,7 +3603,7 @@ export default function Alloy() {
                   letterSpacing: 0.2,
                 }}
               >
-                {krxIndex.name}
+                {snp500Index.name}
               </h2>
               <span
                 style={{
@@ -3620,29 +3624,29 @@ export default function Alloy() {
                   color: isLight ? "#14161A" : "#FFFFFF",
                 }}
               >
-                {krxIndex.price.toLocaleString(undefined, {
+                {snp500Index.price.toLocaleString(undefined, {
                   minimumFractionDigits: 2,
                   maximumFractionDigits: 2,
                 })}
               </span>
-              {krxIndex.changeAmount != null && krxIndex.changePercent != null && (
+              {snp500Index.changeAmount != null && snp500Index.changePercent != null && (
                 <span
                   style={{
                     fontSize: 13,
                     fontWeight: 600,
-                    color: krxIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                    color: snp500Index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
                   }}
                 >
-                  {krxIndex.changeAmount >= 0 ? "▲ " : "▼ "}
-                  {Math.abs(krxIndex.changeAmount).toFixed(2)} (
-                  {krxIndex.changePercent >= 0 ? "+" : ""}
-                  {krxIndex.changePercent.toFixed(2)}%)
+                  {snp500Index.changeAmount >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(snp500Index.changeAmount).toFixed(2)} (
+                  {snp500Index.changePercent >= 0 ? "+" : ""}
+                  {snp500Index.changePercent.toFixed(2)}%)
                 </span>
               )}
             </div>
 
             <div style={{ width: "100%", height: 150 }}>
-              {krxIndex.history.length === 0 ? (
+              {snp500Index.history.length === 0 ? (
                 <div
                   style={{
                     display: "flex",
@@ -3657,9 +3661,9 @@ export default function Alloy() {
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={krxIndex.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                  <AreaChart data={snp500Index.history} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
                     <defs>
-                      <linearGradient id="krxIndexGradient" x1="0" y1="0" x2="0" y2="1">
+                      <linearGradient id="snp500IndexGradient" x1="0" y1="0" x2="0" y2="1">
                         <stop
                           offset="0%"
                           stopColor={isLight ? "#14161A" : "#FFFFFF"}
@@ -3704,7 +3708,7 @@ export default function Alloy() {
                           minimumFractionDigits: 2,
                           maximumFractionDigits: 2,
                         }),
-                        krxIndex.name,
+                        snp500Index.name,
                       ]}
                     />
                     <Area
@@ -3712,7 +3716,7 @@ export default function Alloy() {
                       dataKey="price"
                       stroke={isLight ? "#14161A" : "#FFFFFF"}
                       strokeWidth={2}
-                      fill="url(#krxIndexGradient)"
+                      fill="url(#snp500IndexGradient)"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -3722,7 +3726,7 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* 나스닥 지수 차트 모달 (최근 30일 종가 추이, KRX 지수 모달과 동일한 크기/스타일) */}
+      {/* 나스닥 지수 차트 모달 (최근 30일 종가 추이, S&P500 지수 모달과 동일한 크기/스타일) */}
       {nasdaqIndexModalOpen && nasdaqIndex && (
         <div
           onClick={closeNasdaqIndexModal}
