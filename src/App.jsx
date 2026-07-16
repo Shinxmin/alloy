@@ -47,54 +47,68 @@ function getDatePart(parts, type) {
   return parts.find((p) => p.type === type)?.value || "";
 }
 
-// 툴팁 공용 표기: 항상 KST 기준 "월/일 시:분" (예: 07/11 03:50)
-function formatKstDateTime(ts) {
+// interval 문자열(5m, 15m, 1d, 1wk 등)로 분/시간봉인지(장중 시각이 의미 있는지) 판단
+function isIntradayInterval(interval) {
+  return /m$|h$/.test(interval || "");
+}
+
+// KST 기준 "월/일(요일)" (예: 07/16(목))
+function formatKstDatePart(ts) {
+  const d = new Date(ts * 1000);
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Seoul",
     month: "2-digit",
     day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).formatToParts(new Date(ts * 1000));
-  return `${getDatePart(parts, "month")}/${getDatePart(parts, "day")} ${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
+  }).formatToParts(d);
+  const weekday = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+  }).format(d);
+  return `${getDatePart(parts, "month")}/${getDatePart(parts, "day")}(${weekday})`;
 }
 
-// X축 하단 라벨: 주기별로 KST 기준 표기 형식이 다름
-// 1일 = 시:분(22:00), 1주 = 월/일(07/11), 3달/1년 = 년/월/일(26/07/11)
-function formatKstAxisLabel(ts, periodKey) {
+// KST 기준 "년/월/일(요일)" (예: 26/07/16(목))
+function formatKstYearDatePart(ts) {
   const d = new Date(ts * 1000);
-  if (periodKey === "1d") {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Seoul",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).formatToParts(d);
-    return `${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
-  }
-  if (periodKey === "1w") {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Seoul",
-      month: "2-digit",
-      day: "2-digit",
-    }).formatToParts(d);
-    return `${getDatePart(parts, "month")}/${getDatePart(parts, "day")}`;
-  }
   const parts = new Intl.DateTimeFormat("en-US", {
     timeZone: "Asia/Seoul",
     year: "2-digit",
     month: "2-digit",
     day: "2-digit",
   }).formatToParts(d);
-  return `${getDatePart(parts, "year")}/${getDatePart(parts, "month")}/${getDatePart(parts, "day")}`;
+  const weekday = new Intl.DateTimeFormat("ko-KR", {
+    timeZone: "Asia/Seoul",
+    weekday: "short",
+  }).format(d);
+  return `${getDatePart(parts, "year")}/${getDatePart(parts, "month")}/${getDatePart(parts, "day")}(${weekday})`;
 }
 
-// 캔들차트 툴팁: "월/일 시:분 종가 26,189" 한 줄로만 표기
-function IndexCandleTooltip({ active, payload, isLight }) {
+// KST 기준 "시:분"
+function formatKstTimePart(ts) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "Asia/Seoul",
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date(ts * 1000));
+  return `${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
+}
+
+// X축 하단 라벨: 주기별로 KST 기준 표기 형식이 다름
+// 1일 = 시:분(22:00), 1주 = 월/일(요일)(07/11(화)), 3달/1년 = 년/월/일(요일)(26/07/11(화))
+function formatKstAxisLabel(ts, periodKey) {
+  if (periodKey === "1d") return formatKstTimePart(ts);
+  if (periodKey === "1w") return formatKstDatePart(ts);
+  return formatKstYearDatePart(ts);
+}
+
+// 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
+function IndexCandleTooltip({ active, payload, isLight, interval }) {
   if (!active || !payload || payload.length === 0) return null;
   const d = payload[0].payload;
   const close = d.close.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const datePart = formatKstDatePart(d.ts);
+  const text = isIntradayInterval(interval) ? `${datePart} ${formatKstTimePart(d.ts)} ${close}` : `${datePart} ${close}`;
   return (
     <div
       style={{
@@ -108,7 +122,7 @@ function IndexCandleTooltip({ active, payload, isLight }) {
         whiteSpace: "nowrap",
       }}
     >
-      {formatKstDateTime(d.ts)} 종가 {close}
+      {text}
     </div>
   );
 }
@@ -218,7 +232,15 @@ function IndexCandleChart({ isLight, period, onPeriodChange, candles, candlesLoa
                 minTickGap={40}
               />
               <YAxis hide domain={["dataMin", "dataMax"]} />
-              <Tooltip content={(props) => <IndexCandleTooltip {...props} isLight={isLight} />} />
+              <Tooltip
+                content={(props) => (
+                  <IndexCandleTooltip
+                    {...props}
+                    isLight={isLight}
+                    interval={INDEX_CANDLE_PERIODS.find((p) => p.key === period)?.interval}
+                  />
+                )}
+              />
               <Bar dataKey={(d) => [d.low, d.high]} shape={IndexCandleShape} isAnimationActive={false} />
             </ComposedChart>
           </ResponsiveContainer>
@@ -715,6 +737,142 @@ export default function Alloy() {
     };
   }, [nasdaqIndexModalOpen, nasdaqPeriod]);
 
+  // 코스피 지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
+  const [kospiIndex, setKospiIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
+  const [kospiIndexLoading, setKospiIndexLoading] = useState(true);
+  const [kospiIndexModalOpen, setKospiIndexModalOpen] = useState(false);
+  const [kospiIndexModalVisible, setKospiIndexModalVisible] = useState(false);
+  const [kospiIndexHovered, setKospiIndexHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("nasdaq-index-proxy", { body: { symbol: "^KS11", name: "코스피" } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setKospiIndex(!error && data && data.price != null ? data : null);
+        setKospiIndexLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKospiIndex(null);
+          setKospiIndexLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openKospiIndexModal = () => {
+    setKospiIndexModalOpen(true);
+    requestAnimationFrame(() => setKospiIndexModalVisible(true));
+  };
+  const closeKospiIndexModal = () => {
+    setKospiIndexModalVisible(false);
+    setTimeout(() => setKospiIndexModalOpen(false), 300);
+  };
+  const closeKospiIndexModalRef = useRef(closeKospiIndexModal);
+  closeKospiIndexModalRef.current = closeKospiIndexModal;
+
+  // 코스피 모달의 캔들차트 (표기 주기: 1일/1주/3달/1년, 모달이 열려있거나 주기를 바꿀 때마다 재조회)
+  const [kospiPeriod, setKospiPeriod] = useState("1d");
+  const [kospiCandles, setKospiCandles] = useState([]);
+  const [kospiCandlesLoading, setKospiCandlesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!kospiIndexModalOpen) return;
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === kospiPeriod) || INDEX_CANDLE_PERIODS[0];
+    setKospiCandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol: "^KS11", name: "코스피", range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setKospiCandles(!error && data && Array.isArray(data.history) ? data.history : []);
+        setKospiCandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKospiCandles([]);
+          setKospiCandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kospiIndexModalOpen, kospiPeriod]);
+
+  // 코스닥 지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
+  const [kosdaqIndex, setKosdaqIndex] = useState(null); // { name, price, date, changeAmount, changePercent, history }
+  const [kosdaqIndexLoading, setKosdaqIndexLoading] = useState(true);
+  const [kosdaqIndexModalOpen, setKosdaqIndexModalOpen] = useState(false);
+  const [kosdaqIndexModalVisible, setKosdaqIndexModalVisible] = useState(false);
+  const [kosdaqIndexHovered, setKosdaqIndexHovered] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("nasdaq-index-proxy", { body: { symbol: "^KQ11", name: "코스닥" } })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setKosdaqIndex(!error && data && data.price != null ? data : null);
+        setKosdaqIndexLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKosdaqIndex(null);
+          setKosdaqIndexLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const openKosdaqIndexModal = () => {
+    setKosdaqIndexModalOpen(true);
+    requestAnimationFrame(() => setKosdaqIndexModalVisible(true));
+  };
+  const closeKosdaqIndexModal = () => {
+    setKosdaqIndexModalVisible(false);
+    setTimeout(() => setKosdaqIndexModalOpen(false), 300);
+  };
+  const closeKosdaqIndexModalRef = useRef(closeKosdaqIndexModal);
+  closeKosdaqIndexModalRef.current = closeKosdaqIndexModal;
+
+  // 코스닥 모달의 캔들차트 (표기 주기: 1일/1주/3달/1년, 모달이 열려있거나 주기를 바꿀 때마다 재조회)
+  const [kosdaqPeriod, setKosdaqPeriod] = useState("1d");
+  const [kosdaqCandles, setKosdaqCandles] = useState([]);
+  const [kosdaqCandlesLoading, setKosdaqCandlesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!kosdaqIndexModalOpen) return;
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === kosdaqPeriod) || INDEX_CANDLE_PERIODS[0];
+    setKosdaqCandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol: "^KQ11", name: "코스닥", range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setKosdaqCandles(!error && data && Array.isArray(data.history) ? data.history : []);
+        setKosdaqCandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setKosdaqCandles([]);
+          setKosdaqCandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [kosdaqIndexModalOpen, kosdaqPeriod]);
+
   // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
@@ -827,6 +985,8 @@ export default function Alloy() {
       infoModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
+      kospiIndexModalOpen ||
+      kosdaqIndexModalOpen ||
       chatOpen;
     if (anyModalOpen) {
       const scrollY = window.scrollY;
@@ -842,7 +1002,16 @@ export default function Alloy() {
         window.scrollTo(0, scrollY);
       };
     }
-  }, [modalOpen, rateModalOpen, infoModalOpen, snp500IndexModalOpen, nasdaqIndexModalOpen, chatOpen]);
+  }, [
+    modalOpen,
+    rateModalOpen,
+    infoModalOpen,
+    snp500IndexModalOpen,
+    nasdaqIndexModalOpen,
+    kospiIndexModalOpen,
+    kosdaqIndexModalOpen,
+    chatOpen,
+  ]);
 
   useEffect(() => {
     const idx = currency === "KRW" ? 0 : 1;
@@ -1233,6 +1402,12 @@ export default function Alloy() {
         } else if (nasdaqIndexModalOpen) {
           e.preventDefault();
           closeNasdaqIndexModalRef.current();
+        } else if (kospiIndexModalOpen) {
+          e.preventDefault();
+          closeKospiIndexModalRef.current();
+        } else if (kosdaqIndexModalOpen) {
+          e.preventDefault();
+          closeKosdaqIndexModalRef.current();
         } else if (modalOpen) {
           e.preventDefault();
           closeModalRef.current();
@@ -1267,6 +1442,8 @@ export default function Alloy() {
     infoModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
+    kospiIndexModalOpen,
+    kosdaqIndexModalOpen,
     chatOpen,
     chatSortMode,
     pendingCommand,
@@ -2077,6 +2254,116 @@ export default function Alloy() {
                   hovered: nasdaqIndexHovered,
                   setHovered: setNasdaqIndexHovered,
                   open: openNasdaqIndexModal,
+                },
+              ].map((w) =>
+                w.loading ? (
+                  <span
+                    key={w.key}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    지수 불러오는 중...
+                  </span>
+                ) : !w.index ? (
+                  <span
+                    key={w.key}
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    지수 정보를 불러올 수 없어요
+                  </span>
+                ) : (
+                  <div
+                    key={w.key}
+                    onClick={w.open}
+                    onMouseEnter={() => w.setHovered(true)}
+                    onMouseLeave={() => w.setHovered(false)}
+                    role="button"
+                    tabIndex={0}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 4,
+                      cursor: "pointer",
+                      opacity: w.hovered ? 0.7 : 1,
+                      transition: "opacity 0.2s ease",
+                      outline: "none",
+                    }}
+                  >
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 600,
+                        color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                      }}
+                    >
+                      {w.index.name}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 26,
+                        fontWeight: 700,
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        letterSpacing: 0.2,
+                      }}
+                    >
+                      {w.index.price.toLocaleString(undefined, {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}
+                    </span>
+                    {w.index.changeAmount != null && w.index.changePercent != null && (
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 600,
+                          color: w.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                        }}
+                      >
+                        {w.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                        {Math.abs(w.index.changeAmount).toFixed(2)} (
+                        {w.index.changePercent >= 0 ? "+" : ""}
+                        {w.index.changePercent.toFixed(2)}%)
+                      </span>
+                    )}
+                  </div>
+                )
+              )}
+            </div>
+
+            {/* 지수 위젯 2열(코스피, 코스닥) - 홈 탭, 클릭 시 각각 캔들차트 모달 */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "center",
+                gap: 36,
+                marginTop: 24,
+              }}
+            >
+              {[
+                {
+                  key: "kospi",
+                  loading: kospiIndexLoading,
+                  index: kospiIndex,
+                  hovered: kospiIndexHovered,
+                  setHovered: setKospiIndexHovered,
+                  open: openKospiIndexModal,
+                },
+                {
+                  key: "kosdaq",
+                  loading: kosdaqIndexLoading,
+                  index: kosdaqIndex,
+                  hovered: kosdaqIndexHovered,
+                  setHovered: setKosdaqIndexHovered,
+                  open: openKosdaqIndexModal,
                 },
               ].map((w) =>
                 w.loading ? (
@@ -3990,6 +4277,188 @@ export default function Alloy() {
               onPeriodChange={setNasdaqPeriod}
               candles={nasdaqCandles}
               candlesLoading={nasdaqCandlesLoading}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 코스피 지수 캔들차트 모달 (S&P500 지수 모달과 동일한 크기/스타일) */}
+      {kospiIndexModalOpen && kospiIndex && (
+        <div
+          onClick={closeKospiIndexModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: kospiIndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: kospiIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: kospiIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: kospiIndexModalVisible ? 1 : 0,
+              transform: kospiIndexModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              {kospiIndex.name}
+            </h2>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {kospiIndex.price.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              {kospiIndex.changeAmount != null && kospiIndex.changePercent != null && (
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: kospiIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                  }}
+                >
+                  {kospiIndex.changeAmount >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(kospiIndex.changeAmount).toFixed(2)} (
+                  {kospiIndex.changePercent >= 0 ? "+" : ""}
+                  {kospiIndex.changePercent.toFixed(2)}%)
+                </span>
+              )}
+            </div>
+
+            <IndexCandleChart
+              isLight={isLight}
+              period={kospiPeriod}
+              onPeriodChange={setKospiPeriod}
+              candles={kospiCandles}
+              candlesLoading={kospiCandlesLoading}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* 코스닥 지수 캔들차트 모달 (S&P500 지수 모달과 동일한 크기/스타일) */}
+      {kosdaqIndexModalOpen && kosdaqIndex && (
+        <div
+          onClick={closeKosdaqIndexModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: kosdaqIndexModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: kosdaqIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: kosdaqIndexModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow:
+                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: kosdaqIndexModalVisible ? 1 : 0,
+              transform: kosdaqIndexModalVisible
+                ? "scale(1) translateY(0)"
+                : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              {kosdaqIndex.name}
+            </h2>
+
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 14 }}>
+              <span
+                style={{
+                  fontSize: 22,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                {kosdaqIndex.price.toLocaleString(undefined, {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </span>
+              {kosdaqIndex.changeAmount != null && kosdaqIndex.changePercent != null && (
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: kosdaqIndex.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                  }}
+                >
+                  {kosdaqIndex.changeAmount >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(kosdaqIndex.changeAmount).toFixed(2)} (
+                  {kosdaqIndex.changePercent >= 0 ? "+" : ""}
+                  {kosdaqIndex.changePercent.toFixed(2)}%)
+                </span>
+              )}
+            </div>
+
+            <IndexCandleChart
+              isLight={isLight}
+              period={kosdaqPeriod}
+              onPeriodChange={setKosdaqPeriod}
+              candles={kosdaqCandles}
+              candlesLoading={kosdaqCandlesLoading}
             />
           </div>
         </div>
