@@ -444,6 +444,39 @@ export default function Alloy() {
     };
   }, [infoModalOpen, infoHolding, isLight]);
 
+  // 숫자 티커(원화 종목)는 KRX 시세 히스토리로 자체 차트를 그림 (TradingView는 숫자 티커를 지원하지 않음)
+  const [infoHistory, setInfoHistory] = useState([]);
+  const [infoHistoryLoading, setInfoHistoryLoading] = useState(false);
+
+  useEffect(() => {
+    if (!infoModalOpen || !infoHolding || !isNumericTicker(infoHolding.ticker)) {
+      setInfoHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setInfoHistoryLoading(true);
+    setInfoHistory([]);
+    supabase.functions
+      .invoke("stock-history-proxy", {
+        body: { ticker: infoHolding.ticker },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setInfoHistoryLoading(false);
+        if (error || !Array.isArray(data?.history)) {
+          setInfoHistory([]);
+          return;
+        }
+        setInfoHistory(data.history);
+      })
+      .catch(() => {
+        if (!cancelled) setInfoHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [infoModalOpen, infoHolding]);
+
   // 모달(종목 추가/수정, 환율 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
     const anyModalOpen = modalOpen || rateModalOpen || infoModalOpen || chatOpen;
@@ -550,6 +583,40 @@ export default function Alloy() {
   const [holdings, setHoldings] = useState([]); // [{ ticker, quantity, avgPrice, currency, exchangeRate }]
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
+
+  // 숫자로만 구성된 티커(원화 종목 코드, 예: 005930)만 KRX 시세/수익률/차트 대상
+  const isNumericTicker = (ticker) => /^[0-9]+$/.test(ticker || "");
+
+  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 KRX Open API로 조회 (숫자 티커만 지원)
+  const [stockPrices, setStockPrices] = useState({});
+  const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
+
+  useEffect(() => {
+    const numericHoldings = holdings.filter((h) => isNumericTicker(h.ticker));
+    if (numericHoldings.length === 0) {
+      setStockPrices({});
+      return;
+    }
+    let cancelled = false;
+    supabase.functions
+      .invoke("stock-price-proxy", {
+        body: { holdings: numericHoldings.map((h) => ({ ticker: h.ticker, currency: h.currency })) },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        if (error || !data?.prices) {
+          setStockPrices({});
+          return;
+        }
+        setStockPrices(data.prices);
+      })
+      .catch(() => {
+        if (!cancelled) setStockPrices({});
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [holdingsTickerKey]);
 
   // 로그인한 사용자의 Supabase portfolios 테이블에서 데이터 불러오기
   useEffect(() => {
@@ -1114,11 +1181,18 @@ export default function Alloy() {
     const usdValue = toUSD(h);
     const percent =
       grandTotalUSD > 0 ? Math.round((usdValue / grandTotalUSD) * 100) : 0;
+    const currentPrice = isNumericTicker(h.ticker) ? stockPrices[h.ticker] : undefined;
+    const hasCurrentPrice = isFinite(currentPrice) && currentPrice > 0;
+    const gainAmount = hasCurrentPrice ? (currentPrice - h.avgPrice) * h.quantity : null;
+    const returnPercent = hasCurrentPrice && h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : null;
     return {
       ticker: h.ticker,
       name: h.name || "",
       currency: h.currency,
       avgPrice: h.avgPrice,
+      currentPrice: hasCurrentPrice ? currentPrice : null,
+      gainAmount,
+      returnPercent,
       percent,
       value: formatAmount(value, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
@@ -2069,6 +2143,21 @@ export default function Alloy() {
                                   ({h.percent}%)
                                 </span>
                               </span>
+                              {isNumericTicker(h.ticker) && h.gainAmount !== null && (
+                                <span
+                                  style={{
+                                    fontSize: 13,
+                                    fontWeight: 600,
+                                    color: h.gainAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                                    flexShrink: 0,
+                                  }}
+                                >
+                                  {h.gainAmount >= 0 ? "+ " : "- "}
+                                  {formatAmount(Math.abs(h.gainAmount), h.currency)} (
+                                  {h.returnPercent >= 0 ? "+" : ""}
+                                  {h.returnPercent.toFixed(2)}%)
+                                </span>
+                              )}
                             </div>
                           </div>
                         ))
@@ -3323,6 +3412,20 @@ export default function Alloy() {
               )}
             </div>
 
+            {isNumericTicker(infoHolding.ticker) && infoHolding.currentPrice != null && (
+              <div style={{ margin: "10px 0 2px 0" }}>
+                <span
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    color: "#FFFFFF",
+                  }}
+                >
+                  {formatAmount(infoHolding.currentPrice, infoHolding.currency)}
+                </span>
+              </div>
+            )}
+
             <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 16px 0" }}>
               <span
                 style={{
@@ -3344,25 +3447,117 @@ export default function Alloy() {
               </span>
             </div>
 
-            <div style={{ width: "100%", height: 180, position: "relative" }}>
-              <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
-              {!isChartableTicker(infoHolding.ticker) && (
-                <div
-                  style={{
-                    position: "absolute",
-                    inset: 0,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                  }}
-                >
-                  차트가 지원되지 않는 종목입니다
-                </div>
-              )}
-            </div>
-            {isChartableTicker(infoHolding.ticker) && (
+            {isNumericTicker(infoHolding.ticker) ? (
+              <div
+                style={{
+                  width: "100%",
+                  height: 180,
+                  borderRadius: 16,
+                  padding: 10,
+                  boxSizing: "border-box",
+                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.05)",
+                  backdropFilter: "blur(16px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(16px) saturate(180%)",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)"}`,
+                }}
+              >
+                {infoHistoryLoading ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: "100%",
+                      fontSize: 12,
+                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    불러오는 중...
+                  </div>
+                ) : infoHistory.length === 0 ? (
+                  <div
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      height: "100%",
+                      fontSize: 12,
+                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    시세 정보를 불러올 수 없어요
+                  </div>
+                ) : (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <AreaChart data={infoHistory} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                      <defs>
+                        <linearGradient id="stockInfoGradient" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor={infoHolding.color || "#8FA7FF"} stopOpacity={0.4} />
+                          <stop offset="100%" stopColor={infoHolding.color || "#8FA7FF"} stopOpacity={0} />
+                        </linearGradient>
+                      </defs>
+                      <XAxis
+                        dataKey="date"
+                        tick={{
+                          fontSize: 9,
+                          fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                        }}
+                        tickFormatter={(d) => d.slice(5).replace("-", "/")}
+                        axisLine={false}
+                        tickLine={false}
+                        interval="preserveStartEnd"
+                        minTickGap={40}
+                      />
+                      <YAxis hide domain={["dataMin - 100", "dataMax + 100"]} />
+                      <Tooltip
+                        contentStyle={{
+                          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                          borderRadius: 10,
+                          fontSize: 11,
+                          padding: "6px 10px",
+                        }}
+                        labelStyle={{
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontWeight: 600,
+                          marginBottom: 2,
+                        }}
+                        itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
+                        labelFormatter={(d) => d}
+                        formatter={(value) => [formatAmount(value, "KRW"), "종가"]}
+                      />
+                      <Area
+                        type="monotone"
+                        dataKey="price"
+                        stroke={infoHolding.color || "#8FA7FF"}
+                        strokeWidth={2}
+                        fill="url(#stockInfoGradient)"
+                      />
+                    </AreaChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            ) : (
+              <div style={{ width: "100%", height: 180, position: "relative" }}>
+                <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
+                {!isChartableTicker(infoHolding.ticker) && (
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: 12,
+                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                    }}
+                  >
+                    차트가 지원되지 않는 종목입니다
+                  </div>
+                )}
+              </div>
+            )}
+            {isChartableTicker(infoHolding.ticker) && !isNumericTicker(infoHolding.ticker) && (
               <div
                 style={{
                   textAlign: "center",
