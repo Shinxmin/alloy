@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.91";
+const APP_VERSION = "0.1.92";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1250,35 +1250,47 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 숫자로만 구성된 티커(원화 종목 코드, 예: 005930)만 KRX 시세/수익률/차트 대상
+  // 숫자로만 구성된 티커(원화 종목 코드, 예: 005930)는 국내(코스피/코스닥) 종목으로 취급
   const isNumericTicker = (ticker) => /^[0-9]+$/.test(ticker || "");
 
-  // 보유 종목 현재가 (수익률 계산용) - Supabase Edge Function(stock-price-proxy)을 통해 KRX Open API로 조회 (숫자 티커만 지원)
-  const [stockPrices, setStockPrices] = useState({});
-  const holdingsTickerKey = holdings.map((h) => `${h.ticker}:${h.currency}`).join(",");
+  // 보유 종목 현재가(수익률/현재 평가금액 계산용) - 야후 파이낸스로 조회. 숫자 티커(국내 종목)는
+  // 코스피(.KS)를 먼저 시도하고 실패하면 코스닥(.KQ)으로 재시도하며, 그 외(영문) 티커는 그대로 조회한다.
+  const [stockPrices, setStockPrices] = useState({}); // { [ticker]: currentPrice }
+  const holdingsTickerKey = holdings.map((h) => h.ticker).join(",");
 
   useEffect(() => {
-    const numericHoldings = holdings.filter((h) => isNumericTicker(h.ticker));
-    if (numericHoldings.length === 0) {
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+    if (uniqueTickers.length === 0) {
       setStockPrices({});
       return;
     }
     let cancelled = false;
-    supabase.functions
-      .invoke("stock-price-proxy", {
-        body: { holdings: numericHoldings.map((h) => ({ ticker: h.ticker, currency: h.currency })) },
-      })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (error || !data?.prices) {
-          setStockPrices({});
-          return;
+
+    const fetchOne = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: ticker },
+          });
+          if (!error && data && data.price != null) return data.price;
+        } catch (e) {
+          // 다음 후보로 계속 시도
         }
-        setStockPrices(data.prices);
-      })
-      .catch(() => {
-        if (!cancelled) setStockPrices({});
-      });
+      }
+      return null;
+    };
+
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((price) => [ticker, price]))).then(
+      (results) => {
+        if (cancelled) return;
+        const next = {};
+        for (const [ticker, price] of results) {
+          if (price != null) next[ticker] = price;
+        }
+        setStockPrices(next);
+      }
+    );
+
     return () => {
       cancelled = true;
     };
@@ -1706,6 +1718,15 @@ export default function Alloy() {
     });
   };
 
+  // 종목 리스트의 손익 금액 표기: 통화 기호 없이, 위와 동일한 소수점 규칙(국내 종목 없음/미국 종목 1자리)
+  const formatGainAmount = (num, ticker) => {
+    const digits = isNumericTicker(ticker) ? 0 : 1;
+    return Math.abs(num).toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
+    });
+  };
+
   const palette = ["#8FA7FF", "#F2A65A", "#7FD8A6", "#E97C7C", "#B58EF2", "#5FC6D9"];
   const cashPalette = ["#9CA3AF", "#6B7280"];
 
@@ -1906,14 +1927,16 @@ export default function Alloy() {
   }
 
   const stockHoldings = holdings.map((h, i) => {
-    const value = h.avgPrice * h.quantity; // 표기용 (원래 입력 통화)
+    const value = h.avgPrice * h.quantity; // 원가 기준 (총 자산 계산에는 이 값을 그대로 사용)
     const usdValue = toUSD(h);
     const percent =
       grandTotalUSD > 0 ? Math.round((usdValue / grandTotalUSD) * 100) : 0;
-    const currentPrice = isNumericTicker(h.ticker) ? stockPrices[h.ticker] : undefined;
+    const currentPrice = stockPrices[h.ticker];
     const hasCurrentPrice = isFinite(currentPrice) && currentPrice > 0;
     const gainAmount = hasCurrentPrice ? (currentPrice - h.avgPrice) * h.quantity : null;
     const returnPercent = hasCurrentPrice && h.avgPrice > 0 ? ((currentPrice - h.avgPrice) / h.avgPrice) * 100 : null;
+    // 표기용 금액은 현재가가 있으면 현재 평가금액(현재가 × 수량), 없으면 원가로 대체
+    const displayValue = hasCurrentPrice ? currentPrice * h.quantity : value;
     return {
       ticker: h.ticker,
       name: h.name || "",
@@ -1923,7 +1946,7 @@ export default function Alloy() {
       gainAmount,
       returnPercent,
       percent,
-      value: formatAmount(value, h.currency),
+      value: formatAmount(displayValue, h.currency),
       shares: `${h.quantity.toLocaleString()}주`,
       color: stockColorByTicker[h.ticker],
       originalIndex: i,
@@ -3191,7 +3214,7 @@ export default function Alloy() {
                                   ({h.percent}%)
                                 </span>
                               </span>
-                              {isNumericTicker(h.ticker) && h.gainAmount !== null && (
+                              {h.gainAmount !== null && (
                                 <span
                                   style={{
                                     fontSize: 13,
@@ -3200,8 +3223,8 @@ export default function Alloy() {
                                     flexShrink: 0,
                                   }}
                                 >
-                                  {h.gainAmount >= 0 ? "+ " : "- "}
-                                  {formatAmount(Math.abs(h.gainAmount), h.currency)} (
+                                  {h.gainAmount >= 0 ? "▲ " : "▼ "}
+                                  {formatGainAmount(h.gainAmount, h.ticker)} (
                                   {h.returnPercent >= 0 ? "+" : ""}
                                   {h.returnPercent.toFixed(2)}%)
                                 </span>
