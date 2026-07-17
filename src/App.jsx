@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.85";
+const APP_VERSION = "0.1.86";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -2743,6 +2743,7 @@ export default function Alloy() {
                         alignItems: "center",
                         justifyContent: "center",
                         gap: 2,
+                        padding: "0 14px",
                       };
                       if (!w) return <div key={`index-grid-empty-${i}`} style={cellStyle} />;
                       return (
