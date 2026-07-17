@@ -31,8 +31,9 @@ Deno.serve(async (req) => {
     // no-op, use defaults
   }
 
-  const empty = { name, price: null, date: null, changeAmount: null, changePercent: null, history: [] };
-  const YAHOO_URL = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}`;
+  const empty = { name, price: null, date: null, changeAmount: null, changePercent: null, history: [], dividends: [] };
+  // events=div: 배당 지급 이력을 함께 받아온다 (배당이 없는 종목/지수/환율은 그냥 비어서 온다)
+  const YAHOO_URL = `https://query1.finance.yahoo.com/v8/finance/chart/${symbol}?range=${range}&interval=${interval}&events=div`;
 
   try {
     const res = await fetch(YAHOO_URL, {
@@ -102,6 +103,13 @@ Deno.serve(async (req) => {
       `${name} 조회 결과 (range=${range}, interval=${interval}): 현재가=${currentPrice ?? "없음"}, 전일종가=${previousClose ?? "없음"}, 히스토리 ${history.length}개 확보`
     );
 
+    // 배당 이력 (events=div로 요청했을 때만 채워짐). 주당 배당금과 지급 시각(초 단위 UNIX epoch)만 추려서
+    // 오래된 순으로 정렬해 반환한다 - 프론트에서 최근 12개월 합산에 사용.
+    const dividendsRaw = result.events?.dividends ?? {};
+    const dividends = Object.values(dividendsRaw as Record<string, { amount: number; date: number }>)
+      .map((d) => ({ ts: d.date, amount: d.amount }))
+      .sort((a, b) => a.ts - b.ts);
+
     return new Response(
       JSON.stringify({
         name,
@@ -110,6 +118,7 @@ Deno.serve(async (req) => {
         changeAmount,
         changePercent,
         history,
+        dividends,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.93";
+const APP_VERSION = "0.1.94";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1241,38 +1241,51 @@ export default function Alloy() {
   // 보유 종목 현재가(수익률/현재 평가금액 계산용) - 야후 파이낸스로 조회. 숫자 티커(국내 종목)는
   // 코스피(.KS)를 먼저 시도하고 실패하면 코스닥(.KQ)으로 재시도하며, 그 외(영문) 티커는 그대로 조회한다.
   const [stockPrices, setStockPrices] = useState({}); // { [ticker]: currentPrice }
+  // 최근 12개월 주당 배당금(종목 통화 기준) - 현재가와 같은 요청으로 함께 받아온다 (연 배당 %, 연 배당금 예상치 계산용)
+  const [dividendPerShare, setDividendPerShare] = useState({}); // { [ticker]: 최근 12개월 주당 배당금 합계 }
   const holdingsTickerKey = holdings.map((h) => h.ticker).join(",");
 
   useEffect(() => {
     const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
     if (uniqueTickers.length === 0) {
       setStockPrices({});
+      setDividendPerShare({});
       return;
     }
     let cancelled = false;
+    const oneYearAgoSec = Date.now() / 1000 - 365 * 24 * 60 * 60;
 
     const fetchOne = async (ticker) => {
       for (const symbol of yahooSymbolCandidates(ticker)) {
         try {
           const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
-            body: { symbol, name: ticker },
+            body: { symbol, name: ticker, range: "1y", interval: "1mo" },
           });
-          if (!error && data && data.price != null) return data.price;
+          if (!error && data && data.price != null) {
+            const dividends = Array.isArray(data.dividends) ? data.dividends : [];
+            const annualDividend = dividends
+              .filter((d) => d.ts >= oneYearAgoSec)
+              .reduce((sum, d) => sum + (d.amount || 0), 0);
+            return { price: data.price, annualDividend };
+          }
         } catch (e) {
           // 다음 후보로 계속 시도
         }
       }
-      return null;
+      return { price: null, annualDividend: 0 };
     };
 
-    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((price) => [ticker, price]))).then(
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((r) => [ticker, r]))).then(
       (results) => {
         if (cancelled) return;
-        const next = {};
-        for (const [ticker, price] of results) {
-          if (price != null) next[ticker] = price;
+        const nextPrices = {};
+        const nextDividends = {};
+        for (const [ticker, r] of results) {
+          if (r.price != null) nextPrices[ticker] = r.price;
+          nextDividends[ticker] = r.annualDividend;
         }
-        setStockPrices(next);
+        setStockPrices(nextPrices);
+        setDividendPerShare(nextDividends);
       }
     );
 
@@ -1880,6 +1893,15 @@ export default function Alloy() {
   // 화면에 표기할 통화별(각각) 총자산: 자기 통화 원금액 + 다른 통화 자산의 환산액
   const displayTotalUSD = totalNativeUSD + convertedKRWtoUSD;
   const displayTotalKRW = totalNativeKRW + convertedUSDtoKRW;
+
+  // 연 배당 예상치: 보유 종목별 최근 12개월 주당 배당금 × 수량을 종목 통화로 계산한 뒤 기준환율로 합산
+  const annualDividendUSD = holdings.reduce((sum, h) => {
+    const nativeAmount = (dividendPerShare[h.ticker] || 0) * h.quantity;
+    const usd = h.currency === "USD" ? nativeAmount : nativeAmount / todayRate;
+    return sum + usd;
+  }, 0);
+  const annualDividendKRW = annualDividendUSD * todayRate;
+  const annualDividendYieldPercent = grandTotalUSD > 0 ? (annualDividendUSD / grandTotalUSD) * 100 : 0;
 
   // 문자열을 해시하여 팔레트 인덱스를 고정적으로 결정 (정렬 순서와 무관하게 항상 같은 색상)
   const hashToIndex = (str, length) => {
@@ -2786,6 +2808,75 @@ export default function Alloy() {
                     transition: "background 0.2s ease",
                   }}
                 />
+              </div>
+            </div>
+
+            {/* 총 자산(투자 탭과 동일한 금액을 달러/원화로) + 연 배당 % · 연 배당금 예상치(야후 파이낸스 최근 12개월
+                배당 이력 기반) 요약 카드 */}
+            <div
+              style={{
+                marginTop: 16,
+                padding: "20px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  marginBottom: 8,
+                }}
+              >
+                총 자산
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  $ {Math.round(displayTotalUSD).toLocaleString()}
+                </span>
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  ₩ {Math.round(displayTotalKRW).toLocaleString()}
+                </span>
+              </div>
+
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  marginBottom: 8,
+                }}
+              >
+                연 배당
+              </div>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  {annualDividendYieldPercent.toFixed(2)}%
+                </span>
+                <span
+                  style={{
+                    fontSize: 14,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  $ {Math.round(annualDividendUSD).toLocaleString()} · ₩ {Math.round(annualDividendKRW).toLocaleString()}
+                </span>
               </div>
             </div>
           </>
