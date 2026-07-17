@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.108";
+const APP_VERSION = "0.1.109";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1538,8 +1538,29 @@ export default function Alloy() {
   // 최초 설정 시에만 goalSetAt(달성률 추이 그래프의 시작일)을 지금 시각으로 기록하고, 이후 수정 시에는 유지한다.
   const saveGoal = async (value) => {
     setGoalEditing(false);
+    if (!session) return;
     const num = parseFloat(String(value).replace(/,/g, ""));
-    if (!session || !num || num <= 0) return;
+    if (!num || num <= 0) {
+      // 금액을 비우거나 0을 입력하면 통화(달러/원)와 무관하게 목표를 제거한다.
+      if (!(goalTargetUSD > 0)) return;
+      setGoalTargetUSD(0);
+      setGoalSetAt(null);
+      const { error } = await supabase.from("portfolios").upsert(
+        {
+          user_id: session.user.id,
+          goal_amount: null,
+          goal_set_at: null,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      );
+      if (error) {
+        showSubActionNotice("삭제 실패했습니다", true);
+        return;
+      }
+      showSubActionNotice("목표가 삭제되었습니다");
+      return;
+    }
     const targetUSD = homeCurrency === "USD" ? num : num / todayRate;
     const isFirstGoal = !goalSetAt;
     const setAtIso = isFirstGoal ? new Date().toISOString() : goalSetAt;
@@ -3640,46 +3661,41 @@ export default function Alloy() {
                     <path d="M9 6l6 6-6 6" />
                   </svg>
                 </div>
-                <div
-                  style={{
-                    position: "relative",
-                    width: "100%",
-                    height: 30,
-                    borderRadius: 15,
-                    overflow: "hidden",
-                    background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
-                  }}
-                >
-                  <div
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span
                     style={{
-                      position: "absolute",
-                      top: 0,
-                      left: 0,
-                      height: "100%",
-                      width: `${Math.max(0, Math.min(100, goalProgressPercent))}%`,
-                      borderRadius: 15,
-                      background: "linear-gradient(90deg, #6C8CFF, #8FA7FF)",
-                      transition: "width 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
-                    }}
-                  />
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: goalTargetUSD > 0 ? 13 : 11,
+                      fontSize: 13,
                       fontWeight: 700,
-                      color: "#FFFFFF",
-                      letterSpacing: 0.2,
-                      padding: "0 8px",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      flexShrink: 0,
                       whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
                     }}
                   >
                     {goalTargetUSD > 0 ? `${goalProgressPercent.toFixed(1)}%` : "목표를 설정해보세요"}
+                  </span>
+                  <div
+                    style={{
+                      position: "relative",
+                      width: "66%",
+                      height: 20,
+                      borderRadius: 10,
+                      overflow: "hidden",
+                      background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
+                      flexShrink: 0,
+                    }}
+                  >
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        left: 0,
+                        height: "100%",
+                        width: `${Math.max(0, Math.min(100, goalProgressPercent))}%`,
+                        borderRadius: 10,
+                        background: "linear-gradient(90deg, #6C8CFF, #8FA7FF)",
+                        transition: "width 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    />
                   </div>
                 </div>
               </div>
@@ -5960,7 +5976,7 @@ export default function Alloy() {
                     cursor: "pointer",
                     outline: "none",
                     textDecoration: "underline",
-                    textDecorationStyle: "dotted",
+                    textDecorationStyle: "solid",
                     textUnderlineOffset: 3,
                     transition: "opacity 0.2s ease",
                   }}
