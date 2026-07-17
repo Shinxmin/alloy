@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.89";
+const APP_VERSION = "0.1.90";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -684,109 +684,6 @@ export default function Alloy() {
   const assetTypeBtnRefs = useRef([]);
   const [assetTypeIndicator, setAssetTypeIndicator] = useState({ left: 0, width: 0 });
 
-  // 기준환율 (원화 자산을 달러로 환산할 때 사용) - 새로고침마다 API로 자동 조회
-  const [todayRate, setTodayRate] = useState(1300);
-  const [rateLoaded, setRateLoaded] = useState(false);
-  const [rateSource, setRateSource] = useState("default"); // "api" | "cache" | "default"
-
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem("alloy_todayRate");
-      const parsed = parseFloat(saved);
-      if (isFinite(parsed) && parsed > 0) {
-        setTodayRate(parsed);
-        setRateSource("cache");
-      }
-    } catch (e) {}
-    setRateLoaded(true);
-
-    let cancelled = false;
-    const fetchRate = async () => {
-      // 1순위: Frankfurter (ECB 기준, 키 불필요, https://frankfurter.dev)
-      try {
-        const res = await fetch("https://api.frankfurter.dev/v1/latest?from=USD&to=KRW");
-        const data = await res.json();
-        const rate = data && data.rates && data.rates.KRW;
-        if (!cancelled && isFinite(rate) && rate > 0) {
-          setTodayRate(rate);
-          setRateSource("api");
-          return;
-        }
-      } catch (e) {}
-
-      // 2순위: ExchangeRate-API 오픈 액세스 (키 불필요, 매일 갱신)
-      try {
-        const res = await fetch("https://open.er-api.com/v6/latest/USD");
-        const data = await res.json();
-        const rate = data && data.rates && data.rates.KRW;
-        if (!cancelled && isFinite(rate) && rate > 0) {
-          setTodayRate(rate);
-          setRateSource("api");
-        }
-      } catch (e) {}
-    };
-    fetchRate();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    if (!rateLoaded) return;
-    try {
-      localStorage.setItem("alloy_todayRate", String(todayRate));
-    } catch (e) {}
-  }, [todayRate, rateLoaded]);
-
-  // 환율 차트 모달 (최근 1개월 원달러 환율 추이)
-  const [rateModalOpen, setRateModalOpen] = useState(false);
-  const [rateModalVisible, setRateModalVisible] = useState(false);
-  const [rateHistory, setRateHistory] = useState([]);
-  const [rateHistoryLoading, setRateHistoryLoading] = useState(false);
-  const [rateHistoryError, setRateHistoryError] = useState(false);
-  const [rateTextHovered, setRateTextHovered] = useState(false);
-
-  const fetchRateHistory = async () => {
-    setRateHistoryLoading(true);
-    setRateHistoryError(false);
-    try {
-      const end = new Date();
-      const start = new Date();
-      start.setMonth(start.getMonth() - 1);
-      const fmt = (d) => d.toISOString().slice(0, 10);
-      const res = await fetch(
-        `https://api.frankfurter.dev/v1/${fmt(start)}..${fmt(end)}?from=USD&to=KRW`
-      );
-      const data = await res.json();
-      const rates = data && data.rates;
-      if (!rates || Object.keys(rates).length === 0) throw new Error("no rates");
-      const parsed = Object.keys(rates)
-        .sort()
-        .map((date) => ({
-          date: date.slice(5).replace("-", "/"),
-          rate: rates[date].KRW,
-        }));
-      setRateHistory(parsed);
-    } catch (e) {
-      setRateHistoryError(true);
-    } finally {
-      setRateHistoryLoading(false);
-    }
-  };
-
-  const openRateModal = () => {
-    setRateModalOpen(true);
-    requestAnimationFrame(() => setRateModalVisible(true));
-    fetchRateHistory();
-  };
-
-  const closeRateModal = () => {
-    setRateModalVisible(false);
-    setTimeout(() => setRateModalOpen(false), 300);
-  };
-  const closeRateModalRef = useRef(closeRateModal);
-  closeRateModalRef.current = closeRateModal;
-
   // S&P500 지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
   const [snp500Index, setSnp500Index] = useState(null); // { name, price, date, changeAmount, changePercent, history }
   const [snp500IndexLoading, setSnp500IndexLoading] = useState(true);
@@ -1102,6 +999,9 @@ export default function Alloy() {
   const fxKrwUsd = useYahooIndex("KRW=X", "원/달러");
   const fxKrwJpy = useYahooIndex("JPYKRW=X", "원/엔");
 
+  // 기준환율 (원화 자산을 달러로 환산할 때 사용) - 홈 탭과 동일한 야후 파이낸스 원/달러 시세를 그대로 사용
+  const todayRate = fxKrwUsd.index?.price ?? 1300;
+
   // S&P500/나스닥100 선물 - 야후 파이낸스(E-mini 선물)
   const snp500Futures = useYahooIndex("ES=F", "S&P500 선물");
   const nasdaq100Futures = useYahooIndex("NQ=F", "나스닥100 선물");
@@ -1113,11 +1013,10 @@ export default function Alloy() {
   const ust10y = useYahooIndex("^TNX", "미국채10년");
   const ust30y = useYahooIndex("^TYX", "미국채30년");
 
-  // 종목 정보 모달 (종목 클릭 시 표시, TradingView 위젯으로 가격 차트 표시)
+  // 종목 정보 모달 (종목 클릭 시 표시, 야후 파이낸스로 지수 모달과 동일한 캔들차트 표시)
   const [infoModalOpen, setInfoModalOpen] = useState(false);
   const [infoModalVisible, setInfoModalVisible] = useState(false);
   const [infoHolding, setInfoHolding] = useState(null);
-  const infoChartContainerRef = useRef(null);
 
   const openInfoModal = (originalIndex) => {
     const h = holdings[originalIndex];
@@ -1134,94 +1033,89 @@ export default function Alloy() {
   const closeInfoModalRef = useRef(closeInfoModal);
   closeInfoModalRef.current = closeInfoModal;
 
-  // 티커가 순수 영문(알파벳)일 때만 TradingView에서 종목을 찾을 수 있음 (숫자/한글 티커는 차트 미지원)
-  const isChartableTicker = (ticker) => /^[A-Za-z.\-]+$/.test(ticker || "");
+  // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
+  // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
+  const yahooSymbolCandidates = (ticker) =>
+    isNumericTicker(ticker) ? [`${ticker}.KS`, `${ticker}.KQ`] : [ticker];
 
-  // 정보 모달이 열리면 TradingView 심볼 개요 위젯을 삽입 (티커명으로 종목 조회, 영문 티커만 지원)
-  useEffect(() => {
-    if (!infoModalOpen || !infoHolding) return;
-    const container = infoChartContainerRef.current;
-    if (!container) return;
-    container.innerHTML = "";
-
-    if (!isChartableTicker(infoHolding.ticker)) return;
-
-    const widgetDiv = document.createElement("div");
-    widgetDiv.className = "tradingview-widget-container__widget";
-    container.appendChild(widgetDiv);
-
-    const script = document.createElement("script");
-    script.type = "text/javascript";
-    script.src = "https://s3.tradingview.com/external-embedding/embed-widget-symbol-overview.js";
-    script.async = true;
-    script.text = JSON.stringify({
-      symbols: [[infoHolding.ticker]],
-      chartOnly: true,
-      width: "100%",
-      height: "180",
-      locale: "kr",
-      timezone: "Asia/Seoul",
-      colorTheme: isLight ? "light" : "dark",
-      isTransparent: true,
-      autosize: false,
-      showVolume: false,
-      hideDateRanges: false,
-      dateRanges: ["1d|1", "1m|30", "3m|60", "12m|1D"],
-      hideMarketStatus: true,
-      hideSymbolLogo: true,
-      scalePosition: "no",
-      scaleMode: "Normal",
-      fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
-      valuesTracking: "1",
-      changeMode: "price-and-percent",
-      lineWidth: 2,
-      lineType: 0,
-    });
-    container.appendChild(script);
-
-    return () => {
-      container.innerHTML = "";
-    };
-  }, [infoModalOpen, infoHolding, isLight]);
-
-  // 숫자 티커(원화 종목)는 KRX 시세 히스토리로 자체 차트를 그림 (TradingView는 숫자 티커를 지원하지 않음)
-  const [infoHistory, setInfoHistory] = useState([]);
-  const [infoHistoryLoading, setInfoHistoryLoading] = useState(false);
+  // 모달이 열리면 후보 심볼을 순서대로 시도해 실제로 시세가 있는 심볼을 찾는다 (헤더 현재가/등락 포함)
+  const [infoSymbol, setInfoSymbol] = useState(null);
+  const [infoCurrent, setInfoCurrent] = useState(null); // { name, price, changeAmount, changePercent }
+  const [infoCurrentLoading, setInfoCurrentLoading] = useState(false);
 
   useEffect(() => {
-    if (!infoModalOpen || !infoHolding || !isNumericTicker(infoHolding.ticker)) {
-      setInfoHistory([]);
+    if (!infoModalOpen || !infoHolding) {
+      setInfoSymbol(null);
+      setInfoCurrent(null);
       return;
     }
     let cancelled = false;
-    setInfoHistoryLoading(true);
-    setInfoHistory([]);
-    supabase.functions
-      .invoke("stock-history-proxy", {
-        body: { ticker: infoHolding.ticker },
-      })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setInfoHistoryLoading(false);
-        if (error || !Array.isArray(data?.history)) {
-          setInfoHistory([]);
-          return;
+    setInfoCurrentLoading(true);
+    setInfoCurrent(null);
+    setInfoSymbol(null);
+
+    const resolveSymbol = async () => {
+      for (const symbol of yahooSymbolCandidates(infoHolding.ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: infoHolding.name || infoHolding.ticker },
+          });
+          if (cancelled) return;
+          if (!error && data && data.price != null) {
+            setInfoSymbol(symbol);
+            setInfoCurrent(data);
+            setInfoCurrentLoading(false);
+            return;
+          }
+        } catch (e) {
+          // 다음 후보로 계속 시도
         }
-        setInfoHistory(data.history);
-      })
-      .catch(() => {
-        if (!cancelled) setInfoHistoryLoading(false);
-      });
+      }
+      if (!cancelled) setInfoCurrentLoading(false);
+    };
+    resolveSymbol();
     return () => {
       cancelled = true;
     };
   }, [infoModalOpen, infoHolding]);
 
-  // 모달(종목 추가/수정, 환율 차트, 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
+  // 지수 모달과 동일한 캔들차트(1일/1주/3달/1년) - 해석된 심볼로 조회
+  const [infoPeriod, setInfoPeriod] = useState("1d");
+  const [infoCandles, setInfoCandles] = useState([]);
+  const [infoCandlesLoading, setInfoCandlesLoading] = useState(false);
+
+  useEffect(() => {
+    if (!infoModalOpen || !infoSymbol) {
+      setInfoCandles([]);
+      return;
+    }
+    let cancelled = false;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === infoPeriod) || INDEX_CANDLE_PERIODS[0];
+    setInfoCandlesLoading(true);
+    supabase.functions
+      .invoke("nasdaq-index-proxy", {
+        body: { symbol: infoSymbol, name: infoHolding?.name || infoHolding?.ticker, range: cfg.range, interval: cfg.interval },
+      })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setInfoCandles(!error && data && Array.isArray(data.history) ? data.history : []);
+        setInfoCandlesLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setInfoCandles([]);
+          setInfoCandlesLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [infoModalOpen, infoSymbol, infoPeriod]);
+
+  // 모달(종목 추가/수정, 지수 차트, 터미널 명령어 패널)이 떠 있는 동안 배경 스크롤 방지
   useEffect(() => {
     const anyModalOpen =
       modalOpen ||
-      rateModalOpen ||
       infoModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1252,7 +1146,6 @@ export default function Alloy() {
     }
   }, [
     modalOpen,
-    rateModalOpen,
     infoModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -1649,9 +1542,6 @@ export default function Alloy() {
         if (infoModalOpen) {
           e.preventDefault();
           closeInfoModalRef.current();
-        } else if (rateModalOpen) {
-          e.preventDefault();
-          closeRateModalRef.current();
         } else if (snp500IndexModalOpen) {
           e.preventDefault();
           closeSnp500IndexModalRef.current();
@@ -1718,7 +1608,6 @@ export default function Alloy() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
     modalOpen,
-    rateModalOpen,
     infoModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -3086,51 +2975,6 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 기준환율 표시 (원화 자산 → 달러 환산에 사용, API에서 자동 조회) */}
-            {!isEmpty && (
-              <div
-                onClick={openRateModal}
-                onMouseEnter={() => setRateTextHovered(true)}
-                onMouseLeave={() => setRateTextHovered(false)}
-                role="button"
-                tabIndex={0}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                  marginBottom: 28,
-                  cursor: "pointer",
-                  opacity: rateTextHovered ? 0.7 : 1,
-                  transition: "opacity 0.2s ease",
-                  outline: "none",
-                }}
-              >
-                {rateSource === "api" && (
-                  <span
-                    style={{
-                      width: 7,
-                      height: 7,
-                      borderRadius: "50%",
-                      background: "#39FF8A",
-                      boxShadow:
-                        "0 0 6px 2px rgba(57,255,138,0.85), 0 0 2px rgba(57,255,138,1)",
-                      flexShrink: 0,
-                    }}
-                  />
-                )}
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 700,
-                    color: (isLight ? "rgba(20,22,26,0.75)" : "rgba(255,255,255,0.85)"),
-                  }}
-                >
-                  1 USD = {Math.round(todayRate).toLocaleString()}원
-                </span>
-              </div>
-            )}
-
             {/* 카테고리별 종목 */}
             {!isEmpty &&
               Object.entries(portfolio).map(([key, category]) =>
@@ -4326,174 +4170,7 @@ export default function Alloy() {
         </>
       )}
 
-      {/* 환율 차트 모달 (최근 1개월 원달러 환율 추이, 추가하기 모달과 동일한 크기) */}
-      {rateModalOpen && (
-        <div
-          onClick={closeRateModal}
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10,
-            background: rateModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: rateModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: rateModalVisible ? "blur(6px)" : "blur(0px)",
-            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "relative",
-              width: "min(304px, 80vw)",
-              padding: "22px 20px",
-              borderRadius: 20,
-              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
-              backdropFilter: "blur(28px) saturate(180%)",
-              WebkitBackdropFilter: "blur(28px) saturate(180%)",
-              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-              boxShadow:
-                "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: rateModalVisible ? 1 : 0,
-              transform: rateModalVisible
-                ? "scale(1) translateY(0)"
-                : "scale(0.9) translateY(16px)",
-              transition:
-                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-              boxSizing: "border-box",
-            }}
-          >
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
-                marginBottom: 4,
-              }}
-            >
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  letterSpacing: 0.2,
-                }}
-              >
-                환율
-              </h2>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                }}
-              >
-                (KRW/USD) 최근 1개월
-              </span>
-            </div>
-
-            <div
-              style={{
-                fontSize: 22,
-                fontWeight: 700,
-                color: isLight ? "#14161A" : "#FFFFFF",
-                marginBottom: 14,
-              }}
-            >
-              {Math.round(todayRate).toLocaleString()}원
-            </div>
-
-            <div style={{ width: "100%", height: 150 }}>
-              {rateHistoryLoading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  불러오는 중...
-                </div>
-              ) : rateHistoryError || rateHistory.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  환율 정보를 불러올 수 없어요
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={rateHistory} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="rateGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop
-                          offset="0%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0.35}
-                        />
-                        <stop
-                          offset="100%"
-                          stopColor={isLight ? "#14161A" : "#FFFFFF"}
-                          stopOpacity={0}
-                        />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="date"
-                      tick={{
-                        fontSize: 9,
-                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis hide domain={["dataMin - 5", "dataMax + 5"]} />
-                    <Tooltip
-                      contentStyle={{
-                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                        borderRadius: 10,
-                        fontSize: 11,
-                        padding: "6px 10px",
-                      }}
-                      labelStyle={{
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        fontWeight: 600,
-                        marginBottom: 2,
-                      }}
-                      itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
-                      formatter={(value) => [`${Math.round(value).toLocaleString()}원`, "환율"]}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="rate"
-                      stroke={isLight ? "#14161A" : "#FFFFFF"}
-                      strokeWidth={2}
-                      fill="url(#rateGradient)"
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* S&P500 지수 캔들차트 모달 (환율 모달과 동일한 크기/스타일) */}
+      {/* S&P500 지수 캔들차트 모달 */}
       {snp500IndexModalOpen && snp500Index && (
         <div
           onClick={closeSnp500IndexModal}
@@ -4940,33 +4617,71 @@ export default function Alloy() {
               )}
             </div>
 
-            {isNumericTicker(infoHolding.ticker) && infoHolding.currentPrice != null && (
-              <div style={{ margin: "10px 0 2px 0" }}>
+            {infoCurrentLoading ? (
+              <div style={{ margin: "10px 0 16px 0" }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  불러오는 중...
+                </span>
+              </div>
+            ) : infoCurrent && infoCurrent.price != null ? (
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 16px 0" }}>
                 <span
                   style={{
                     fontSize: 24,
                     fontWeight: 700,
-                    color: "#FFFFFF",
+                    color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  {formatAmount(infoHolding.currentPrice, infoHolding.currency)}
+                  {formatAmount(infoCurrent.price, infoHolding.currency)}
+                </span>
+                {infoCurrent.changeAmount != null && infoCurrent.changePercent != null && (
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: infoCurrent.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                    }}
+                  >
+                    {infoCurrent.changeAmount >= 0 ? "▲ " : "▼ "}
+                    {Math.abs(infoCurrent.changeAmount).toFixed(2)} (
+                    {infoCurrent.changePercent >= 0 ? "+" : ""}
+                    {infoCurrent.changePercent.toFixed(2)}%)
+                  </span>
+                )}
+              </div>
+            ) : (
+              <div style={{ margin: "10px 0 16px 0" }}>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  현재가 정보를 불러올 수 없어요
                 </span>
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 16px 0" }}>
+            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 16 }}>
               <span
                 style={{
-                  fontSize: 22,
+                  fontSize: 15,
                   fontWeight: 700,
-                  color: isLight ? "#14161A" : "#FFFFFF",
+                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                 }}
               >
                 {formatAmount(infoHolding.avgPrice, infoHolding.currency)}
               </span>
               <span
                 style={{
-                  fontSize: 13,
+                  fontSize: 12,
                   fontWeight: 500,
                   color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                 }}
@@ -4975,138 +4690,13 @@ export default function Alloy() {
               </span>
             </div>
 
-            {isNumericTicker(infoHolding.ticker) ? (
-              <div
-                style={{
-                  width: "100%",
-                  height: 180,
-                  borderRadius: 16,
-                  padding: 10,
-                  boxSizing: "border-box",
-                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.05)",
-                  backdropFilter: "blur(16px) saturate(180%)",
-                  WebkitBackdropFilter: "blur(16px) saturate(180%)",
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)"}`,
-                }}
-              >
-                {infoHistoryLoading ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                      fontSize: 12,
-                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    }}
-                  >
-                    불러오는 중...
-                  </div>
-                ) : infoHistory.length === 0 ? (
-                  <div
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      height: "100%",
-                      fontSize: 12,
-                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    }}
-                  >
-                    시세 정보를 불러올 수 없어요
-                  </div>
-                ) : (
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={infoHistory} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                      <defs>
-                        <linearGradient id="stockInfoGradient" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor={infoHolding.color || "#8FA7FF"} stopOpacity={0.4} />
-                          <stop offset="100%" stopColor={infoHolding.color || "#8FA7FF"} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <XAxis
-                        dataKey="date"
-                        tick={{
-                          fontSize: 9,
-                          fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                        }}
-                        tickFormatter={(d) => d.slice(5).replace("-", "/")}
-                        axisLine={false}
-                        tickLine={false}
-                        interval="preserveStartEnd"
-                        minTickGap={40}
-                      />
-                      <YAxis hide domain={["dataMin - 100", "dataMax + 100"]} />
-                      <Tooltip
-                        contentStyle={{
-                          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                          borderRadius: 10,
-                          fontSize: 11,
-                          padding: "6px 10px",
-                        }}
-                        labelStyle={{
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontWeight: 600,
-                          marginBottom: 2,
-                        }}
-                        itemStyle={{ color: isLight ? "#14161A" : "#FFFFFF" }}
-                        labelFormatter={(d) => d}
-                        formatter={(value) => [formatAmount(value, "KRW"), "종가"]}
-                      />
-                      <Area
-                        type="monotone"
-                        dataKey="price"
-                        stroke={infoHolding.color || "#8FA7FF"}
-                        strokeWidth={2}
-                        fill="url(#stockInfoGradient)"
-                      />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-            ) : (
-              <div style={{ width: "100%", height: 180, position: "relative" }}>
-                <div ref={infoChartContainerRef} style={{ width: "100%", height: "100%" }} />
-                {!isChartableTicker(infoHolding.ticker) && (
-                  <div
-                    style={{
-                      position: "absolute",
-                      inset: 0,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      fontSize: 12,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                    }}
-                  >
-                    차트가 지원되지 않는 종목입니다
-                  </div>
-                )}
-              </div>
-            )}
-            {isChartableTicker(infoHolding.ticker) && !isNumericTicker(infoHolding.ticker) && (
-              <div
-                style={{
-                  textAlign: "center",
-                  marginTop: 6,
-                  fontSize: 10,
-                  opacity: 0.4,
-                }}
-              >
-                <a
-                  href="https://www.tradingview.com/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    textDecoration: "none",
-                  }}
-                >
-                  TradingView 제공
-                </a>
-              </div>
-            )}
+            <IndexCandleChart
+              isLight={isLight}
+              period={infoPeriod}
+              onPeriodChange={setInfoPeriod}
+              candles={infoCandles}
+              candlesLoading={infoCandlesLoading}
+            />
           </div>
         </div>
       )}
