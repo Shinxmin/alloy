@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.98";
+const APP_VERSION = "0.1.99";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1055,8 +1055,22 @@ export default function Alloy() {
   const dividendCurrencyBtnRefs = useRef([]);
   const [dividendCurrencyHoverIdx, setDividendCurrencyHoverIdx] = useState(null);
 
+  // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산과 배당금 표기 둘 다에 적용됨
+  const [homeCurrency, setHomeCurrency] = useState("USD");
+  const [homeCurrencyIndicator, setHomeCurrencyIndicator] = useState({ left: 0, width: 0 });
+  const homeCurrencyBtnRefs = useRef([]);
+  const [homeCurrencyHoverIdx, setHomeCurrencyHoverIdx] = useState(null);
+
   useEffect(() => {
-    const idx = dividendCurrency === "KRW" ? 0 : 1;
+    const idx = homeCurrency === "USD" ? 0 : 1;
+    const el = homeCurrencyBtnRefs.current[idx];
+    if (el) {
+      setHomeCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [homeCurrency, active]);
+
+  useEffect(() => {
+    const idx = dividendCurrency === "USD" ? 0 : 1;
     const el = dividendCurrencyBtnRefs.current[idx];
     if (el) {
       setDividendCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
@@ -1195,7 +1209,7 @@ export default function Alloy() {
   ]);
 
   useEffect(() => {
-    const idx = currency === "KRW" ? 0 : 1;
+    const idx = currency === "USD" ? 0 : 1;
     const el = currencyBtnRefs.current[idx];
     if (el) {
       setCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
@@ -2499,7 +2513,7 @@ export default function Alloy() {
                     letterSpacing: 0.2,
                   }}
                 >
-                  홈
+                  대시보드
                 </h1>
               </div>
 
@@ -2985,30 +2999,86 @@ export default function Alloy() {
                 border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
               }}
             >
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  marginBottom: 8,
-                }}
-              >
-                총 자산
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
-                  ${Math.round(displayTotalUSD).toLocaleString()}
-                </span>
-                <span
+              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
+                <div
                   style={{
-                    fontSize: 15,
+                    fontSize: 13,
                     fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
                   }}
                 >
-                  ₩{Math.round(displayTotalKRW).toLocaleString()}
-                </span>
+                  총 자산
+                </div>
+
+                {/* $ / ₩ 표기 통화 슬라이드 토글 - 총 자산, 배당금 표기 둘 다에 적용됨 */}
+                <div
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    height: 28,
+                    padding: 3,
+                    borderRadius: 9,
+                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
+                    border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 3,
+                      left: homeCurrencyIndicator.left,
+                      width: homeCurrencyIndicator.width,
+                      height: "calc(100% - 6px)",
+                      borderRadius: 6,
+                      background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                      transition:
+                        "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  />
+                  {[
+                    { key: "USD", label: "$" },
+                    { key: "KRW", label: "₩" },
+                  ].map((c, i) => (
+                    <button
+                      key={c.key}
+                      ref={(el) => (homeCurrencyBtnRefs.current[i] = el)}
+                      onClick={() => setHomeCurrency(c.key)}
+                      onMouseEnter={() => setHomeCurrencyHoverIdx(i)}
+                      onMouseLeave={() => setHomeCurrencyHoverIdx(null)}
+                      style={{
+                        position: "relative",
+                        zIndex: 1,
+                        width: 22,
+                        height: "100%",
+                        border: "none",
+                        background: "transparent",
+                        borderRadius: 6,
+                        color:
+                          homeCurrency === c.key
+                            ? isLight
+                              ? "#14161A"
+                              : "#FFFFFF"
+                            : isLight
+                            ? "rgba(20,22,26,0.5)"
+                            : "rgba(255,255,255,0.5)",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "color 0.3s ease, transform 0.2s ease",
+                        transform: homeCurrencyHoverIdx === i && homeCurrency !== c.key ? "scale(1.12)" : "scale(1)",
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
               </div>
+              <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
+              </span>
 
               <div
                 style={{
@@ -3047,7 +3117,7 @@ export default function Alloy() {
                   </svg>
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 26, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
                     {annualDividendYieldPercent.toFixed(2)}%
                   </span>
                   <span
@@ -3057,7 +3127,7 @@ export default function Alloy() {
                       color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                     }}
                   >
-                    {formatAmount(annualDividendUSD, "USD")}ㅣ{formatAmount(annualDividendKRW, "KRW")}
+                    {formatAmount(homeCurrency === "USD" ? annualDividendUSD : annualDividendKRW, homeCurrency)}
                   </span>
                 </div>
               </div>
@@ -3216,10 +3286,9 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 카테고리별 종목 */}
-            {!isEmpty &&
-              Object.entries(portfolio).map(([key, category]) =>
-                category.holdings.length === 0 ? null : (
+            {/* 카테고리별 종목 - 현금 카테고리는 보유 종목이 없어도 항상 표시(+ 버튼으로 언제든 추가 가능) */}
+            {Object.entries(portfolio).map(([key, category]) =>
+                key !== "cash" && category.holdings.length === 0 ? null : (
                   <div
                     key={key}
                     style={{
@@ -3950,7 +4019,7 @@ export default function Alloy() {
                       <path d="M12 3.2 3 10.5V20a1 1 0 0 0 1 1h5.5v-6.5h5V21H19a1 1 0 0 0 1-1v-9.5L12 3.2z" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
-                      홈
+                      대시보드
                     </span>
                   </span>
                 ) : i === 2 ? (
@@ -3985,7 +4054,7 @@ export default function Alloy() {
                       <rect x="16" y="3" width="4" height="17" rx="1" />
                     </svg>
                     <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
-                      투자
+                      포트폴리오
                     </span>
                   </span>
                 )}
@@ -5051,8 +5120,8 @@ export default function Alloy() {
                   }}
                 />
                 {[
-                  { key: "KRW", label: "₩" },
                   { key: "USD", label: "$" },
+                  { key: "KRW", label: "₩" },
                 ].map((c, i) => (
                   <button
                     key={c.key}
@@ -5345,8 +5414,8 @@ export default function Alloy() {
                         }}
                       />
                       {[
-                        { key: "KRW", label: "₩" },
                         { key: "USD", label: "$" },
+                        { key: "KRW", label: "₩" },
                       ].map((c, i) => (
                         <button
                           key={c.key}
