@@ -5,8 +5,14 @@ create table if not exists public.portfolios (
   user_id uuid primary key references auth.users(id) on delete cascade,
   holdings jsonb not null default '[]'::jsonb,
   cash_holdings jsonb not null default '[]'::jsonb,
+  goal_amount numeric,
+  goal_set_at timestamptz,
   updated_at timestamptz not null default now()
 );
+
+-- 기존에 테이블이 이미 있는 환경에서는 아래 두 줄만 실행해도 됩니다.
+alter table public.portfolios add column if not exists goal_amount numeric;
+alter table public.portfolios add column if not exists goal_set_at timestamptz;
 
 alter table public.portfolios enable row level security;
 
