@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.104";
+const APP_VERSION = "0.1.105";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1385,16 +1385,22 @@ export default function Alloy() {
   }, [session]);
 
   // holdings / cashHoldings 변경 시마다 Supabase에 저장 (최초 로드 완료 이후에만)
+  // onConflict를 명시하지 않으면 upsert가 테이블 기본키(id)를 충돌 기준으로 삼는데,
+  // 이 저장 로직은 id를 넘기지 않으므로 user_id 유니크 제약과 충돌해 갱신이 실패하거나
+  // (제약이 없으면) 매번 새 행이 쌓여 다른 기기에서 데이터를 못 찾는 문제가 생긴다.
   useEffect(() => {
     if (!dataLoaded || !session) return;
     supabase
       .from("portfolios")
-      .upsert({
-        user_id: session.user.id,
-        holdings,
-        cash_holdings: cashHoldings,
-        updated_at: new Date().toISOString(),
-      })
+      .upsert(
+        {
+          user_id: session.user.id,
+          holdings,
+          cash_holdings: cashHoldings,
+          updated_at: new Date().toISOString(),
+        },
+        { onConflict: "user_id" }
+      )
       .then(({ error }) => {
         if (error) console.error("포트폴리오 저장 실패:", error.message);
       });
@@ -1463,11 +1469,14 @@ export default function Alloy() {
     setNicknameEditing(false);
     if (!trimmed || trimmed === nickname || !session) return;
     setNickname(trimmed);
-    await supabase.from("profiles").upsert({
-      user_id: session.user.id,
-      nickname: trimmed,
-      updated_at: new Date().toISOString(),
-    });
+    await supabase.from("profiles").upsert(
+      {
+        user_id: session.user.id,
+        nickname: trimmed,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
     showSubActionNotice("저장 되었습니다");
   };
 
