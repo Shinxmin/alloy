@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.90";
+const APP_VERSION = "0.1.91";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1692,6 +1692,17 @@ export default function Alloy() {
         : Math.round(num);
     return symbol + rounded.toLocaleString(undefined, {
       maximumFractionDigits: curr === "USD" ? 2 : 0,
+    });
+  };
+
+  // 종목 상세 모달의 현재가/평균단가 표기: 티커가 숫자(국내 종목)면 소수점 없이,
+  // 영문(미국 종목)이면 소수점 첫째 자리까지만 표기
+  const formatStockPrice = (num, ticker, curr) => {
+    const symbol = curr === "USD" ? "$" : "₩";
+    const digits = isNumericTicker(ticker) ? 0 : 1;
+    return symbol + num.toLocaleString(undefined, {
+      minimumFractionDigits: digits,
+      maximumFractionDigits: digits,
     });
   };
 
@@ -4618,7 +4629,7 @@ export default function Alloy() {
             </div>
 
             {infoCurrentLoading ? (
-              <div style={{ margin: "10px 0 16px 0" }}>
+              <div style={{ margin: "10px 0 6px 0" }}>
                 <span
                   style={{
                     fontSize: 12,
@@ -4630,7 +4641,7 @@ export default function Alloy() {
                 </span>
               </div>
             ) : infoCurrent && infoCurrent.price != null ? (
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 16px 0" }}>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, margin: "10px 0 6px 0" }}>
                 <span
                   style={{
                     fontSize: 24,
@@ -4638,7 +4649,7 @@ export default function Alloy() {
                     color: isLight ? "#14161A" : "#FFFFFF",
                   }}
                 >
-                  {formatAmount(infoCurrent.price, infoHolding.currency)}
+                  {formatStockPrice(infoCurrent.price, infoHolding.ticker, infoHolding.currency)}
                 </span>
                 {infoCurrent.changeAmount != null && infoCurrent.changePercent != null && (
                   <span
@@ -4656,7 +4667,7 @@ export default function Alloy() {
                 )}
               </div>
             ) : (
-              <div style={{ margin: "10px 0 16px 0" }}>
+              <div style={{ margin: "10px 0 6px 0" }}>
                 <span
                   style={{
                     fontSize: 12,
@@ -4677,7 +4688,7 @@ export default function Alloy() {
                   color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                 }}
               >
-                {formatAmount(infoHolding.avgPrice, infoHolding.currency)}
+                {formatStockPrice(infoHolding.avgPrice, infoHolding.ticker, infoHolding.currency)}
               </span>
               <span
                 style={{
