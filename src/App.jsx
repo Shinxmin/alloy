@@ -34,6 +34,9 @@ function useTypedText(text) {
   return text ? text.slice(0, count) : "";
 }
 
+// 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
+const APP_VERSION = "0.1.85";
+
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
   { key: "1d", label: "1일", range: "1d", interval: "5m" },
@@ -2459,58 +2462,6 @@ export default function Alloy() {
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                   </svg>
                 </button>
-
-                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
-                <button
-                  onClick={openModal}
-                  onMouseEnter={() => setPlusHovered(true)}
-                  onMouseLeave={() => setPlusHovered(false)}
-                  onMouseDown={() => setPlusPressed(true)}
-                  onMouseUp={() => setPlusPressed(false)}
-                  aria-label="추가하기"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.14)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: plusHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: plusHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 20,
-                    fontWeight: 400,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: plusPressed
-                      ? "scale(0.9) translateY(0)"
-                      : plusHovered
-                      ? "scale(1.08) translateY(-2px)"
-                      : "scale(1) translateY(0)",
-                  }}
-                >
-                  +
-                </button>
               </div>
             </div>
 
@@ -2546,7 +2497,7 @@ export default function Alloy() {
                 }}
               >
                 {/* 1페이지: 지수 위젯(S&P500, 나스닥, 코스피, 코스닥) - 클릭 시 각각 캔들차트 모달 */}
-                <div style={{ width: "50%", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ width: "50%", minWidth: 0, flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div
                     style={{
                       display: "flex",
@@ -2767,13 +2718,13 @@ export default function Alloy() {
 
                 {/* 2페이지: S&P500(F)/나스닥100(F) 선물 + 원/달러 + 원/엔 (1열) + 미국채(3개월/5년/10년/30년, 2열) - 가로 2열 세로 4열 그리드.
                     셀 사이 구분선 없이 간격만으로 배치하고, 각 셀은 "이름 가격" 한 줄 + "화살표 등락폭(등락률%)" 한 줄로 표기 */}
-                <div style={{ width: "50%", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
+                <div style={{ width: "50%", minWidth: 0, flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div
                     style={{
                       display: "grid",
-                      gridTemplateColumns: "1fr 1fr",
+                      gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)",
                       rowGap: 14,
-                      columnGap: 8,
+                      columnGap: 6,
                     }}
                   >
                     {[
@@ -2832,7 +2783,7 @@ export default function Alloy() {
                             </span>
                           ) : (
                             <>
-                              <div style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
+                              <div style={{ display: "flex", flexWrap: "wrap", justifyContent: "center", alignItems: "baseline", gap: 5 }}>
                                 <span
                                   style={{
                                     fontSize: 11,
@@ -3611,58 +3562,6 @@ export default function Alloy() {
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                   </svg>
                 </button>
-
-                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
-                <button
-                  onClick={openModal}
-                  onMouseEnter={() => setPlusHovered(true)}
-                  onMouseLeave={() => setPlusHovered(false)}
-                  onMouseDown={() => setPlusPressed(true)}
-                  onMouseUp={() => setPlusPressed(false)}
-                  aria-label="추가하기"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.14)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: plusHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: plusHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 20,
-                    fontWeight: 400,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: plusPressed
-                      ? "scale(0.9) translateY(0)"
-                      : plusHovered
-                      ? "scale(1.08) translateY(-2px)"
-                      : "scale(1) translateY(0)",
-                  }}
-                >
-                  +
-                </button>
               </div>
             </div>
 
@@ -3827,6 +3726,19 @@ export default function Alloy() {
               >
                 로그아웃
               </button>
+            </div>
+
+            {/* 앱 버전 표기 (PR 업데이트마다 최신 PR 번호로 갱신) */}
+            <div style={{ marginTop: 16 }}>
+              <span
+                style={{
+                  fontSize: 11,
+                  fontWeight: 500,
+                  color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                }}
+              >
+                alloy v{APP_VERSION}
+              </span>
             </div>
           </>
         )}
