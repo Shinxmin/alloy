@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.87";
+const APP_VERSION = "0.1.88";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -2716,7 +2716,8 @@ export default function Alloy() {
                   </div>
                 </div>
 
-                {/* 2페이지: S&P500(F)/나스닥100(F) 선물 + 원/달러 + 원/엔 (1열) + 미국채(3개월/5년/10년/30년, 2열) - 가로 2열 세로 4열 그리드.
+                {/* 2페이지: S&P500(F)/나스닥100(F) 선물(1행), 원/달러·원/엔(2행), 미국채(3개월/5년, 10년/30년)를
+                    가로 2열 세로 4열 그리드로 배치 - 선물끼리, 환율끼리, 국채끼리 각각 한 행에 나란히 표기.
                     셀 사이 구분선 없이 간격만으로 배치하고, 각 셀은 "이름 가격" 한 줄 + "화살표 등락폭(등락률%)" 한 줄로 표기 */}
                 <div style={{ width: "50%", minWidth: 0, flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div
@@ -2731,12 +2732,12 @@ export default function Alloy() {
                   >
                     {[
                       { key: "snp500Futures", ...snp500Futures },
-                      { key: "ust1y", ...ust1y },
                       { key: "nasdaq100Futures", ...nasdaq100Futures },
-                      { key: "ust5y", ...ust5y },
                       { key: "fxKrwUsd", ...fxKrwUsd },
-                      { key: "ust10y", ...ust10y },
                       { key: "fxKrwJpy", ...fxKrwJpy },
+                      { key: "ust1y", ...ust1y },
+                      { key: "ust5y", ...ust5y },
+                      { key: "ust10y", ...ust10y },
                       { key: "ust30y", ...ust30y },
                     ].map((w, i) => {
                       const cellStyle = {
