@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.105";
+const APP_VERSION = "0.1.106";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1354,15 +1354,25 @@ export default function Alloy() {
     };
   }, [holdingsTickerKey]);
 
+  // 방금 로드를 완료한 세션의 user_id (ref라서 렌더를 기다리지 않고 즉시 반영됨).
+  // 토큰 자동 갱신 등으로 session 객체가 바뀌면 LOAD 이펙트가 이 값을 먼저 null로 초기화하는데,
+  // 그 직후 같은 커밋에서 실행되는 SAVE 이펙트는 아직 리렌더되지 않은 이전 dataLoaded=true를
+  // 볼 수 있다. SAVE 이펙트가 setDataLoaded(false) 반영(다음 렌더)을 기다리지 않고도 이 ref로
+  // "지금 로드된 holdings가 실제로 이 세션 것인지"를 동기적으로 확인해, 로드 완료 전 값으로
+  // 서버 데이터를 덮어쓰는 것을 막는다.
+  const loadedForUserIdRef = useRef(null);
+
   // 로그인한 사용자의 Supabase portfolios 테이블에서 데이터 불러오기
   useEffect(() => {
     if (!session) {
+      loadedForUserIdRef.current = null;
       setHoldings([]);
       setCashHoldings([]);
       setDataLoaded(false);
       return;
     }
     let cancelled = false;
+    loadedForUserIdRef.current = null;
     setDataLoaded(false);
     supabase
       .from("portfolios")
@@ -1377,6 +1387,7 @@ export default function Alloy() {
         } else if (error) {
           console.error("포트폴리오 불러오기 실패:", error.message);
         }
+        loadedForUserIdRef.current = session.user.id;
         setDataLoaded(true);
       });
     return () => {
@@ -1389,7 +1400,7 @@ export default function Alloy() {
   // 이 저장 로직은 id를 넘기지 않으므로 user_id 유니크 제약과 충돌해 갱신이 실패하거나
   // (제약이 없으면) 매번 새 행이 쌓여 다른 기기에서 데이터를 못 찾는 문제가 생긴다.
   useEffect(() => {
-    if (!dataLoaded || !session) return;
+    if (!dataLoaded || !session || loadedForUserIdRef.current !== session.user.id) return;
     supabase
       .from("portfolios")
       .upsert(
