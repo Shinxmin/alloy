@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.95";
+const APP_VERSION = "0.1.96";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1045,6 +1045,20 @@ export default function Alloy() {
   const closeDividendModalRef = useRef(closeDividendModal);
   closeDividendModalRef.current = closeDividendModal;
 
+  // 배당 캘린더 표기 통화(₩/$) 슬라이드 토글
+  const [dividendCurrency, setDividendCurrency] = useState("KRW");
+  const [dividendCurrencyIndicator, setDividendCurrencyIndicator] = useState({ left: 0, width: 0 });
+  const dividendCurrencyBtnRefs = useRef([]);
+  const [dividendCurrencyHoverIdx, setDividendCurrencyHoverIdx] = useState(null);
+
+  useEffect(() => {
+    const idx = dividendCurrency === "KRW" ? 0 : 1;
+    const el = dividendCurrencyBtnRefs.current[idx];
+    if (el) {
+      setDividendCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [dividendCurrency, dividendModalOpen]);
+
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
   const yahooSymbolCandidates = (ticker) =>
@@ -1961,7 +1975,7 @@ export default function Alloy() {
   }
 
   // 배당 캘린더(월별 막대그래프)용 데이터: 최근 12개월 배당 이벤트를 지급된 달(1~12월)별로 묶어
-  // 종목별 배당금(원화 환산, 종목당 수량 반영)을 쌓는다. 막대 색상은 원그래프와 동일한 종목 색상을 사용.
+  // 종목별 배당금(선택된 표기 통화로 환산, 종목당 수량 반영)을 쌓는다. 막대 색상은 원그래프와 동일한 종목 색상을 사용.
   const dividendTickerNames = {};
   holdings.forEach((h) => {
     if (!dividendTickerNames[h.ticker]) dividendTickerNames[h.ticker] = h.name || h.ticker;
@@ -1977,8 +1991,15 @@ export default function Alloy() {
         .reduce((sum, d) => sum + (d.amount || 0), 0);
       if (monthAmountPerShare <= 0) return;
       const nativeAmount = monthAmountPerShare * h.quantity;
-      const krwAmount = h.currency === "USD" ? nativeAmount * todayRate : nativeAmount;
-      entry[h.ticker] = (entry[h.ticker] || 0) + krwAmount;
+      const convertedAmount =
+        dividendCurrency === "USD"
+          ? h.currency === "USD"
+            ? nativeAmount
+            : nativeAmount / todayRate
+          : h.currency === "USD"
+          ? nativeAmount * todayRate
+          : nativeAmount;
+      entry[h.ticker] = (entry[h.ticker] || 0) + convertedAmount;
     });
     return entry;
   });
@@ -2115,7 +2136,7 @@ export default function Alloy() {
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
             <span style={{ color: "rgba(255,255,255,0.75)" }}>{dividendTickerNames[p.dataKey] || p.dataKey}</span>
             <span style={{ marginLeft: "auto", fontWeight: 600, color: "#FFFFFF" }}>
-              ₩{Math.round(p.value).toLocaleString()}
+              {formatAmount(p.value, dividendCurrency)}
             </span>
           </div>
         ))}
@@ -2131,7 +2152,7 @@ export default function Alloy() {
               textAlign: "right",
             }}
           >
-            ₩{Math.round(total).toLocaleString()}
+            {formatAmount(total, dividendCurrency)}
           </div>
         )}
       </div>
@@ -4941,26 +4962,96 @@ export default function Alloy() {
               boxSizing: "border-box",
             }}
           >
-            <h2
-              style={{
-                margin: "0 0 2px 0",
-                fontSize: 17,
-                fontWeight: 600,
-                color: isLight ? "#14161A" : "#FFFFFF",
-                letterSpacing: 0.2,
-              }}
-            >
-              배당 캘린더
-            </h2>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-              }}
-            >
-              최근 12개월 · 월별 배당금(원화 환산)
-            </span>
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+              <div>
+                <h2
+                  style={{
+                    margin: "0 0 2px 0",
+                    fontSize: 17,
+                    fontWeight: 600,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    letterSpacing: 0.2,
+                  }}
+                >
+                  배당 캘린더
+                </h2>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  최근 12개월 (예상)
+                </span>
+              </div>
+
+              {/* ₩ / $ 표기 통화 슬라이드 토글 */}
+              <div
+                style={{
+                  position: "relative",
+                  display: "flex",
+                  height: 28,
+                  padding: 3,
+                  borderRadius: 9,
+                  background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
+                  border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                  flexShrink: 0,
+                }}
+              >
+                <div
+                  style={{
+                    position: "absolute",
+                    top: 3,
+                    left: dividendCurrencyIndicator.left,
+                    width: dividendCurrencyIndicator.width,
+                    height: "calc(100% - 6px)",
+                    borderRadius: 6,
+                    background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
+                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                    transition:
+                      "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                  }}
+                />
+                {[
+                  { key: "KRW", label: "₩" },
+                  { key: "USD", label: "$" },
+                ].map((c, i) => (
+                  <button
+                    key={c.key}
+                    ref={(el) => (dividendCurrencyBtnRefs.current[i] = el)}
+                    onClick={() => setDividendCurrency(c.key)}
+                    onMouseEnter={() => setDividendCurrencyHoverIdx(i)}
+                    onMouseLeave={() => setDividendCurrencyHoverIdx(null)}
+                    style={{
+                      position: "relative",
+                      zIndex: 1,
+                      width: 22,
+                      height: "100%",
+                      border: "none",
+                      background: "transparent",
+                      borderRadius: 6,
+                      color:
+                        dividendCurrency === c.key
+                          ? isLight
+                            ? "#14161A"
+                            : "#FFFFFF"
+                          : isLight
+                          ? "rgba(20,22,26,0.5)"
+                          : "rgba(255,255,255,0.5)",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      transition: "color 0.3s ease, transform 0.2s ease",
+                      transform: dividendCurrencyHoverIdx === i && dividendCurrency !== c.key ? "scale(1.12)" : "scale(1)",
+                    }}
+                  >
+                    {c.label}
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {dividendActiveTickers.length === 0 ? (
               <div
