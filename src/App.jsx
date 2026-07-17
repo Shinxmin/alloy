@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.100";
+const APP_VERSION = "0.1.101";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1937,6 +1937,22 @@ export default function Alloy() {
   const displayTotalUSD = totalNativeUSD + convertedKRWtoUSD;
   const displayTotalKRW = totalNativeKRW + convertedUSDtoKRW;
 
+  // 총 자산 등락폭: 현재가가 있는 보유 종목의 평가손익(현재가 - 평균단가) × 수량을 합산 (현금은 손익이 없어 제외)
+  let totalGainUSD = 0;
+  let totalCostBasisUSD = 0;
+  holdings.forEach((h) => {
+    const currentPrice = stockPrices[h.ticker];
+    if (!isFinite(currentPrice) || currentPrice <= 0) return;
+    const gainNative = (currentPrice - h.avgPrice) * h.quantity;
+    const costNative = h.avgPrice * h.quantity;
+    const gainUSD = h.currency === "USD" ? gainNative : gainNative / todayRate;
+    const costUSD = h.currency === "USD" ? costNative : costNative / todayRate;
+    totalGainUSD += gainUSD;
+    totalCostBasisUSD += costUSD;
+  });
+  const totalGainKRW = totalGainUSD * todayRate;
+  const totalGainPercent = totalCostBasisUSD > 0 ? (totalGainUSD / totalCostBasisUSD) * 100 : 0;
+
   // 최근 12개월 주당 배당금 합계(종목 통화 기준) - 배당 이력 이벤트를 종목별로 합산
   const dividendPerShare = {};
   for (const ticker of Object.keys(dividendEvents)) {
@@ -2993,7 +3009,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
                   }}
                 >
-                  총 자산
+                  자산
                 </div>
 
                 {/* $ / ₩ 표기 통화 슬라이드 토글 - 총 자산, 배당금 표기 둘 다에 적용됨 */}
@@ -3062,9 +3078,25 @@ export default function Alloy() {
                   ))}
                 </div>
               </div>
-              <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
-                {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
-              </span>
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: totalGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF",
+                  }}
+                >
+                  {totalGainUSD >= 0 ? "▲ " : "▼ "}
+                  {Math.abs(homeCurrency === "USD" ? totalGainUSD : totalGainKRW).toLocaleString(undefined, {
+                    maximumFractionDigits: homeCurrency === "USD" ? 2 : 0,
+                  })}{" "}
+                  ({totalGainPercent >= 0 ? "+" : ""}
+                  {totalGainPercent.toFixed(2)}%)
+                </span>
+              </div>
 
               <div
                 style={{
