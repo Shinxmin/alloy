@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.106";
+const APP_VERSION = "0.1.107";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -3272,20 +3272,22 @@ export default function Alloy() {
                 <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
                   {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
                 </span>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 600,
-                    color: totalGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF",
-                  }}
-                >
-                  {totalGainUSD >= 0 ? "▲ " : "▼ "}
-                  {Math.abs(homeCurrency === "USD" ? totalGainUSD : totalGainKRW).toLocaleString(undefined, {
-                    maximumFractionDigits: homeCurrency === "USD" ? 2 : 0,
-                  })}{" "}
-                  ({totalGainPercent >= 0 ? "+" : ""}
-                  {totalGainPercent.toFixed(2)}%)
-                </span>
+                {totalCostBasisUSD > 0 && (
+                  <span
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 600,
+                      color: totalGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF",
+                    }}
+                  >
+                    {totalGainUSD >= 0 ? "▲ " : "▼ "}
+                    {Math.abs(homeCurrency === "USD" ? totalGainUSD : totalGainKRW).toLocaleString(undefined, {
+                      maximumFractionDigits: homeCurrency === "USD" ? 2 : 0,
+                    })}{" "}
+                    ({totalGainPercent >= 0 ? "+" : ""}
+                    {totalGainPercent.toFixed(2)}%)
+                  </span>
+                )}
               </div>
 
               <div
@@ -3494,9 +3496,8 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 카테고리별 종목 - 현금 카테고리는 보유 종목이 없어도 항상 표시(+ 버튼으로 언제든 추가 가능) */}
-            {Object.entries(portfolio).map(([key, category]) =>
-                key !== "cash" && category.holdings.length === 0 ? null : (
+            {/* 카테고리별 종목 - 모든 카테고리는 보유 종목이 없어도 항상 표시(+ 버튼으로 언제든 추가 가능) */}
+            {Object.entries(portfolio).map(([key, category]) => (
                   <div
                     key={key}
                     style={{
@@ -3856,9 +3857,6 @@ export default function Alloy() {
               >
                 <div style={{ fontSize: 15, fontWeight: 600, color: (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)") }}>
                   아직 등록된 자산이 없어요
-                </div>
-                <div style={{ fontSize: 13, color: (isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)") }}>
-                  하단의 + 버튼을 눌러 자산을 추가해보세요
                 </div>
               </div>
             )}
@@ -5280,7 +5278,7 @@ export default function Alloy() {
                   color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                 }}
               >
-                최근 12개월 배당 이력이 없어요
+                아직 등록된 자산이 없어요
               </div>
             ) : (
               <>
@@ -5464,7 +5462,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                   }}
                 >
-                  자산 추이를 불러올 수 없어요
+                  아직 등록된 자산이 없어요
                 </div>
               ) : (
                 <ResponsiveContainer width="100%" height="100%">
