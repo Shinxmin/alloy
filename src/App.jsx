@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.97";
+const APP_VERSION = "0.1.98";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1271,8 +1271,9 @@ export default function Alloy() {
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 숫자로만 구성된 티커(원화 종목 코드, 예: 005930)는 국내(코스피/코스닥) 종목으로 취급
-  const isNumericTicker = (ticker) => /^[0-9]+$/.test(ticker || "");
+  // 숫자가 하나라도 포함된 티커는 국내(코스피/코스닥) 종목으로 취급 (예: 005930, 0198A0 같은
+  // 영문 혼합 ETF 코드도 포함 - 미국 종목 티커는 숫자 없이 순수 영문으로만 구성됨)
+  const isNumericTicker = (ticker) => /[0-9]/.test(ticker || "");
 
   // 보유 종목 현재가(수익률/현재 평가금액 계산용) - 야후 파이낸스로 조회. 숫자 티커(국내 종목)는
   // 코스피(.KS)를 먼저 시도하고 실패하면 코스닥(.KQ)으로 재시도하며, 그 외(영문) 티커는 그대로 조회한다.
@@ -2996,7 +2997,7 @@ export default function Alloy() {
               </div>
               <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                 <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
-                  $ {Math.round(displayTotalUSD).toLocaleString()}
+                  ${Math.round(displayTotalUSD).toLocaleString()}
                 </span>
                 <span
                   style={{
@@ -3005,7 +3006,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                   }}
                 >
-                  ₩ {Math.round(displayTotalKRW).toLocaleString()}
+                  ₩{Math.round(displayTotalKRW).toLocaleString()}
                 </span>
               </div>
 
@@ -3040,13 +3041,13 @@ export default function Alloy() {
                     marginBottom: 8,
                   }}
                 >
-                  연 배당
+                  배당금
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 6l6 6-6 6" />
                   </svg>
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  <span style={{ fontSize: 26, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
                     {annualDividendYieldPercent.toFixed(2)}%
                   </span>
                   <span
@@ -3056,7 +3057,7 @@ export default function Alloy() {
                       color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
                     }}
                   >
-                    $ {Math.round(annualDividendUSD).toLocaleString()} · ₩ {Math.round(annualDividendKRW).toLocaleString()}
+                    {formatAmount(annualDividendUSD, "USD")}ㅣ{formatAmount(annualDividendKRW, "KRW")}
                   </span>
                 </div>
               </div>
@@ -3200,7 +3201,7 @@ export default function Alloy() {
                       color: (isLight ? "#14161A" : "#FFFFFF"),
                     }}
                   >
-                    $ {Math.round(displayTotalUSD).toLocaleString()}
+                    ${Math.round(displayTotalUSD).toLocaleString()}
                   </span>
                   <span
                     style={{
@@ -3209,7 +3210,7 @@ export default function Alloy() {
                       color: (isLight ? "#14161A" : "#FFFFFF"),
                     }}
                   >
-                    ₩ {Math.round(displayTotalKRW).toLocaleString()}
+                    ₩{Math.round(displayTotalKRW).toLocaleString()}
                   </span>
                 </div>
               )}
