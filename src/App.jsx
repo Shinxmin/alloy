@@ -1095,9 +1095,12 @@ export default function Alloy() {
     }
   };
 
-  // 환율(원/달러, 원/엔) - 야후 파이낸스, 지수 위젯과 동일한 위젯+모달+캔들차트 구성
+  // 환율(원/달러) - 야후 파이낸스, 지수 위젯과 동일한 위젯+모달+캔들차트 구성. 홈 탭 지수 카드 바로 아래 단독 표시.
   const fxKrwUsd = useYahooIndex("KRW=X", "원/달러");
-  const fxKrwJpy = useYahooIndex("JPYKRW=X", "원/엔");
+
+  // S&P500/나스닥100 선물 - 야후 파이낸스(E-mini 선물)
+  const snp500Futures = useYahooIndex("ES=F", "S&P500 선물");
+  const nasdaq100Futures = useYahooIndex("NQ=F", "나스닥100 선물");
 
   // 미국채 금리(3개월/5년/10년/30년) - 야후 파이낸스(CBOE 금리지수), 원시값이 실제 수익률(%) 그대로라 별도 보정 없음.
   // 1년물은 야후에 전용 티커가 없어 가장 근접한 단기물인 13주(3개월) 국채로 대체한다.
@@ -1221,7 +1224,8 @@ export default function Alloy() {
       kospiIndexModalOpen ||
       kosdaqIndexModalOpen ||
       fxKrwUsd.modalOpen ||
-      fxKrwJpy.modalOpen ||
+      snp500Futures.modalOpen ||
+      nasdaq100Futures.modalOpen ||
       ust1y.modalOpen ||
       ust5y.modalOpen ||
       ust10y.modalOpen ||
@@ -1250,7 +1254,8 @@ export default function Alloy() {
     kospiIndexModalOpen,
     kosdaqIndexModalOpen,
     fxKrwUsd.modalOpen,
-    fxKrwJpy.modalOpen,
+    snp500Futures.modalOpen,
+    nasdaq100Futures.modalOpen,
     ust1y.modalOpen,
     ust5y.modalOpen,
     ust10y.modalOpen,
@@ -1656,9 +1661,12 @@ export default function Alloy() {
         } else if (fxKrwUsd.modalOpen) {
           e.preventDefault();
           fxKrwUsd.closeRef.current();
-        } else if (fxKrwJpy.modalOpen) {
+        } else if (snp500Futures.modalOpen) {
           e.preventDefault();
-          fxKrwJpy.closeRef.current();
+          snp500Futures.closeRef.current();
+        } else if (nasdaq100Futures.modalOpen) {
+          e.preventDefault();
+          nasdaq100Futures.closeRef.current();
         } else if (ust1y.modalOpen) {
           e.preventDefault();
           ust1y.closeRef.current();
@@ -1708,7 +1716,8 @@ export default function Alloy() {
     kospiIndexModalOpen,
     kosdaqIndexModalOpen,
     fxKrwUsd.modalOpen,
-    fxKrwJpy.modalOpen,
+    snp500Futures.modalOpen,
+    nasdaq100Futures.modalOpen,
     ust1y.modalOpen,
     ust5y.modalOpen,
     ust10y.modalOpen,
@@ -2749,7 +2758,7 @@ export default function Alloy() {
                   </div>
                 </div>
 
-                {/* 2페이지: 환율(원/달러, 원/엔) + 미국채(3개월/5년/10년/30년) - 가로 2열 세로 4열 그리드, 1열엔 환율 2종만 채움.
+                {/* 2페이지: S&P500/나스닥100 선물 + 미국채(3개월/5년/10년/30년) - 가로 2열 세로 4열 그리드, 1열엔 선물 2종만 채움.
                     셀 사이 구분선 없이 간격만으로 배치하고, 각 셀은 "이름 가격" 한 줄 + "화살표 등락률%" 한 줄로 표기 */}
                 <div style={{ width: "50%", flexShrink: 0, display: "flex", flexDirection: "column", justifyContent: "center" }}>
                   <div
@@ -2761,9 +2770,9 @@ export default function Alloy() {
                     }}
                   >
                     {[
-                      { key: "fxKrwUsd", ...fxKrwUsd },
+                      { key: "snp500Futures", ...snp500Futures },
                       { key: "ust1y", ...ust1y },
-                      { key: "fxKrwJpy", ...fxKrwJpy },
+                      { key: "nasdaq100Futures", ...nasdaq100Futures },
                       { key: "ust5y", ...ust5y },
                       null,
                       { key: "ust10y", ...ust10y },
@@ -2908,6 +2917,87 @@ export default function Alloy() {
                   }}
                 />
               </div>
+            </div>
+
+            {/* 원/달러 - 지수 위젯 카드 밖 바로 아래, 정중앙에 단독 표시 (클릭 시 동일한 캔들차트 모달) */}
+            <div style={{ display: "flex", justifyContent: "center", marginTop: 20 }}>
+              {fxKrwUsd.loading ? (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  지수 불러오는 중...
+                </span>
+              ) : !fxKrwUsd.index ? (
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  지수 정보를 불러올 수 없어요
+                </span>
+              ) : (
+                <div
+                  onClick={fxKrwUsd.open}
+                  onMouseEnter={() => fxKrwUsd.setHovered(true)}
+                  onMouseLeave={() => fxKrwUsd.setHovered(false)}
+                  role="button"
+                  tabIndex={0}
+                  style={{
+                    display: "flex",
+                    flexDirection: "column",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    gap: 4,
+                    cursor: "pointer",
+                    opacity: fxKrwUsd.hovered ? 0.7 : 1,
+                    transition: "opacity 0.2s ease",
+                    outline: "none",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                    }}
+                  >
+                    {fxKrwUsd.index.name}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 26,
+                      fontWeight: 700,
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      letterSpacing: 0.2,
+                    }}
+                  >
+                    {fxKrwUsd.index.price.toLocaleString(undefined, {
+                      minimumFractionDigits: 2,
+                      maximumFractionDigits: 2,
+                    })}
+                  </span>
+                  {fxKrwUsd.index.changeAmount != null && fxKrwUsd.index.changePercent != null && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: fxKrwUsd.index.changeAmount >= 0 ? "#FF5C5C" : "#4D9FFF",
+                      }}
+                    >
+                      {fxKrwUsd.index.changeAmount >= 0 ? "▲ " : "▼ "}
+                      {Math.abs(fxKrwUsd.index.changeAmount).toFixed(2)} (
+                      {fxKrwUsd.index.changePercent >= 0 ? "+" : ""}
+                      {fxKrwUsd.index.changePercent.toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </>
         )}
@@ -4925,9 +5015,10 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* 환율(원/달러, 원/엔) + 미국채(1/5/10/30년) 캔들차트 모달 - 지수 모달과 동일한 공용 컴포넌트 사용 */}
+      {/* 환율(원/달러) + S&P500/나스닥100 선물 + 미국채(3개월/5/10/30년) 캔들차트 모달 - 지수 모달과 동일한 공용 컴포넌트 사용 */}
       <IndexModal isLight={isLight} state={fxKrwUsd} />
-      <IndexModal isLight={isLight} state={fxKrwJpy} />
+      <IndexModal isLight={isLight} state={snp500Futures} />
+      <IndexModal isLight={isLight} state={nasdaq100Futures} />
       <IndexModal isLight={isLight} state={ust1y} />
       <IndexModal isLight={isLight} state={ust5y} />
       <IndexModal isLight={isLight} state={ust10y} />
