@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.107";
+const APP_VERSION = "0.1.108";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -48,6 +48,19 @@ const INDEX_CANDLE_PERIODS = [
   { key: "3mo", label: "3달", range: "3mo", interval: "1d" },
   { key: "1y", label: "1년", range: "1y", interval: "1wk" },
 ];
+
+// 목표 달성률 추이 그래프의 range/interval: 목표를 설정한 날짜부터 지금까지 경과일 수에 맞춰
+// 야후 파이낸스 차트 API에 적절한 기간을 요청한다 (고정 기간 탭이 없는 단일 그래프이므로 동적으로 결정).
+function goalHistoryRangeForDays(days) {
+  if (days <= 1) return { range: "1d", interval: "5m" };
+  if (days <= 5) return { range: "5d", interval: "15m" };
+  if (days <= 30) return { range: "1mo", interval: "1d" };
+  if (days <= 90) return { range: "3mo", interval: "1d" };
+  if (days <= 180) return { range: "6mo", interval: "1d" };
+  if (days <= 365) return { range: "1y", interval: "1wk" };
+  if (days <= 730) return { range: "2y", interval: "1wk" };
+  return { range: "5y", interval: "1mo" };
+}
 
 // Intl.DateTimeFormat의 formatToParts 결과에서 특정 필드만 뽑아내는 헬퍼
 function getDatePart(parts, type) {
@@ -1082,6 +1095,38 @@ export default function Alloy() {
   const closeAssetTrendModalRef = useRef(closeAssetTrendModal);
   closeAssetTrendModalRef.current = closeAssetTrendModal;
 
+  // 목표 모달 (홈 탭 "목표" 클릭 시 표시, 목표 설정일로부터 지금까지의 달성률(%) 추이 그래프)
+  // goalTargetUSD/goalSetAt은 Supabase portfolios 테이블에 저장되어 기기 간 동기화된다.
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [goalModalVisible, setGoalModalVisible] = useState(false);
+  const [goalTargetUSD, setGoalTargetUSD] = useState(0);
+  const [goalSetAt, setGoalSetAt] = useState(null); // ISO 문자열
+  const [goalProgressSeries, setGoalProgressSeries] = useState([]); // [{ ts, percent }]
+  const [goalProgressLoading, setGoalProgressLoading] = useState(false);
+  const [goalChartInterval, setGoalChartInterval] = useState("1d");
+  const [goalEditing, setGoalEditing] = useState(false);
+  const [goalDraft, setGoalDraft] = useState("");
+  const goalInputRef = useRef(null);
+
+  const openGoalModal = () => {
+    setGoalModalOpen(true);
+    requestAnimationFrame(() => setGoalModalVisible(true));
+  };
+
+  const closeGoalModal = () => {
+    setGoalModalVisible(false);
+    setGoalEditing(false);
+    setTimeout(() => setGoalModalOpen(false), 300);
+  };
+  const closeGoalModalRef = useRef(closeGoalModal);
+  closeGoalModalRef.current = closeGoalModal;
+
+  useEffect(() => {
+    if (goalEditing) {
+      requestAnimationFrame(() => goalInputRef.current && goalInputRef.current.focus());
+    }
+  }, [goalEditing]);
+
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
   const yahooSymbolCandidates = (ticker) =>
@@ -1369,6 +1414,8 @@ export default function Alloy() {
       setHoldings([]);
       setCashHoldings([]);
       setDataLoaded(false);
+      setGoalTargetUSD(0);
+      setGoalSetAt(null);
       return;
     }
     let cancelled = false;
@@ -1376,7 +1423,7 @@ export default function Alloy() {
     setDataLoaded(false);
     supabase
       .from("portfolios")
-      .select("holdings, cash_holdings")
+      .select("holdings, cash_holdings, goal_amount, goal_set_at")
       .eq("user_id", session.user.id)
       .maybeSingle()
       .then(({ data, error }) => {
@@ -1384,6 +1431,8 @@ export default function Alloy() {
         if (!error && data) {
           if (Array.isArray(data.holdings)) setHoldings(data.holdings);
           if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
+          setGoalTargetUSD(typeof data.goal_amount === "number" ? data.goal_amount : 0);
+          setGoalSetAt(data.goal_set_at || null);
         } else if (error) {
           console.error("포트폴리오 불러오기 실패:", error.message);
         }
@@ -1473,6 +1522,43 @@ export default function Alloy() {
   const startEditingNickname = () => {
     setNicknameDraft(nickname);
     setNicknameEditing(true);
+  };
+
+  // 목표 금액 수정 시작 - 현재 선택된 통화(homeCurrency)로 환산된 값을 입력창 초깃값으로 채운다
+  const startEditingGoal = () => {
+    setGoalDraft(
+      goalTargetUSD > 0
+        ? String(Math.round(homeCurrency === "USD" ? goalTargetUSD : goalTargetUSD * todayRate))
+        : ""
+    );
+    setGoalEditing(true);
+  };
+
+  // 목표 금액 저장 - 확인 버튼 없이 입력을 완료(포커스 아웃/Enter)하면 즉시 USD로 환산해 Supabase에 저장한다.
+  // 최초 설정 시에만 goalSetAt(달성률 추이 그래프의 시작일)을 지금 시각으로 기록하고, 이후 수정 시에는 유지한다.
+  const saveGoal = async (value) => {
+    setGoalEditing(false);
+    const num = parseFloat(String(value).replace(/,/g, ""));
+    if (!session || !num || num <= 0) return;
+    const targetUSD = homeCurrency === "USD" ? num : num / todayRate;
+    const isFirstGoal = !goalSetAt;
+    const setAtIso = isFirstGoal ? new Date().toISOString() : goalSetAt;
+    setGoalTargetUSD(targetUSD);
+    if (isFirstGoal) setGoalSetAt(setAtIso);
+    const { error } = await supabase.from("portfolios").upsert(
+      {
+        user_id: session.user.id,
+        goal_amount: targetUSD,
+        goal_set_at: setAtIso,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id" }
+    );
+    if (error) {
+      showSubActionNotice("저장 실패했습니다", true);
+      return;
+    }
+    showSubActionNotice("저장되었습니다");
   };
 
   const saveNickname = async (value) => {
@@ -1638,6 +1724,9 @@ export default function Alloy() {
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
+        } else if (goalModalOpen) {
+          e.preventDefault();
+          closeGoalModalRef.current();
         } else if (snp500IndexModalOpen) {
           e.preventDefault();
           closeSnp500IndexModalRef.current();
@@ -2013,6 +2102,9 @@ export default function Alloy() {
   const annualDividendKRW = annualDividendUSD * todayRate;
   const annualDividendYieldPercent = grandTotalUSD > 0 ? (annualDividendUSD / grandTotalUSD) * 100 : 0;
 
+  // 목표 달성률(%): 총 자산(USD) ÷ 목표 금액(USD) × 100. 목표 미설정 시 0.
+  const goalProgressPercent = goalTargetUSD > 0 ? (grandTotalUSD / goalTargetUSD) * 100 : 0;
+
   // 자산 추이: 보유 종목별 과거 시세(야후 파이낸스 캔들 히스토리)에 수량을 곱해 시점별 평가금액을 복원하고,
   // 현금(시점에 따라 변하지 않는다고 가정한 현재 평가액)을 더해 전체 자산의 시간별 추이를 근사한다.
   // 여러 종목의 타임스탬프가 정확히 일치하지 않을 수 있어, 데이터가 가장 많은 종목의 타임스탬프를 기준으로
@@ -2100,6 +2192,107 @@ export default function Alloy() {
     };
   }, [assetTrendModalOpen, assetTrendPeriod, holdingsTickerKey]);
 
+  // 목표 달성률 추이: 자산 추이와 동일한 방식(보유 종목별 과거 시세 복원 + 현재 현금 평가액 가산)으로
+  // 목표를 설정한 날짜부터 지금까지의 총 자산 평가금액을 구한 뒤, 목표 금액 대비 퍼센트로 환산한다.
+  useEffect(() => {
+    if (!goalModalOpen || !(goalTargetUSD > 0) || !goalSetAt) {
+      setGoalProgressSeries([]);
+      return;
+    }
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+    const goalSetAtSec = Math.floor(new Date(goalSetAt).getTime() / 1000);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const daysSinceGoal = Math.max(1, (nowSec - goalSetAtSec) / 86400);
+    const cfg = goalHistoryRangeForDays(daysSinceGoal);
+    setGoalChartInterval(cfg.interval);
+
+    if (uniqueTickers.length === 0) {
+      // 보유 종목 없이 현금만 있는 경우: 시간에 따라 변하지 않는 현재 현금 평가액으로 시작/현재 두 지점만 표기
+      const percent = (totalCashValueUSD / goalTargetUSD) * 100;
+      setGoalProgressSeries([
+        { ts: goalSetAtSec, percent },
+        { ts: nowSec, percent },
+      ]);
+      return;
+    }
+
+    let cancelled = false;
+    setGoalProgressLoading(true);
+
+    const fetchOne = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: ticker, range: cfg.range, interval: cfg.interval },
+          });
+          if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
+            return data.history;
+          }
+        } catch (e) {
+          // 다음 후보로 계속 시도
+        }
+      }
+      return [];
+    };
+
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
+      (results) => {
+        if (cancelled) return;
+        const historyByTicker = {};
+        for (const [ticker, history] of results) historyByTicker[ticker] = history;
+
+        let referenceTicker = null;
+        let maxLen = 0;
+        for (const ticker of uniqueTickers) {
+          const len = (historyByTicker[ticker] || []).length;
+          if (len > maxLen) {
+            maxLen = len;
+            referenceTicker = ticker;
+          }
+        }
+        if (!referenceTicker) {
+          setGoalProgressSeries([]);
+          setGoalProgressLoading(false);
+          return;
+        }
+
+        const closestClose = (history, ts) => {
+          if (!history || history.length === 0) return null;
+          let best = history[0];
+          let bestDiff = Math.abs(history[0].ts - ts);
+          for (const p of history) {
+            const diff = Math.abs(p.ts - ts);
+            if (diff < bestDiff) {
+              best = p;
+              bestDiff = diff;
+            }
+          }
+          return best.close;
+        };
+
+        const series = historyByTicker[referenceTicker]
+          .filter((p) => p.ts >= goalSetAtSec)
+          .map((refPoint) => {
+            let totalUSD = totalCashValueUSD;
+            holdings.forEach((h) => {
+              const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
+              if (close == null) return;
+              const nativeValue = close * h.quantity;
+              totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
+            });
+            return { ts: refPoint.ts, percent: (totalUSD / goalTargetUSD) * 100 };
+          });
+
+        setGoalProgressSeries(series);
+        setGoalProgressLoading(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [goalModalOpen, goalTargetUSD, goalSetAt, holdingsTickerKey]);
+
   // 문자열을 해시하여 팔레트 인덱스를 고정적으로 결정 (정렬 순서와 무관하게 항상 같은 색상)
   const hashToIndex = (str, length) => {
     let hash = 0;
@@ -2146,6 +2339,44 @@ export default function Alloy() {
       events.length > 0 ? events.reduce((sum, d) => sum + (d.amount || 0), 0) / events.length : 0;
   });
 
+  // 종목별 배당 지급 주기(개월) 추정 - 배당 이벤트 간 평균 간격(일)을 월배당(1)/분기배당(3)/반기배당(6)/연배당(12)
+  // 중 가장 가까운 주기로 매핑한다. QQQ처럼 분기 배당인 종목이 예상 배당금 계산에서 매달 지급되는 것으로
+  // 잘못 표기되지 않도록, 지난 달이 아닌 미래 달의 예상치는 이 주기에 맞는 달에만 채워 넣는다.
+  const DIVIDEND_INTERVAL_CANDIDATES = [
+    { months: 1, days: 30 },
+    { months: 3, days: 91 },
+    { months: 6, days: 182 },
+    { months: 12, days: 365 },
+  ];
+  const dividendIntervalMonths = {};
+  const dividendLastEventMonth = {};
+  holdings.forEach((h) => {
+    if (dividendIntervalMonths[h.ticker] !== undefined) return;
+    const events = dividendEvents[h.ticker] || [];
+    const sorted = [...events].sort((a, b) => a.ts - b.ts);
+    dividendLastEventMonth[h.ticker] =
+      sorted.length > 0 ? new Date(sorted[sorted.length - 1].ts * 1000).getMonth() : null;
+    if (sorted.length < 2) {
+      dividendIntervalMonths[h.ticker] = 1;
+      return;
+    }
+    const gaps = [];
+    for (let i = 1; i < sorted.length; i++) {
+      gaps.push((sorted[i].ts - sorted[i - 1].ts) / 86400);
+    }
+    const avgGapDays = gaps.reduce((sum, g) => sum + g, 0) / gaps.length;
+    let best = 1;
+    let bestDiff = Infinity;
+    DIVIDEND_INTERVAL_CANDIDATES.forEach(({ months, days }) => {
+      const diff = Math.abs(avgGapDays - days);
+      if (diff < bestDiff) {
+        bestDiff = diff;
+        best = months;
+      }
+    });
+    dividendIntervalMonths[h.ticker] = best;
+  });
+
   const currentMonthIdx = new Date().getMonth(); // 0-based(1월=0). 이 달까지는 "이미 지난 달"로 취급
 
   const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
@@ -2158,8 +2389,11 @@ export default function Alloy() {
 
       let amountPerShare;
       if (isFutureMonth) {
-        // 아직 지나지 않은 달: 지금까지 지급된 배당금의 평균값으로 예상치 표기
-        amountPerShare = dividendAveragePerShare[h.ticker] || 0;
+        // 아직 지나지 않은 달: 지급 주기상 실제로 배당이 발생할 달에만 평균 배당금으로 예상치 표기
+        const interval = dividendIntervalMonths[h.ticker] || 1;
+        const lastEventMonth = dividendLastEventMonth[h.ticker];
+        const isCycleMonth = lastEventMonth == null || (monthIdx - lastEventMonth + 12) % interval === 0;
+        amountPerShare = isCycleMonth ? dividendAveragePerShare[h.ticker] || 0 : 0;
       } else {
         // 이미 지난 달(이번 달 포함): 실제 지급된 배당금
         amountPerShare = events
@@ -2373,6 +2607,32 @@ export default function Alloy() {
     assetTrendSeries[assetTrendSeries.length - 1].valueUSD < assetTrendSeries[0].valueUSD
       ? "#4D9FFF"
       : "#FF5C5C";
+
+  // 목표 모달 툴팁: "07/17(금) 50.5%" 한 줄로 날짜(요일) + 달성률 표기 (분/시간봉 기간이면 시각도 추가)
+  const GoalProgressTooltip = ({ active, payload }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const d = payload[0].payload;
+    const datePart = formatKstDatePart(d.ts);
+    const text = isIntradayInterval(goalChartInterval)
+      ? `${datePart} ${formatKstTimePart(d.ts)} ${d.percent.toFixed(1)}%`
+      : `${datePart} ${d.percent.toFixed(1)}%`;
+    return (
+      <div
+        style={{
+          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+          borderRadius: 10,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "6px 10px",
+          color: isLight ? "#14161A" : "#FFFFFF",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {text}
+      </div>
+    );
+  };
 
   const BAR_HEIGHT = 58;
 
@@ -3339,6 +3599,88 @@ export default function Alloy() {
                   >
                     {formatAmount(homeCurrency === "USD" ? annualDividendUSD : annualDividendKRW, homeCurrency)}
                   </span>
+                </div>
+              </div>
+
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={openGoalModal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openGoalModal();
+                  }
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                style={{ cursor: "pointer", outline: "none", transition: "opacity 0.2s ease" }}
+              >
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    marginBottom: 8,
+                  }}
+                >
+                  목표
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </div>
+                <div
+                  style={{
+                    position: "relative",
+                    width: "100%",
+                    height: 30,
+                    borderRadius: 15,
+                    overflow: "hidden",
+                    background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 0,
+                      left: 0,
+                      height: "100%",
+                      width: `${Math.max(0, Math.min(100, goalProgressPercent))}%`,
+                      borderRadius: 15,
+                      background: "linear-gradient(90deg, #6C8CFF, #8FA7FF)",
+                      transition: "width 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      inset: 0,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      fontSize: goalTargetUSD > 0 ? 13 : 11,
+                      fontWeight: 700,
+                      color: "#FFFFFF",
+                      letterSpacing: 0.2,
+                      padding: "0 8px",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {goalTargetUSD > 0 ? `${goalProgressPercent.toFixed(1)}%` : "목표를 설정해보세요"}
+                  </div>
                 </div>
               </div>
             </div>
@@ -5496,6 +5838,217 @@ export default function Alloy() {
                       stroke={assetTrendColor}
                       strokeWidth={2}
                       fill="url(#assetTrendGradient)"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 목표 모달 (홈 탭 "목표" 클릭 시 표시): 목표를 설정한 날짜부터 지금까지의 달성률(%) 추이 그래프.
+          목표 금액은 확인 버튼 없이 입력을 완료(포커스 아웃/Enter)하면 즉시 저장되고 서브 액션바로 안내된다.
+          표기 통화는 홈 카드의 $/₩ 스위치(homeCurrency)를 그대로 따른다. */}
+      {goalModalOpen && (
+        <div
+          onClick={closeGoalModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: goalModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: goalModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: goalModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: goalModalVisible ? 1 : 0,
+              transform: goalModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              목표
+            </h2>
+
+            <div
+              style={{
+                display: "flex",
+                alignItems: "baseline",
+                gap: 4,
+                flexWrap: "wrap",
+                marginBottom: 14,
+                fontSize: 15,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+              }}
+            >
+              <span>{formatAmount(homeCurrency === "USD" ? grandTotalUSD : grandTotalUSD * todayRate, homeCurrency)}</span>
+              <span style={{ opacity: 0.4, fontWeight: 500 }}>/</span>
+              {goalEditing ? (
+                <span style={{ display: "inline-flex", alignItems: "baseline" }}>
+                  <span>{homeCurrency === "USD" ? "$" : "₩"}</span>
+                  <input
+                    ref={goalInputRef}
+                    type="text"
+                    inputMode="decimal"
+                    value={formatWithCommas(goalDraft)}
+                    onChange={handleNumericChange(setGoalDraft)}
+                    onBlur={(e) => saveGoal(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        e.target.blur();
+                      }
+                    }}
+                    style={{
+                      width: 100,
+                      border: "none",
+                      borderBottom: `1.5px solid ${isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"}`,
+                      background: "transparent",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 15,
+                      fontWeight: 700,
+                      outline: "none",
+                      padding: "0 2px",
+                      transition: "border-color 0.2s ease",
+                    }}
+                  />
+                </span>
+              ) : (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={startEditingGoal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      startEditingGoal();
+                    }
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.7")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  style={{
+                    cursor: "pointer",
+                    outline: "none",
+                    textDecoration: "underline",
+                    textDecorationStyle: "dotted",
+                    textUnderlineOffset: 3,
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  {goalTargetUSD > 0
+                    ? formatAmount(homeCurrency === "USD" ? goalTargetUSD : goalTargetUSD * todayRate, homeCurrency)
+                    : "설정하기"}
+                </span>
+              )}
+              {goalTargetUSD > 0 && (
+                <span style={{ opacity: 0.5, fontSize: 13, fontWeight: 600 }}>({goalProgressPercent.toFixed(1)}%)</span>
+              )}
+            </div>
+
+            <div style={{ width: "100%", height: 190 }}>
+              {!(goalTargetUSD > 0) ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  목표를 설정해보세요
+                </div>
+              ) : goalProgressLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : goalProgressSeries.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  아직 등록된 자산이 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={goalProgressSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="goalProgressGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#8FA7FF" stopOpacity={0.28} />
+                        <stop offset="100%" stopColor="#8FA7FF" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="ts"
+                      tickFormatter={(ts) =>
+                        isIntradayInterval(goalChartInterval) ? formatKstTimePart(ts) : formatKstDatePart(ts)
+                      }
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin", "dataMax"]} />
+                    <Tooltip
+                      content={<GoalProgressTooltip />}
+                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="percent"
+                      stroke="#8FA7FF"
+                      strokeWidth={2}
+                      fill="url(#goalProgressGradient)"
                       dot={false}
                       isAnimationActive={false}
                     />
