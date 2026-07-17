@@ -35,7 +35,11 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.96";
+const APP_VERSION = "0.1.97";
+
+// 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
+// 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
+const DIVIDEND_TAX_RATE = 0.15;
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1296,7 +1300,10 @@ export default function Alloy() {
           });
           if (!error && data && data.price != null) {
             const dividends = Array.isArray(data.dividends) ? data.dividends : [];
-            const recentDividends = dividends.filter((d) => d.ts >= oneYearAgoSec);
+            // 배당소득세 15% 원천징수를 반영해 세후(실수령) 금액으로 저장 - 이후 모든 배당 계산에 그대로 사용됨
+            const recentDividends = dividends
+              .filter((d) => d.ts >= oneYearAgoSec)
+              .map((d) => ({ ts: d.ts, amount: (d.amount || 0) * (1 - DIVIDEND_TAX_RATE) }));
             return { price: data.price, dividends: recentDividends };
           }
         } catch (e) {
@@ -1981,16 +1988,38 @@ export default function Alloy() {
     if (!dividendTickerNames[h.ticker]) dividendTickerNames[h.ticker] = h.name || h.ticker;
   });
 
+  // 종목별 "지금까지 지급한 배당금의 평균값"(세후, 주당) - 아직 지나지 않은 달의 예상치 계산에 사용
+  const dividendAveragePerShare = {};
+  holdings.forEach((h) => {
+    if (dividendAveragePerShare[h.ticker] !== undefined) return;
+    const events = dividendEvents[h.ticker] || [];
+    dividendAveragePerShare[h.ticker] =
+      events.length > 0 ? events.reduce((sum, d) => sum + (d.amount || 0), 0) / events.length : 0;
+  });
+
+  const currentMonthIdx = new Date().getMonth(); // 0-based(1월=0). 이 달까지는 "이미 지난 달"로 취급
+
   const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
   const dividendMonthlyData = MONTH_LABELS.map((label, monthIdx) => {
-    const entry = { month: label };
+    const entry = { month: label, __estimates: {} };
+    const isFutureMonth = monthIdx > currentMonthIdx;
     holdings.forEach((h) => {
       const events = dividendEvents[h.ticker] || [];
-      const monthAmountPerShare = events
-        .filter((d) => new Date(d.ts * 1000).getMonth() === monthIdx)
-        .reduce((sum, d) => sum + (d.amount || 0), 0);
-      if (monthAmountPerShare <= 0) return;
-      const nativeAmount = monthAmountPerShare * h.quantity;
+      if (events.length === 0) return;
+
+      let amountPerShare;
+      if (isFutureMonth) {
+        // 아직 지나지 않은 달: 지금까지 지급된 배당금의 평균값으로 예상치 표기
+        amountPerShare = dividendAveragePerShare[h.ticker] || 0;
+      } else {
+        // 이미 지난 달(이번 달 포함): 실제 지급된 배당금
+        amountPerShare = events
+          .filter((d) => new Date(d.ts * 1000).getMonth() === monthIdx)
+          .reduce((sum, d) => sum + (d.amount || 0), 0);
+      }
+      if (amountPerShare <= 0) return;
+
+      const nativeAmount = amountPerShare * h.quantity;
       const convertedAmount =
         dividendCurrency === "USD"
           ? h.currency === "USD"
@@ -2000,6 +2029,7 @@ export default function Alloy() {
           ? nativeAmount * todayRate
           : nativeAmount;
       entry[h.ticker] = (entry[h.ticker] || 0) + convertedAmount;
+      if (isFutureMonth) entry.__estimates[h.ticker] = true;
     });
     return entry;
   });
@@ -2128,18 +2158,24 @@ export default function Alloy() {
         }}
       >
         <div style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", marginBottom: 6 }}>{label}</div>
-        {items.map((p) => (
-          <div
-            key={p.dataKey}
-            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}
-          >
-            <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
-            <span style={{ color: "rgba(255,255,255,0.75)" }}>{dividendTickerNames[p.dataKey] || p.dataKey}</span>
-            <span style={{ marginLeft: "auto", fontWeight: 600, color: "#FFFFFF" }}>
-              {formatAmount(p.value, dividendCurrency)}
-            </span>
-          </div>
-        ))}
+        {items.map((p) => {
+          const isEstimate = !!p.payload?.__estimates?.[p.dataKey];
+          return (
+            <div
+              key={p.dataKey}
+              style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}
+            >
+              <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
+              <span style={{ color: "rgba(255,255,255,0.75)" }}>{dividendTickerNames[p.dataKey] || p.dataKey}</span>
+              <span style={{ marginLeft: "auto", fontWeight: 600, color: "#FFFFFF" }}>
+                {formatAmount(p.value, dividendCurrency)}
+                {isEstimate && (
+                  <span style={{ fontWeight: 500, color: "rgba(255,255,255,0.55)" }}> (예상)</span>
+                )}
+              </span>
+            </div>
+          );
+        })}
         {items.length > 1 && (
           <div
             style={{
@@ -4982,7 +5018,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                   }}
                 >
-                  최근 12개월 (예상)
+                  세금 15%
                 </span>
               </div>
 
