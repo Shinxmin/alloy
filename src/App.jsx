@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.94";
+const APP_VERSION = "0.1.95";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -1029,6 +1029,22 @@ export default function Alloy() {
   const closeInfoModalRef = useRef(closeInfoModal);
   closeInfoModalRef.current = closeInfoModal;
 
+  // 배당 캘린더 모달 (홈 탭 "연 배당" 카드 클릭 시 표시, 월별 배당금 막대그래프)
+  const [dividendModalOpen, setDividendModalOpen] = useState(false);
+  const [dividendModalVisible, setDividendModalVisible] = useState(false);
+
+  const openDividendModal = () => {
+    setDividendModalOpen(true);
+    requestAnimationFrame(() => setDividendModalVisible(true));
+  };
+
+  const closeDividendModal = () => {
+    setDividendModalVisible(false);
+    setTimeout(() => setDividendModalOpen(false), 300);
+  };
+  const closeDividendModalRef = useRef(closeDividendModal);
+  closeDividendModalRef.current = closeDividendModal;
+
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
   const yahooSymbolCandidates = (ticker) =>
@@ -1113,6 +1129,7 @@ export default function Alloy() {
     const anyModalOpen =
       modalOpen ||
       infoModalOpen ||
+      dividendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
       kospiIndexModalOpen ||
@@ -1143,6 +1160,7 @@ export default function Alloy() {
   }, [
     modalOpen,
     infoModalOpen,
+    dividendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -1241,15 +1259,16 @@ export default function Alloy() {
   // 보유 종목 현재가(수익률/현재 평가금액 계산용) - 야후 파이낸스로 조회. 숫자 티커(국내 종목)는
   // 코스피(.KS)를 먼저 시도하고 실패하면 코스닥(.KQ)으로 재시도하며, 그 외(영문) 티커는 그대로 조회한다.
   const [stockPrices, setStockPrices] = useState({}); // { [ticker]: currentPrice }
-  // 최근 12개월 주당 배당금(종목 통화 기준) - 현재가와 같은 요청으로 함께 받아온다 (연 배당 %, 연 배당금 예상치 계산용)
-  const [dividendPerShare, setDividendPerShare] = useState({}); // { [ticker]: 최근 12개월 주당 배당금 합계 }
+  // 최근 12개월 배당 지급 이력(종목 통화 기준 주당 배당금) - 현재가와 같은 요청으로 함께 받아온다.
+  // 연 배당 %/예상 배당금 합산, 배당 캘린더(월별 막대그래프) 양쪽에 그대로 사용한다.
+  const [dividendEvents, setDividendEvents] = useState({}); // { [ticker]: [{ ts, amount }] } (오래된 순 정렬, 최근 12개월만)
   const holdingsTickerKey = holdings.map((h) => h.ticker).join(",");
 
   useEffect(() => {
     const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
     if (uniqueTickers.length === 0) {
       setStockPrices({});
-      setDividendPerShare({});
+      setDividendEvents({});
       return;
     }
     let cancelled = false;
@@ -1263,16 +1282,14 @@ export default function Alloy() {
           });
           if (!error && data && data.price != null) {
             const dividends = Array.isArray(data.dividends) ? data.dividends : [];
-            const annualDividend = dividends
-              .filter((d) => d.ts >= oneYearAgoSec)
-              .reduce((sum, d) => sum + (d.amount || 0), 0);
-            return { price: data.price, annualDividend };
+            const recentDividends = dividends.filter((d) => d.ts >= oneYearAgoSec);
+            return { price: data.price, dividends: recentDividends };
           }
         } catch (e) {
           // 다음 후보로 계속 시도
         }
       }
-      return { price: null, annualDividend: 0 };
+      return { price: null, dividends: [] };
     };
 
     Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((r) => [ticker, r]))).then(
@@ -1282,10 +1299,10 @@ export default function Alloy() {
         const nextDividends = {};
         for (const [ticker, r] of results) {
           if (r.price != null) nextPrices[ticker] = r.price;
-          nextDividends[ticker] = r.annualDividend;
+          nextDividends[ticker] = r.dividends;
         }
         setStockPrices(nextPrices);
-        setDividendPerShare(nextDividends);
+        setDividendEvents(nextDividends);
       }
     );
 
@@ -1552,6 +1569,9 @@ export default function Alloy() {
         if (infoModalOpen) {
           e.preventDefault();
           closeInfoModalRef.current();
+        } else if (dividendModalOpen) {
+          e.preventDefault();
+          closeDividendModalRef.current();
         } else if (snp500IndexModalOpen) {
           e.preventDefault();
           closeSnp500IndexModalRef.current();
@@ -1619,6 +1639,7 @@ export default function Alloy() {
   }, [
     modalOpen,
     infoModalOpen,
+    dividendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -1894,6 +1915,12 @@ export default function Alloy() {
   const displayTotalUSD = totalNativeUSD + convertedKRWtoUSD;
   const displayTotalKRW = totalNativeKRW + convertedUSDtoKRW;
 
+  // 최근 12개월 주당 배당금 합계(종목 통화 기준) - 배당 이력 이벤트를 종목별로 합산
+  const dividendPerShare = {};
+  for (const ticker of Object.keys(dividendEvents)) {
+    dividendPerShare[ticker] = (dividendEvents[ticker] || []).reduce((sum, d) => sum + (d.amount || 0), 0);
+  }
+
   // 연 배당 예상치: 보유 종목별 최근 12개월 주당 배당금 × 수량을 종목 통화로 계산한 뒤 기준환율로 합산
   const annualDividendUSD = holdings.reduce((sum, h) => {
     const nativeAmount = (dividendPerShare[h.ticker] || 0) * h.quantity;
@@ -1932,6 +1959,34 @@ export default function Alloy() {
       stockColorByTicker[h.ticker] = palette[idx];
     });
   }
+
+  // 배당 캘린더(월별 막대그래프)용 데이터: 최근 12개월 배당 이벤트를 지급된 달(1~12월)별로 묶어
+  // 종목별 배당금(원화 환산, 종목당 수량 반영)을 쌓는다. 막대 색상은 원그래프와 동일한 종목 색상을 사용.
+  const dividendTickerNames = {};
+  holdings.forEach((h) => {
+    if (!dividendTickerNames[h.ticker]) dividendTickerNames[h.ticker] = h.name || h.ticker;
+  });
+
+  const MONTH_LABELS = ["1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월"];
+  const dividendMonthlyData = MONTH_LABELS.map((label, monthIdx) => {
+    const entry = { month: label };
+    holdings.forEach((h) => {
+      const events = dividendEvents[h.ticker] || [];
+      const monthAmountPerShare = events
+        .filter((d) => new Date(d.ts * 1000).getMonth() === monthIdx)
+        .reduce((sum, d) => sum + (d.amount || 0), 0);
+      if (monthAmountPerShare <= 0) return;
+      const nativeAmount = monthAmountPerShare * h.quantity;
+      const krwAmount = h.currency === "USD" ? nativeAmount * todayRate : nativeAmount;
+      entry[h.ticker] = (entry[h.ticker] || 0) + krwAmount;
+    });
+    return entry;
+  });
+
+  // 실제로 배당이 찍힌 종목만 막대 스택/범례에 포함 (보유 순서 유지, 중복 제거)
+  const dividendActiveTickers = [...new Set(holdings.map((h) => h.ticker))].filter((ticker) =>
+    dividendMonthlyData.some((m) => (m[ticker] || 0) > 0)
+  );
 
   const stockHoldings = holdings.map((h, i) => {
     const value = h.avgPrice * h.quantity; // 원가 기준 (총 자산 계산에는 이 값을 그대로 사용)
@@ -2030,6 +2085,57 @@ export default function Alloy() {
       );
     }
     return null;
+  };
+
+  // 배당 캘린더(월별 막대그래프) 툴팁: 호버한 달에 어떤 종목이 얼마씩 배당했는지 나열
+  const DividendMonthTooltip = ({ active, payload, label }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const items = payload.filter((p) => p.value > 0);
+    if (items.length === 0) return null;
+    const total = items.reduce((sum, p) => sum + p.value, 0);
+    return (
+      <div
+        style={{
+          padding: "10px 14px",
+          borderRadius: 14,
+          background: "rgba(40, 42, 48, 0.55)",
+          backdropFilter: "blur(20px) saturate(180%)",
+          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+          border: isLight ? "1px solid rgba(20,22,26,0.14)" : "1px solid rgba(255,255,255,0.14)",
+          boxShadow: "0 8px 28px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.1)",
+          pointerEvents: "none",
+        }}
+      >
+        <div style={{ fontSize: 13, fontWeight: 700, color: "#FFFFFF", marginBottom: 6 }}>{label}</div>
+        {items.map((p) => (
+          <div
+            key={p.dataKey}
+            style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 2 }}
+          >
+            <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
+            <span style={{ color: "rgba(255,255,255,0.75)" }}>{dividendTickerNames[p.dataKey] || p.dataKey}</span>
+            <span style={{ marginLeft: "auto", fontWeight: 600, color: "#FFFFFF" }}>
+              ₩{Math.round(p.value).toLocaleString()}
+            </span>
+          </div>
+        ))}
+        {items.length > 1 && (
+          <div
+            style={{
+              marginTop: 4,
+              paddingTop: 4,
+              borderTop: "1px solid rgba(255,255,255,0.14)",
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#FFFFFF",
+              textAlign: "right",
+            }}
+          >
+            ₩{Math.round(total).toLocaleString()}
+          </div>
+        )}
+      </div>
+    );
   };
 
   const BAR_HEIGHT = 58;
@@ -2855,28 +2961,47 @@ export default function Alloy() {
               />
 
               <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  marginBottom: 8,
+                role="button"
+                tabIndex={0}
+                onClick={openDividendModal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openDividendModal();
+                  }
                 }}
+                style={{ cursor: "pointer", outline: "none" }}
               >
-                연 배당
-              </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
-                  {annualDividendYieldPercent.toFixed(2)}%
-                </span>
-                <span
+                <div
                   style={{
-                    fontSize: 14,
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 13,
                     fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    marginBottom: 8,
                   }}
                 >
-                  $ {Math.round(annualDividendUSD).toLocaleString()} · ₩ {Math.round(annualDividendKRW).toLocaleString()}
-                </span>
+                  연 배당
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </div>
+                <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                    {annualDividendYieldPercent.toFixed(2)}%
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                    }}
+                  >
+                    $ {Math.round(annualDividendUSD).toLocaleString()} · ₩ {Math.round(annualDividendKRW).toLocaleString()}
+                  </span>
+                </div>
               </div>
             </div>
           </>
@@ -4775,6 +4900,137 @@ export default function Alloy() {
               candles={infoCandles}
               candlesLoading={infoCandlesLoading}
             />
+          </div>
+        </div>
+      )}
+
+      {/* 배당 캘린더 모달 (홈 탭 "연 배당" 클릭 시 표시): 최근 12개월치 배당 이력을 지급된 달(1~12월)별로
+          쌓은 막대그래프. 각 종목 막대 색상은 투자 탭 원그래프와 동일한 stockColorByTicker를 그대로 사용한다. */}
+      {dividendModalOpen && (
+        <div
+          onClick={closeDividendModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: dividendModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: dividendModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: dividendModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(360px, 88vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: dividendModalVisible ? 1 : 0,
+              transform: dividendModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 2px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              배당 캘린더
+            </h2>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              최근 12개월 · 월별 배당금(원화 환산)
+            </span>
+
+            {dividendActiveTickers.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 150,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                최근 12개월 배당 이력이 없어요
+              </div>
+            ) : (
+              <>
+                <div style={{ width: "100%", height: 190, marginTop: 14 }}>
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={dividendMonthlyData} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                      <XAxis
+                        dataKey="month"
+                        tick={{
+                          fontSize: 9,
+                          fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                        }}
+                        axisLine={false}
+                        tickLine={false}
+                        interval={0}
+                      />
+                      <YAxis hide domain={[0, "dataMax"]} />
+                      <Tooltip cursor={{ fill: isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)" }} content={<DividendMonthTooltip />} />
+                      {dividendActiveTickers.map((ticker) => (
+                        <Bar
+                          key={ticker}
+                          dataKey={ticker}
+                          stackId="dividend"
+                          fill={stockColorByTicker[ticker]}
+                          isAnimationActive={false}
+                        />
+                      ))}
+                    </ComposedChart>
+                  </ResponsiveContainer>
+                </div>
+
+                <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 14px", marginTop: 14 }}>
+                  {dividendActiveTickers.map((ticker) => (
+                    <div key={ticker} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: "50%",
+                          background: stockColorByTicker[ticker],
+                          flexShrink: 0,
+                        }}
+                      />
+                      <span
+                        style={{
+                          fontSize: 12,
+                          fontWeight: 500,
+                          color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                        }}
+                      >
+                        {dividendTickerNames[ticker] || ticker}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
