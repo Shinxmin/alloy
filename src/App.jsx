@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.101";
+const APP_VERSION = "0.1.102";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1063,6 +1063,37 @@ export default function Alloy() {
     }
   }, [homeCurrency, active]);
 
+  // 자산 추이 모달 (홈 탭 "자산" 클릭 시 표시, 1일/1주/3달/1년 기간별 꺾은선 그래프)
+  const [assetTrendModalOpen, setAssetTrendModalOpen] = useState(false);
+  const [assetTrendModalVisible, setAssetTrendModalVisible] = useState(false);
+  const [assetTrendPeriod, setAssetTrendPeriod] = useState("1d");
+  const [assetTrendSeries, setAssetTrendSeries] = useState([]); // [{ ts, valueUSD }]
+  const [assetTrendLoading, setAssetTrendLoading] = useState(false);
+
+  const openAssetTrendModal = () => {
+    setAssetTrendModalOpen(true);
+    requestAnimationFrame(() => setAssetTrendModalVisible(true));
+  };
+
+  const closeAssetTrendModal = () => {
+    setAssetTrendModalVisible(false);
+    setTimeout(() => setAssetTrendModalOpen(false), 300);
+  };
+  const closeAssetTrendModalRef = useRef(closeAssetTrendModal);
+  closeAssetTrendModalRef.current = closeAssetTrendModal;
+
+  // 자산 추이 모달의 1일/1주/3달/1년 기간 탭 슬라이드 인디케이터
+  const [assetTrendPeriodIndicator, setAssetTrendPeriodIndicator] = useState({ left: 0, width: 0 });
+  const assetTrendPeriodBtnRefs = useRef([]);
+
+  useEffect(() => {
+    const idx = INDEX_CANDLE_PERIODS.findIndex((p) => p.key === assetTrendPeriod);
+    const el = assetTrendPeriodBtnRefs.current[idx];
+    if (el) {
+      setAssetTrendPeriodIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [assetTrendPeriod, assetTrendModalOpen]);
+
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
   const yahooSymbolCandidates = (ticker) =>
@@ -1148,6 +1179,7 @@ export default function Alloy() {
       modalOpen ||
       infoModalOpen ||
       dividendModalOpen ||
+      assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
       kospiIndexModalOpen ||
@@ -1179,6 +1211,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
+    assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -1594,6 +1627,9 @@ export default function Alloy() {
         } else if (dividendModalOpen) {
           e.preventDefault();
           closeDividendModalRef.current();
+        } else if (assetTrendModalOpen) {
+          e.preventDefault();
+          closeAssetTrendModalRef.current();
         } else if (snp500IndexModalOpen) {
           e.preventDefault();
           closeSnp500IndexModalRef.current();
@@ -1662,6 +1698,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
+    assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -1968,6 +2005,93 @@ export default function Alloy() {
   const annualDividendKRW = annualDividendUSD * todayRate;
   const annualDividendYieldPercent = grandTotalUSD > 0 ? (annualDividendUSD / grandTotalUSD) * 100 : 0;
 
+  // 자산 추이: 보유 종목별 과거 시세(야후 파이낸스 캔들 히스토리)에 수량을 곱해 시점별 평가금액을 복원하고,
+  // 현금(시점에 따라 변하지 않는다고 가정한 현재 평가액)을 더해 전체 자산의 시간별 추이를 근사한다.
+  // 여러 종목의 타임스탬프가 정확히 일치하지 않을 수 있어, 데이터가 가장 많은 종목의 타임스탬프를 기준으로
+  // 각 종목에서 가장 가까운 시각의 종가를 찾아 합산한다. 환율은 현재 기준환율을 모든 시점에 동일하게 적용한다.
+  useEffect(() => {
+    if (!assetTrendModalOpen) return;
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+    if (uniqueTickers.length === 0) {
+      setAssetTrendSeries([]);
+      return;
+    }
+    let cancelled = false;
+    setAssetTrendLoading(true);
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === assetTrendPeriod) || INDEX_CANDLE_PERIODS[0];
+
+    const fetchOne = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: ticker, range: cfg.range, interval: cfg.interval },
+          });
+          if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
+            return data.history;
+          }
+        } catch (e) {
+          // 다음 후보로 계속 시도
+        }
+      }
+      return [];
+    };
+
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
+      (results) => {
+        if (cancelled) return;
+        const historyByTicker = {};
+        for (const [ticker, history] of results) historyByTicker[ticker] = history;
+
+        let referenceTicker = null;
+        let maxLen = 0;
+        for (const ticker of uniqueTickers) {
+          const len = (historyByTicker[ticker] || []).length;
+          if (len > maxLen) {
+            maxLen = len;
+            referenceTicker = ticker;
+          }
+        }
+        if (!referenceTicker) {
+          setAssetTrendSeries([]);
+          setAssetTrendLoading(false);
+          return;
+        }
+
+        const closestClose = (history, ts) => {
+          if (!history || history.length === 0) return null;
+          let best = history[0];
+          let bestDiff = Math.abs(history[0].ts - ts);
+          for (const p of history) {
+            const diff = Math.abs(p.ts - ts);
+            if (diff < bestDiff) {
+              best = p;
+              bestDiff = diff;
+            }
+          }
+          return best.close;
+        };
+
+        const series = historyByTicker[referenceTicker].map((refPoint) => {
+          let totalUSD = totalCashValueUSD;
+          holdings.forEach((h) => {
+            const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
+            if (close == null) return;
+            const nativeValue = close * h.quantity;
+            totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
+          });
+          return { ts: refPoint.ts, valueUSD: totalUSD };
+        });
+
+        setAssetTrendSeries(series);
+        setAssetTrendLoading(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [assetTrendModalOpen, assetTrendPeriod, holdingsTickerKey]);
+
   // 문자열을 해시하여 팔레트 인덱스를 고정적으로 결정 (정렬 순서와 무관하게 항상 같은 색상)
   const hashToIndex = (str, length) => {
     let hash = 0;
@@ -2211,6 +2335,36 @@ export default function Alloy() {
       </div>
     );
   };
+
+  // 자산 추이 모달 툴팁: "07/17(금) $2,500" 한 줄로 날짜(요일) + 평가금액 표기
+  const AssetTrendTooltip = ({ active, payload }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const d = payload[0].payload;
+    const displayValue = homeCurrency === "USD" ? d.valueUSD : d.valueUSD * todayRate;
+    return (
+      <div
+        style={{
+          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+          borderRadius: 10,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "6px 10px",
+          color: isLight ? "#14161A" : "#FFFFFF",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {formatKstDatePart(d.ts)} {formatAmount(displayValue, homeCurrency)}
+      </div>
+    );
+  };
+
+  // 자산 추이 그래프 색상: 기간 시작 대비 마지막 값이 올랐으면 빨강(상승), 내렸으면 파랑(하락)
+  const assetTrendColor =
+    assetTrendSeries.length >= 2 &&
+    assetTrendSeries[assetTrendSeries.length - 1].valueUSD < assetTrendSeries[0].valueUSD
+      ? "#4D9FFF"
+      : "#FF5C5C";
 
   const BAR_HEIGHT = 58;
 
@@ -3003,13 +3157,30 @@ export default function Alloy() {
             >
               <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
                 <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={openAssetTrendModal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openAssetTrendModal();
+                    }
+                  }}
                   style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
                     fontSize: 13,
                     fontWeight: 600,
                     color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    cursor: "pointer",
+                    outline: "none",
                   }}
                 >
                   자산
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
                 </div>
 
                 {/* $ / ₩ 표기 통화 슬라이드 토글 - 총 자산, 배당금 표기 둘 다에 적용됨 */}
@@ -5140,6 +5311,185 @@ export default function Alloy() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* 자산 추이 모달 (홈 탭 "자산" 클릭 시 표시): 1일/1주/3달/1년 기간별 자산 평가금액 꺾은선 그래프.
+          표기 통화는 홈 카드의 $/₩ 스위치(homeCurrency)를 그대로 따른다. */}
+      {assetTrendModalOpen && (
+        <div
+          onClick={closeAssetTrendModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: assetTrendModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: assetTrendModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: assetTrendModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(360px, 88vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: assetTrendModalVisible ? 1 : 0,
+              transform: assetTrendModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 14px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              자산 추이
+            </h2>
+
+            {/* 1일/1주/3달/1년 기간 탭 - 슬라이드 인디케이터 애니메이션 */}
+            <div
+              style={{
+                position: "relative",
+                display: "flex",
+                height: 30,
+                padding: 3,
+                borderRadius: 10,
+                background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
+                border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                marginBottom: 16,
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: assetTrendPeriodIndicator.left,
+                  width: assetTrendPeriodIndicator.width,
+                  height: "calc(100% - 6px)",
+                  borderRadius: 7,
+                  background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
+                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                  transition:
+                    "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                }}
+              />
+              {INDEX_CANDLE_PERIODS.map((p, i) => (
+                <button
+                  key={p.key}
+                  ref={(el) => (assetTrendPeriodBtnRefs.current[i] = el)}
+                  onClick={() => setAssetTrendPeriod(p.key)}
+                  style={{
+                    position: "relative",
+                    zIndex: 1,
+                    flex: 1,
+                    height: "100%",
+                    border: "none",
+                    background: "transparent",
+                    borderRadius: 7,
+                    color:
+                      assetTrendPeriod === p.key
+                        ? isLight
+                          ? "#14161A"
+                          : "#FFFFFF"
+                        : isLight
+                        ? "rgba(20,22,26,0.5)"
+                        : "rgba(255,255,255,0.5)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "color 0.3s ease",
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ width: "100%", height: 190 }}>
+              {assetTrendLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : assetTrendSeries.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  자산 추이를 불러올 수 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={assetTrendSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="assetTrendGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={assetTrendColor} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={assetTrendColor} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="ts"
+                      tickFormatter={(ts) => formatKstAxisLabel(ts, assetTrendPeriod)}
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin", "dataMax"]} />
+                    <Tooltip
+                      content={<AssetTrendTooltip />}
+                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="valueUSD"
+                      stroke={assetTrendColor}
+                      strokeWidth={2}
+                      fill="url(#assetTrendGradient)"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
         </div>
       )}
