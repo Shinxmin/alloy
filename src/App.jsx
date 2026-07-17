@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.103";
+const APP_VERSION = "0.1.104";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1081,18 +1081,6 @@ export default function Alloy() {
   };
   const closeAssetTrendModalRef = useRef(closeAssetTrendModal);
   closeAssetTrendModalRef.current = closeAssetTrendModal;
-
-  // 자산 추이 모달의 1일/1주/3달/1년 기간 탭 슬라이드 인디케이터
-  const [assetTrendPeriodIndicator, setAssetTrendPeriodIndicator] = useState({ left: 0, width: 0 });
-  const assetTrendPeriodBtnRefs = useRef([]);
-
-  useEffect(() => {
-    const idx = INDEX_CANDLE_PERIODS.findIndex((p) => p.key === assetTrendPeriod);
-    const el = assetTrendPeriodBtnRefs.current[idx];
-    if (el) {
-      setAssetTrendPeriodIndicator({ left: el.offsetLeft, width: el.offsetWidth });
-    }
-  }, [assetTrendPeriod, assetTrendModalOpen]);
 
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
@@ -3249,8 +3237,19 @@ export default function Alloy() {
                   ))}
                 </div>
               </div>
-              <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
-                <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={openAssetTrendModal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openAssetTrendModal();
+                  }
+                }}
+                style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", cursor: "pointer", outline: "none" }}
+              >
+                <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
                   {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
                 </span>
                 <span
@@ -3306,7 +3305,7 @@ export default function Alloy() {
                   </svg>
                 </div>
                 <div style={{ display: "flex", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
-                  <span style={{ fontSize: 24, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  <span style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
                     {annualDividendYieldPercent.toFixed(2)}%
                   </span>
                   <span
@@ -4044,67 +4043,75 @@ export default function Alloy() {
               )}
             </div>
 
-            {/* 계정 카테고리 (포트폴리오 탭 카테고리 텍스트와 동일한 스타일) */}
-            <h2
-              style={{
-                margin: "0 0 14px 0",
-                fontSize: 18,
-                fontWeight: 700,
-                color: isLight ? "#14161A" : "#FFFFFF",
-              }}
-            >
-              계정
-            </h2>
+            {/* 계정 카테고리 (버전 빌드 포함, 테두리 레이아웃으로 묶음) */}
             <div
               style={{
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between",
+                padding: "20px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
               }}
             >
-              <span
+              <h2
                 style={{
-                  fontSize: 13,
-                  color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
-                  marginRight: 12,
+                  margin: "0 0 14px 0",
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
                 }}
               >
-                {session.user.email}
-              </span>
-              <button
-                onClick={handleSignOut}
+                계정
+              </h2>
+              <div
                 style={{
-                  flexShrink: 0,
-                  height: 32,
-                  padding: "0 14px",
-                  borderRadius: 10,
-                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                  background: "transparent",
-                  color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: "pointer",
-                  outline: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
                 }}
               >
-                로그아웃
-              </button>
-            </div>
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                    whiteSpace: "nowrap",
+                    marginRight: 12,
+                  }}
+                >
+                  {session.user.email}
+                </span>
+                <button
+                  onClick={handleSignOut}
+                  style={{
+                    flexShrink: 0,
+                    height: 32,
+                    padding: "0 14px",
+                    borderRadius: 10,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: "transparent",
+                    color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none",
+                  }}
+                >
+                  로그아웃
+                </button>
+              </div>
 
-            {/* 앱 버전 표기 (PR 업데이트마다 최신 PR 번호로 갱신) */}
-            <div style={{ marginTop: 16 }}>
-              <span
-                style={{
-                  fontSize: 11,
-                  fontWeight: 500,
-                  color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-                }}
-              >
-                alloy v{APP_VERSION}
-              </span>
+              {/* 앱 버전 표기 (PR 업데이트마다 최신 PR 번호로 갱신) */}
+              <div style={{ marginTop: 16 }}>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                  }}
+                >
+                  alloy v{APP_VERSION}
+                </span>
+              </div>
             </div>
           </>
         )}
@@ -5206,7 +5213,7 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(360px, 88vw)",
+              width: "min(304px, 80vw)",
               padding: "22px 20px",
               borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
@@ -5337,7 +5344,7 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(360px, 88vw)",
+              width: "min(304px, 80vw)",
               padding: "22px 20px",
               borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
@@ -5376,59 +5383,35 @@ export default function Alloy() {
               </span>
             </div>
 
-            {/* 1일/1주/3달/1년 기간 탭 - 슬라이드 인디케이터 애니메이션 */}
-            <div
-              style={{
-                position: "relative",
-                display: "flex",
-                height: 30,
-                padding: 3,
-                borderRadius: 10,
-                background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
-                border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
-                marginBottom: 16,
-              }}
-            >
-              <div
-                style={{
-                  position: "absolute",
-                  top: 3,
-                  left: assetTrendPeriodIndicator.left,
-                  width: assetTrendPeriodIndicator.width,
-                  height: "calc(100% - 6px)",
-                  borderRadius: 7,
-                  background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
-                  boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                  transition:
-                    "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-                }}
-              />
-              {INDEX_CANDLE_PERIODS.map((p, i) => (
+            {/* 1일/1주/3달/1년 기간 탭 - 지수 모달(IndexCandleChart)과 동일한 크기/레이아웃/위치 */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 8 }}>
+              {INDEX_CANDLE_PERIODS.map((p) => (
                 <button
                   key={p.key}
-                  ref={(el) => (assetTrendPeriodBtnRefs.current[i] = el)}
                   onClick={() => setAssetTrendPeriod(p.key)}
                   style={{
-                    position: "relative",
-                    zIndex: 1,
-                    flex: 1,
-                    height: "100%",
+                    padding: "3px 8px",
+                    borderRadius: 8,
                     border: "none",
-                    background: "transparent",
-                    borderRadius: 7,
+                    background:
+                      assetTrendPeriod === p.key
+                        ? isLight
+                          ? "rgba(20,22,26,0.14)"
+                          : "rgba(255,255,255,0.14)"
+                        : "transparent",
                     color:
                       assetTrendPeriod === p.key
                         ? isLight
                           ? "#14161A"
                           : "#FFFFFF"
                         : isLight
-                        ? "rgba(20,22,26,0.5)"
-                        : "rgba(255,255,255,0.5)",
-                    fontSize: 12,
+                        ? "rgba(20,22,26,0.4)"
+                        : "rgba(255,255,255,0.4)",
+                    fontSize: 11,
                     fontWeight: 600,
                     cursor: "pointer",
                     outline: "none",
-                    transition: "color 0.3s ease",
+                    transition: "background 0.2s ease, color 0.2s ease",
                   }}
                 >
                   {p.label}
