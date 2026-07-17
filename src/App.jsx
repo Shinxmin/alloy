@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.92";
+const APP_VERSION = "0.1.93";
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -537,8 +537,6 @@ export default function Alloy() {
     await supabase.auth.signOut();
   };
   const [hovered, setHovered] = useState(null);
-  const [plusHovered, setPlusHovered] = useState(false);
-  const [plusPressed, setPlusPressed] = useState(false);
   const btnRefs = useRef([]);
   const [indicator, setIndicator] = useState({ left: 0, width: 0 });
 
@@ -681,8 +679,6 @@ export default function Alloy() {
   const [currencyIndicator, setCurrencyIndicator] = useState({ left: 0, width: 0 });
   const cashCurrencyBtnRefs = useRef([]);
   const [cashCurrencyIndicator, setCashCurrencyIndicator] = useState({ left: 0, width: 0 });
-  const assetTypeBtnRefs = useRef([]);
-  const [assetTypeIndicator, setAssetTypeIndicator] = useState({ left: 0, width: 0 });
 
   // S&P500 지수(실시간) - 홈 탭 상단, 클릭 시 캔들차트 모달 (야후 파이낸스, API 키 불필요)
   const [snp500Index, setSnp500Index] = useState(null); // { name, price, date, changeAmount, changePercent, history }
@@ -1178,14 +1174,6 @@ export default function Alloy() {
     }
   }, [cashCurrency, modalOpen, assetType]);
 
-  useEffect(() => {
-    const idx = assetType === "stock" ? 0 : 1;
-    const el = assetTypeBtnRefs.current[idx];
-    if (el) {
-      setAssetTypeIndicator({ left: el.offsetLeft, width: el.offsetWidth });
-    }
-  }, [assetType, modalOpen]);
-
   const resetForm = () => {
     setAssetType("stock");
     setTicker("");
@@ -1199,11 +1187,10 @@ export default function Alloy() {
     setCashExchangeRate("");
   };
 
-  const openModal = () => {
+  const openModal = (type = "stock") => {
     setActive(1);
-    setPlusHovered(false);
-    setPlusPressed(false);
     resetForm();
+    setAssetType(type);
     setEditIndex(null);
     setModalOpen(true);
     requestAnimationFrame(() => setModalVisible(true));
@@ -1211,8 +1198,6 @@ export default function Alloy() {
 
   const openEditModal = (type, index) => {
     setActive(1);
-    setPlusHovered(false);
-    setPlusPressed(false);
     if (type === "stock") {
       const h = holdings[index];
       setAssetType("stock");
@@ -2888,58 +2873,6 @@ export default function Alloy() {
                     <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
                   </svg>
                 </button>
-
-                {/* 추가하기 + 버튼 (리퀴드 글래스, 모든 탭에서 노출) */}
-                <button
-                  onClick={openModal}
-                  onMouseEnter={() => setPlusHovered(true)}
-                  onMouseLeave={() => setPlusHovered(false)}
-                  onMouseDown={() => setPlusPressed(true)}
-                  onMouseUp={() => setPlusPressed(false)}
-                  aria-label="추가하기"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.14)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: plusHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: plusHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 20,
-                    fontWeight: 400,
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: plusPressed
-                      ? "scale(0.9) translateY(0)"
-                      : plusHovered
-                      ? "scale(1.08) translateY(-2px)"
-                      : "scale(1) translateY(0)",
-                  }}
-                >
-                  +
-                </button>
               </div>
             </div>
 
@@ -3029,16 +2962,38 @@ export default function Alloy() {
                       transition: "border 0.2s ease, padding 0.2s ease, margin 0.2s ease",
                     }}
                   >
-                    <h2
-                      style={{
-                        margin: "0 0 14px 0",
-                        fontSize: 18,
-                        fontWeight: 700,
-                        color: (isLight ? "#14161A" : "#FFFFFF"),
-                      }}
-                    >
-                      {category.label}
-                    </h2>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+                      <h2
+                        style={{
+                          margin: 0,
+                          fontSize: 18,
+                          fontWeight: 700,
+                          color: (isLight ? "#14161A" : "#FFFFFF"),
+                        }}
+                      >
+                        {category.label}
+                      </h2>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          openModal(key === "stocks" ? "stock" : "cash");
+                        }}
+                        aria-label={`${category.label} 추가하기`}
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          fontSize: 16,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                          cursor: "pointer",
+                          outline: "none",
+                          color: (isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"),
+                        }}
+                      >
+                        +
+                      </button>
+                    </div>
 
                     {key === "stocks"
                       ? category.holdings.map((h, i) => (
@@ -3311,17 +3266,6 @@ export default function Alloy() {
                               >
                                 {c.currency}
                               </span>
-                            </span>
-                            <span style={{ display: "flex", alignItems: "baseline", gap: 5 }}>
-                              <span
-                                style={{
-                                  fontSize: 16,
-                                  fontWeight: 700,
-                                  color: (isLight ? "#14161A" : "#FFFFFF"),
-                                }}
-                              >
-                                {c.amount}
-                              </span>
                               <span
                                 style={{
                                   fontSize: 12,
@@ -3330,6 +3274,15 @@ export default function Alloy() {
                               >
                                 ({c.percent}%)
                               </span>
+                            </span>
+                            <span
+                              style={{
+                                fontSize: 16,
+                                fontWeight: 700,
+                                color: (isLight ? "#14161A" : "#FFFFFF"),
+                              }}
+                            >
+                              {c.amount}
                             </span>
                           </div>
                         ))}
@@ -4829,74 +4782,6 @@ export default function Alloy() {
                     <path d="M5 5l14 14M19 5L5 19" />
                   </svg>
                 </button>
-              )}
-
-              {/* 주식 / 현금 스위치 (수정 모드에선 숨김) */}
-              {editIndex === null && (
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  height: 30,
-                  padding: 3,
-                  borderRadius: 10,
-                  background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
-                  border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
-                  flexShrink: 0,
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 3,
-                    left: assetTypeIndicator.left,
-                    width: assetTypeIndicator.width,
-                    height: "calc(100% - 6px)",
-                    borderRadius: 7,
-                    background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                    transition:
-                      "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-                  }}
-                />
-                {[
-                  { key: "stock", label: "주식" },
-                  { key: "cash", label: "현금" },
-                ].map((a, i) => (
-                  <button
-                    key={a.key}
-                    ref={(el) => (assetTypeBtnRefs.current[i] = el)}
-                    onClick={() => setAssetType(a.key)}
-                    onMouseEnter={(e) => {
-                      if (assetType !== a.key)
-                        e.currentTarget.style.color = (isLight ? "rgba(20,22,26,0.85)" : "rgba(255,255,255,0.85)");
-                    }}
-                    onMouseLeave={(e) => {
-                      if (assetType !== a.key)
-                        e.currentTarget.style.color = (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)");
-                    }}
-                    style={{
-                      position: "relative",
-                      zIndex: 1,
-                      padding: "0 10px",
-                      height: "100%",
-                      border: "none",
-                      background: "transparent",
-                      borderRadius: 7,
-                      color:
-                        assetType === a.key ? (isLight ? "#14161A" : "#FFFFFF") : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      outline: "none",
-                      transition: "color 0.25s ease",
-                      whiteSpace: "nowrap",
-                    }}
-                  >
-                    {a.label}
-                  </button>
-                ))}
-              </div>
               )}
             </div>
 
