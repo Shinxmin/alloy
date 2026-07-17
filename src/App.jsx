@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.109";
+const APP_VERSION = "0.1.110";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -49,18 +49,6 @@ const INDEX_CANDLE_PERIODS = [
   { key: "1y", label: "1년", range: "1y", interval: "1wk" },
 ];
 
-// 목표 달성률 추이 그래프의 range/interval: 목표를 설정한 날짜부터 지금까지 경과일 수에 맞춰
-// 야후 파이낸스 차트 API에 적절한 기간을 요청한다 (고정 기간 탭이 없는 단일 그래프이므로 동적으로 결정).
-function goalHistoryRangeForDays(days) {
-  if (days <= 1) return { range: "1d", interval: "5m" };
-  if (days <= 5) return { range: "5d", interval: "15m" };
-  if (days <= 30) return { range: "1mo", interval: "1d" };
-  if (days <= 90) return { range: "3mo", interval: "1d" };
-  if (days <= 180) return { range: "6mo", interval: "1d" };
-  if (days <= 365) return { range: "1y", interval: "1wk" };
-  if (days <= 730) return { range: "2y", interval: "1wk" };
-  return { range: "5y", interval: "1mo" };
-}
 
 // Intl.DateTimeFormat의 formatToParts 결과에서 특정 필드만 뽑아내는 헬퍼
 function getDatePart(parts, type) {
@@ -1103,7 +1091,7 @@ export default function Alloy() {
   const [goalSetAt, setGoalSetAt] = useState(null); // ISO 문자열
   const [goalProgressSeries, setGoalProgressSeries] = useState([]); // [{ ts, percent }]
   const [goalProgressLoading, setGoalProgressLoading] = useState(false);
-  const [goalChartInterval, setGoalChartInterval] = useState("1d");
+  const [goalPeriod, setGoalPeriod] = useState("1d");
   const [goalEditing, setGoalEditing] = useState(false);
   const [goalDraft, setGoalDraft] = useState("");
   const goalInputRef = useRef(null);
@@ -2214,31 +2202,21 @@ export default function Alloy() {
   }, [assetTrendModalOpen, assetTrendPeriod, holdingsTickerKey]);
 
   // 목표 달성률 추이: 자산 추이와 동일한 방식(보유 종목별 과거 시세 복원 + 현재 현금 평가액 가산)으로
-  // 목표를 설정한 날짜부터 지금까지의 총 자산 평가금액을 구한 뒤, 목표 금액 대비 퍼센트로 환산한다.
+  // 선택한 기간(1일/1주/3달/1년) 동안의 총 자산 평가금액을 구한 뒤, 목표 금액 대비 퍼센트로 환산한다.
   useEffect(() => {
-    if (!goalModalOpen || !(goalTargetUSD > 0) || !goalSetAt) {
+    if (!goalModalOpen || !(goalTargetUSD > 0)) {
       setGoalProgressSeries([]);
       return;
     }
     const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
-    const goalSetAtSec = Math.floor(new Date(goalSetAt).getTime() / 1000);
-    const nowSec = Math.floor(Date.now() / 1000);
-    const daysSinceGoal = Math.max(1, (nowSec - goalSetAtSec) / 86400);
-    const cfg = goalHistoryRangeForDays(daysSinceGoal);
-    setGoalChartInterval(cfg.interval);
-
     if (uniqueTickers.length === 0) {
-      // 보유 종목 없이 현금만 있는 경우: 시간에 따라 변하지 않는 현재 현금 평가액으로 시작/현재 두 지점만 표기
-      const percent = (totalCashValueUSD / goalTargetUSD) * 100;
-      setGoalProgressSeries([
-        { ts: goalSetAtSec, percent },
-        { ts: nowSec, percent },
-      ]);
+      setGoalProgressSeries([]);
       return;
     }
 
     let cancelled = false;
     setGoalProgressLoading(true);
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === goalPeriod) || INDEX_CANDLE_PERIODS[0];
 
     const fetchOne = async (ticker) => {
       for (const symbol of yahooSymbolCandidates(ticker)) {
@@ -2291,18 +2269,16 @@ export default function Alloy() {
           return best.close;
         };
 
-        const series = historyByTicker[referenceTicker]
-          .filter((p) => p.ts >= goalSetAtSec)
-          .map((refPoint) => {
-            let totalUSD = totalCashValueUSD;
-            holdings.forEach((h) => {
-              const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
-              if (close == null) return;
-              const nativeValue = close * h.quantity;
-              totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
-            });
-            return { ts: refPoint.ts, percent: (totalUSD / goalTargetUSD) * 100 };
+        const series = historyByTicker[referenceTicker].map((refPoint) => {
+          let totalUSD = totalCashValueUSD;
+          holdings.forEach((h) => {
+            const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
+            if (close == null) return;
+            const nativeValue = close * h.quantity;
+            totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
           });
+          return { ts: refPoint.ts, percent: (totalUSD / goalTargetUSD) * 100 };
+        });
 
         setGoalProgressSeries(series);
         setGoalProgressLoading(false);
@@ -2312,7 +2288,7 @@ export default function Alloy() {
     return () => {
       cancelled = true;
     };
-  }, [goalModalOpen, goalTargetUSD, goalSetAt, holdingsTickerKey]);
+  }, [goalModalOpen, goalTargetUSD, goalPeriod, holdingsTickerKey]);
 
   // 문자열을 해시하여 팔레트 인덱스를 고정적으로 결정 (정렬 순서와 무관하게 항상 같은 색상)
   const hashToIndex = (str, length) => {
@@ -2633,10 +2609,6 @@ export default function Alloy() {
   const GoalProgressTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const d = payload[0].payload;
-    const datePart = formatKstDatePart(d.ts);
-    const text = isIntradayInterval(goalChartInterval)
-      ? `${datePart} ${formatKstTimePart(d.ts)} ${d.percent.toFixed(1)}%`
-      : `${datePart} ${d.percent.toFixed(1)}%`;
     return (
       <div
         style={{
@@ -2650,7 +2622,7 @@ export default function Alloy() {
           whiteSpace: "nowrap",
         }}
       >
-        {text}
+        {formatKstDatePart(d.ts)} {d.percent.toFixed(1)}%
       </div>
     );
   };
@@ -5991,6 +5963,42 @@ export default function Alloy() {
               )}
             </div>
 
+            {/* 1일/1주/3달/1년 기간 탭 - 지수 모달(IndexCandleChart)/자산 추이 모달과 동일한 크기/레이아웃/위치 */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 8 }}>
+              {INDEX_CANDLE_PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setGoalPeriod(p.key)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 8,
+                    border: "none",
+                    background:
+                      goalPeriod === p.key
+                        ? isLight
+                          ? "rgba(20,22,26,0.14)"
+                          : "rgba(255,255,255,0.14)"
+                        : "transparent",
+                    color:
+                      goalPeriod === p.key
+                        ? isLight
+                          ? "#14161A"
+                          : "#FFFFFF"
+                        : isLight
+                        ? "rgba(20,22,26,0.4)"
+                        : "rgba(255,255,255,0.4)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "background 0.2s ease, color 0.2s ease",
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
             <div style={{ width: "100%", height: 190 }}>
               {!(goalTargetUSD > 0) ? (
                 <div
@@ -6042,9 +6050,7 @@ export default function Alloy() {
                     </defs>
                     <XAxis
                       dataKey="ts"
-                      tickFormatter={(ts) =>
-                        isIntradayInterval(goalChartInterval) ? formatKstTimePart(ts) : formatKstDatePart(ts)
-                      }
+                      tickFormatter={(ts) => formatKstAxisLabel(ts, goalPeriod)}
                       tick={{
                         fontSize: 9,
                         fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
