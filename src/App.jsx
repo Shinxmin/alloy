@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.99";
+const APP_VERSION = "0.1.100";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1049,13 +1049,7 @@ export default function Alloy() {
   const closeDividendModalRef = useRef(closeDividendModal);
   closeDividendModalRef.current = closeDividendModal;
 
-  // 배당 캘린더 표기 통화(₩/$) 슬라이드 토글
-  const [dividendCurrency, setDividendCurrency] = useState("KRW");
-  const [dividendCurrencyIndicator, setDividendCurrencyIndicator] = useState({ left: 0, width: 0 });
-  const dividendCurrencyBtnRefs = useRef([]);
-  const [dividendCurrencyHoverIdx, setDividendCurrencyHoverIdx] = useState(null);
-
-  // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산과 배당금 표기 둘 다에 적용됨
+  // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산, 배당금, 배당 캘린더 모달 표기 전부에 적용됨
   const [homeCurrency, setHomeCurrency] = useState("USD");
   const [homeCurrencyIndicator, setHomeCurrencyIndicator] = useState({ left: 0, width: 0 });
   const homeCurrencyBtnRefs = useRef([]);
@@ -1068,14 +1062,6 @@ export default function Alloy() {
       setHomeCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
     }
   }, [homeCurrency, active]);
-
-  useEffect(() => {
-    const idx = dividendCurrency === "USD" ? 0 : 1;
-    const el = dividendCurrencyBtnRefs.current[idx];
-    if (el) {
-      setDividendCurrencyIndicator({ left: el.offsetLeft, width: el.offsetWidth });
-    }
-  }, [dividendCurrency, dividendModalOpen]);
 
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
@@ -2036,7 +2022,7 @@ export default function Alloy() {
 
       const nativeAmount = amountPerShare * h.quantity;
       const convertedAmount =
-        dividendCurrency === "USD"
+        homeCurrency === "USD"
           ? h.currency === "USD"
             ? nativeAmount
             : nativeAmount / todayRate
@@ -2183,7 +2169,7 @@ export default function Alloy() {
               <span style={{ width: 7, height: 7, borderRadius: "50%", background: p.color, flexShrink: 0 }} />
               <span style={{ color: "rgba(255,255,255,0.75)" }}>{dividendTickerNames[p.dataKey] || p.dataKey}</span>
               <span style={{ marginLeft: "auto", fontWeight: 600, color: "#FFFFFF" }}>
-                {formatAmount(p.value, dividendCurrency)}
+                {formatAmount(p.value, homeCurrency)}
                 {isEstimate && (
                   <span style={{ fontWeight: 500, color: "rgba(255,255,255,0.55)" }}> (예상)</span>
                 )}
@@ -2203,7 +2189,7 @@ export default function Alloy() {
               textAlign: "right",
             }}
           >
-            {formatAmount(total, dividendCurrency)}
+            {formatAmount(total, homeCurrency)}
           </div>
         )}
       </div>
@@ -4007,56 +3993,20 @@ export default function Alloy() {
                 }}
               >
                 {i === 0 ? (
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 1,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 3.2 3 10.5V20a1 1 0 0 0 1 1h5.5v-6.5h5V21H19a1 1 0 0 0 1-1v-9.5L12 3.2z" />
-                    </svg>
-                    <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
-                      대시보드
-                    </span>
-                  </span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 3.2 3 10.5V20a1 1 0 0 0 1 1h5.5v-6.5h5V21H19a1 1 0 0 0 1-1v-9.5L12 3.2z" />
+                  </svg>
                 ) : i === 2 ? (
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 1,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <circle cx="12" cy="8" r="3.6" />
-                      <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1z" />
-                    </svg>
-                    <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
-                      설정
-                    </span>
-                  </span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="8" r="3.6" />
+                    <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1z" />
+                  </svg>
                 ) : (
-                  <span
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      gap: 1,
-                    }}
-                  >
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                      <rect x="4" y="13" width="4" height="7" rx="1" />
-                      <rect x="10" y="8" width="4" height="12" rx="1" />
-                      <rect x="16" y="3" width="4" height="17" rx="1" />
-                    </svg>
-                    <span style={{ fontSize: 8, fontWeight: 500, letterSpacing: 0.2, lineHeight: 1 }}>
-                      포트폴리오
-                    </span>
-                  </span>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <rect x="4" y="13" width="4" height="7" rx="1" />
+                    <rect x="10" y="8" width="4" height="12" rx="1" />
+                    <rect x="16" y="3" width="4" height="17" rx="1" />
+                  </svg>
                 )}
               </button>
             );
@@ -5068,96 +5018,26 @@ export default function Alloy() {
               boxSizing: "border-box",
             }}
           >
-            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
-              <div>
-                <h2
-                  style={{
-                    margin: "0 0 2px 0",
-                    fontSize: 17,
-                    fontWeight: 600,
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    letterSpacing: 0.2,
-                  }}
-                >
-                  배당 캘린더
-                </h2>
-                <span
-                  style={{
-                    fontSize: 12,
-                    fontWeight: 500,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  세금 15%
-                </span>
-              </div>
-
-              {/* ₩ / $ 표기 통화 슬라이드 토글 */}
-              <div
-                style={{
-                  position: "relative",
-                  display: "flex",
-                  height: 28,
-                  padding: 3,
-                  borderRadius: 9,
-                  background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
-                  border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
-                  flexShrink: 0,
-                }}
-              >
-                <div
-                  style={{
-                    position: "absolute",
-                    top: 3,
-                    left: dividendCurrencyIndicator.left,
-                    width: dividendCurrencyIndicator.width,
-                    height: "calc(100% - 6px)",
-                    borderRadius: 6,
-                    background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
-                    boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                    transition:
-                      "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-                  }}
-                />
-                {[
-                  { key: "USD", label: "$" },
-                  { key: "KRW", label: "₩" },
-                ].map((c, i) => (
-                  <button
-                    key={c.key}
-                    ref={(el) => (dividendCurrencyBtnRefs.current[i] = el)}
-                    onClick={() => setDividendCurrency(c.key)}
-                    onMouseEnter={() => setDividendCurrencyHoverIdx(i)}
-                    onMouseLeave={() => setDividendCurrencyHoverIdx(null)}
-                    style={{
-                      position: "relative",
-                      zIndex: 1,
-                      width: 22,
-                      height: "100%",
-                      border: "none",
-                      background: "transparent",
-                      borderRadius: 6,
-                      color:
-                        dividendCurrency === c.key
-                          ? isLight
-                            ? "#14161A"
-                            : "#FFFFFF"
-                          : isLight
-                          ? "rgba(20,22,26,0.5)"
-                          : "rgba(255,255,255,0.5)",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      outline: "none",
-                      transition: "color 0.3s ease, transform 0.2s ease",
-                      transform: dividendCurrencyHoverIdx === i && dividendCurrency !== c.key ? "scale(1.12)" : "scale(1)",
-                    }}
-                  >
-                    {c.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <h2
+              style={{
+                margin: "0 0 2px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              배당 캘린더
+            </h2>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              세금 15%
+            </span>
 
             {dividendActiveTickers.length === 0 ? (
               <div
