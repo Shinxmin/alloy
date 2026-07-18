@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.111";
+const APP_VERSION = "0.1.112";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1115,8 +1115,12 @@ export default function Alloy() {
     }
   }, [goalEditing]);
 
-  // 벤치마크 목록 (현재는 S&P500 하나뿐이지만 추후 추가할 수 있도록 리스트 형태로 관리)
-  const BENCHMARK_OPTIONS = [{ key: "sp500", label: "S&P500", symbol: "^GSPC" }];
+  // 벤치마크 목록 - 야후 파이낸스 심볼은 홈 탭 지수 위젯(S&P500/나스닥/코스피)과 동일하게 사용
+  const BENCHMARK_OPTIONS = [
+    { key: "sp500", label: "S&P500", symbol: "^GSPC" },
+    { key: "nasdaq", label: "나스닥", symbol: "^IXIC" },
+    { key: "kospi", label: "코스피", symbol: "^KS11" },
+  ];
 
   // 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시, 선택한 지수 대비 내 포트폴리오 수익률 비교 차트)
   const [benchmarkModalOpen, setBenchmarkModalOpen] = useState(false);
