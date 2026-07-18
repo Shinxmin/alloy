@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.119";
+const APP_VERSION = "0.1.120";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -121,15 +121,16 @@ function formatKstAxisLabel(ts, periodKey) {
   return formatKstYearDatePart(ts);
 }
 
-const HEATMAP_WEEKS = 53;
 const HEATMAP_DAY_MS = 86400000;
 const HEATMAP_MONTH_LABELS = [
   "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월",
 ];
-const HEATMAP_WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+// 국내외 증시 모두 토/일은 항상 휴장이라 칸 자체를 만들지 않는다 - 세로 5칸(월~금)만 유지.
+const HEATMAP_WEEKDAY_LABELS = ["월", "화", "수", "목", "금"];
 
-// 일간 수익률 히트맵의 칸 배열을 생성 - 오늘이 포함된 주(일요일 시작)까지 총 HEATMAP_WEEKS주를 KST 기준으로 채운다.
-// GitHub 잔디처럼 열 = 주, 행 = 요일(0=일 ~ 6=토)이며, 날짜별 수익률(returnMap)을 매칭해 각 칸에 담는다.
+// 일간 수익률 히트맵의 칸 배열을 생성 - 올해(1/1~12/31, KST 기준) 안에서만 채우고 해가 바뀌면
+// 자동으로 새해 1월부터 다시 시작한다. 열 = 주(월요일 시작), 행 = 요일(0=월 ~ 4=금, 주말 칸 없음).
+// 아직 장이 마감되지 않은 오늘/미래 날짜는 데이터를 넣지 않는다(returnMap에 값이 없으면 자동으로 빈 칸).
 function buildDailyReturnHeatmapCells(returnMap) {
   const now = new Date();
   const todayParts = new Intl.DateTimeFormat("en-CA", {
@@ -142,40 +143,60 @@ function buildDailyReturnHeatmapCells(returnMap) {
   const tm = Number(getDatePart(todayParts, "month"));
   const td = Number(getDatePart(todayParts, "day"));
   const todayUTC = Date.UTC(ty, tm - 1, td);
-  const todayDow = new Date(todayUTC).getUTCDay();
-  const lastSundayUTC = todayUTC - todayDow * HEATMAP_DAY_MS;
-  const gridStartUTC = lastSundayUTC - (HEATMAP_WEEKS - 1) * 7 * HEATMAP_DAY_MS;
+
+  const yearStartUTC = Date.UTC(ty, 0, 1);
+  const yearEndUTC = Date.UTC(ty, 11, 31);
+  // 1/1이 포함된 주의 월요일부터 시작 (일=0 ... 토=6 → 월요일 기준 며칠 지났는지)
+  const jan1Dow = new Date(yearStartUTC).getUTCDay();
+  const daysSinceMonday = (jan1Dow + 6) % 7;
+  const gridStartUTC = yearStartUTC - daysSinceMonday * HEATMAP_DAY_MS;
 
   const cells = [];
-  for (let i = 0; i < HEATMAP_WEEKS * 7; i++) {
-    const dayUTC = gridStartUTC + i * HEATMAP_DAY_MS;
-    const d = new Date(dayUTC);
-    const y = d.getUTCFullYear();
-    const mo = d.getUTCMonth() + 1;
-    const da = d.getUTCDate();
-    const key = `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`;
-    cells.push({
-      key,
-      col: Math.floor(i / 7),
-      row: i % 7,
-      month: mo,
-      isFuture: dayUTC > todayUTC,
-      returnPct: Object.prototype.hasOwnProperty.call(returnMap, key) ? returnMap[key] : null,
-    });
+  let col = 0;
+  let row = 0;
+  let cursor = gridStartUTC;
+  while (true) {
+    const d = new Date(cursor);
+    const dow = d.getUTCDay();
+    if (dow !== 0 && dow !== 6) {
+      const y = d.getUTCFullYear();
+      const mo = d.getUTCMonth() + 1;
+      const da = d.getUTCDate();
+      const key = `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`;
+      const inYear = cursor >= yearStartUTC && cursor <= yearEndUTC;
+      const isTodayOrFuture = cursor >= todayUTC;
+      cells.push({
+        key,
+        col,
+        row,
+        month: mo,
+        // 연도 밖(주 채우기용 여백) 또는 오늘/미래 날짜는 칸 자체를 그리지 않는다.
+        hidden: !inYear || isTodayOrFuture,
+        returnPct: inYear && !isTodayOrFuture && Object.prototype.hasOwnProperty.call(returnMap, key) ? returnMap[key] : null,
+      });
+      row++;
+      if (row === 5) {
+        row = 0;
+        col++;
+      }
+    }
+    if (cursor > yearEndUTC && row === 0) break;
+    cursor += HEATMAP_DAY_MS;
   }
+  const weeksCount = col;
 
-  // 월 라벨: 각 열의 일요일(row 0) 칸이 새로운 달로 넘어가는 열에만 표기
+  // 월 라벨: 각 열의 월요일(row 0) 칸이 새로운 달로 넘어가는 열에만 표기
   const monthLabels = [];
   let prevMonth = null;
-  for (let col = 0; col < HEATMAP_WEEKS; col++) {
-    const sundayCell = cells[col * 7];
-    if (sundayCell.month !== prevMonth) {
-      monthLabels.push({ col, label: HEATMAP_MONTH_LABELS[sundayCell.month - 1] });
-      prevMonth = sundayCell.month;
+  for (let c = 0; c < weeksCount; c++) {
+    const mondayCell = cells.find((cell) => cell.col === c && cell.row === 0);
+    if (mondayCell && mondayCell.month !== prevMonth) {
+      monthLabels.push({ col: c, label: HEATMAP_MONTH_LABELS[mondayCell.month - 1] });
+      prevMonth = mondayCell.month;
     }
   }
 
-  return { cells, monthLabels };
+  return { cells, monthLabels, weeksCount };
 }
 
 // 히트맵 칸 색상 - 데이터 없음(주말/휴장일 등)은 은은한 회색, 상승은 초록, 하락은 빨강 계열
@@ -1638,11 +1659,14 @@ export default function Alloy() {
         });
 
         const map = {};
+        const todayKey = kstDateKey(Date.now() / 1000);
         for (let i = 1; i < points.length; i++) {
+          const dateKey = kstDateKey(points[i].ts);
+          if (dateKey >= todayKey) continue; // 오늘/미래는 아직 장이 마감되지 않아 제외
           const prevValue = points[i - 1].valueUSD;
           if (!(prevValue > 0)) continue;
           const pct = ((points[i].valueUSD - prevValue) / prevValue) * 100;
-          map[kstDateKey(points[i].ts)] = pct;
+          map[dateKey] = pct;
         }
         setDailyReturnMap(map);
         setDailyHeatmapLoading(false);
@@ -1654,7 +1678,11 @@ export default function Alloy() {
     };
   }, [holdingsTickerKey]);
 
-  const { cells: dailyHeatmapCells, monthLabels: dailyHeatmapMonthLabels } = buildDailyReturnHeatmapCells(dailyReturnMap);
+  const {
+    cells: dailyHeatmapCells,
+    monthLabels: dailyHeatmapMonthLabels,
+    weeksCount: dailyHeatmapWeeksCount,
+  } = buildDailyReturnHeatmapCells(dailyReturnMap);
 
   // 방금 로드를 완료한 세션의 user_id (ref라서 렌더를 기다리지 않고 즉시 반영됨).
   // 토큰 자동 갱신 등으로 session 객체가 바뀌면 LOAD 이펙트가 이 값을 먼저 null로 초기화하는데,
@@ -4320,12 +4348,12 @@ export default function Alloy() {
                           color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                         }}
                       >
-                        {row === 1 || row === 3 || row === 5 ? label : ""}
+                        {row === 0 || row === 2 || row === 4 ? label : ""}
                       </div>
                     ))}
                   </div>
                   <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-                    <div style={{ position: "relative", height: 14, width: HEATMAP_WEEKS * 13 }}>
+                    <div style={{ position: "relative", height: 14, width: dailyHeatmapWeeksCount * 13 }}>
                       {dailyHeatmapMonthLabels.map(({ col, label }) => (
                         <span
                           key={col}
@@ -4345,7 +4373,7 @@ export default function Alloy() {
                     <div
                       style={{
                         display: "grid",
-                        gridTemplateRows: "repeat(7, 10px)",
+                        gridTemplateRows: "repeat(5, 10px)",
                         gridAutoFlow: "column",
                         gridAutoColumns: "10px",
                         gap: 3,
@@ -4354,12 +4382,12 @@ export default function Alloy() {
                       {dailyHeatmapCells.map((cell) => (
                         <div
                           key={cell.key}
-                          title={cell.isFuture || cell.returnPct == null ? cell.key : `${cell.key} ${cell.returnPct >= 0 ? "+" : ""}${cell.returnPct.toFixed(2)}%`}
+                          title={cell.hidden || cell.returnPct == null ? cell.key : `${cell.key} ${cell.returnPct >= 0 ? "+" : ""}${cell.returnPct.toFixed(2)}%`}
                           style={{
                             width: 10,
                             height: 10,
                             borderRadius: 2,
-                            background: cell.isFuture ? "transparent" : heatmapCellColor(cell.returnPct, isLight),
+                            background: cell.hidden ? "transparent" : heatmapCellColor(cell.returnPct, isLight),
                           }}
                         />
                       ))}
