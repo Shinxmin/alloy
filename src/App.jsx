@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.117";
+const APP_VERSION = "0.1.118";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1505,24 +1505,45 @@ export default function Alloy() {
     let cancelled = false;
     loadedForUserIdRef.current = null;
     setDataLoaded(false);
-    supabase
-      .from("portfolios")
-      .select("holdings, cash_holdings, goal_amount, goal_set_at")
-      .eq("user_id", session.user.id)
-      .maybeSingle()
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        if (!error && data) {
-          if (Array.isArray(data.holdings)) setHoldings(data.holdings);
-          if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
-          setGoalTargetUSD(typeof data.goal_amount === "number" ? data.goal_amount : 0);
-          setGoalSetAt(data.goal_set_at || null);
-        } else if (error) {
-          console.error("포트폴리오 불러오기 실패:", error.message);
-        }
-        loadedForUserIdRef.current = session.user.id;
-        setDataLoaded(true);
-      });
+
+    // 중요: 불러오기가 "성공"했을 때만 로드 완료(ref + dataLoaded)로 표시한다.
+    // 세션이 오래 유휴 상태였다가 다시 살아나는 순간(토큰 재발급 직후)엔 GET이 일시적으로
+    // 실패(401/네트워크)할 수 있는데, 이때 로드 완료로 잘못 표시하면 방금 SIGNED_OUT에서
+    // []로 비워진 로컬 holdings가 그대로 저장되어 서버 데이터를 덮어쓴다(데이터 소실).
+    // 따라서 에러 시엔 저장을 계속 차단한 채 잠시 후 재시도한다.
+    const MAX_ATTEMPTS = 5;
+    const attemptLoad = (attempt) => {
+      supabase
+        .from("portfolios")
+        .select("holdings, cash_holdings, goal_amount, goal_set_at")
+        .eq("user_id", session.user.id)
+        .maybeSingle()
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          if (error) {
+            console.error(`포트폴리오 불러오기 실패(시도 ${attempt}/${MAX_ATTEMPTS}):`, error.message);
+            if (attempt < MAX_ATTEMPTS) {
+              // 지수 백오프로 재시도 (로드 완료로 표시하지 않아 저장은 계속 차단됨)
+              setTimeout(() => {
+                if (!cancelled) attemptLoad(attempt + 1);
+              }, Math.min(1000 * 2 ** (attempt - 1), 8000));
+            }
+            // 모든 재시도 실패 시에도 로드 완료로 표시하지 않는다 - 데이터를 지키는 게 우선.
+            return;
+          }
+          // 성공(data가 null이어도 = 아직 행이 없는 신규 사용자, 정상). 이때만 로드 완료 처리.
+          if (data) {
+            if (Array.isArray(data.holdings)) setHoldings(data.holdings);
+            if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
+            setGoalTargetUSD(typeof data.goal_amount === "number" ? data.goal_amount : 0);
+            setGoalSetAt(data.goal_set_at || null);
+          }
+          loadedForUserIdRef.current = session.user.id;
+          setDataLoaded(true);
+        });
+    };
+    attemptLoad(1);
+
     return () => {
       cancelled = true;
     };
