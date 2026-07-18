@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.116";
+const APP_VERSION = "0.1.117";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -509,35 +509,34 @@ export default function Alloy() {
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
-  // 이전에 이 브라우저에서 로그인한 적이 있었는지(재로그인 화면에서 안내 문구를 다르게 보여주기 위함)
+  // "세션이 만료되었어요" 안내는 실제로 이 페이지에서 로그인되어 있다가 끊긴 경우에만 보여준다.
+  // 브라우저를 새로 열었을 때(탭을 닫았다 다시 켠 경우 등)나 사용자가 직접 로그아웃한 경우는
+  // "만료"가 아니라 정상적인 흐름이므로 제외한다.
   const [isReturningSession, setIsReturningSession] = useState(false);
+  const wasAuthenticatedRef = useRef(false);
+  const explicitSignOutRef = useRef(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthChecked(true);
-      if (!data.session) {
-        try {
-          setIsReturningSession(!!localStorage.getItem("alloy_last_email"));
-        } catch (e) {
-          // localStorage 사용 불가 시 무시
-        }
-      }
+      if (data.session) wasAuthenticatedRef.current = true;
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       if (newSession) {
+        wasAuthenticatedRef.current = true;
+        explicitSignOutRef.current = false;
+        setIsReturningSession(false);
         try {
           localStorage.setItem("alloy_last_email", newSession.user.email || "");
         } catch (e) {
           // localStorage 사용 불가 시 무시
         }
       } else {
-        try {
-          setIsReturningSession(!!localStorage.getItem("alloy_last_email"));
-        } catch (e) {
-          // localStorage 사용 불가 시 무시
-        }
+        setIsReturningSession(wasAuthenticatedRef.current && !explicitSignOutRef.current);
+        wasAuthenticatedRef.current = false;
+        explicitSignOutRef.current = false;
       }
     });
     // 브라우저 탭이 오래 백그라운드에 있으면 토큰 자동 갱신 타이머가 지연될 수 있다.
@@ -589,6 +588,7 @@ export default function Alloy() {
   };
 
   const handleSignOut = async () => {
+    explicitSignOutRef.current = true;
     await supabase.auth.signOut();
   };
   const [hovered, setHovered] = useState(null);
