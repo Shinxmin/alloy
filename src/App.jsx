@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.114";
+const APP_VERSION = "0.1.115";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -546,7 +546,11 @@ export default function Alloy() {
     const handleVisibilityChange = () => {
       if (document.visibilityState === "visible") {
         supabase.auth.getSession().then(({ data }) => {
-          setSession(data.session);
+          // 세션을 "복구"하는 용도로만 사용한다 - data.session이 없다고 해서 여기서 곧바로
+          // null로 덮어쓰면, 진짜 로그아웃이 아닌 일시적인 조회 지연/타이밍 문제로도 방금
+          // 로그인한 세션이 날아갈 수 있다. 실제 로그아웃(SIGNED_OUT)은 onAuthStateChange가
+          // 알아서 알려주므로, 여기서는 유효한 세션을 찾았을 때만 반영한다.
+          if (data.session) setSession(data.session);
         });
       }
     };
