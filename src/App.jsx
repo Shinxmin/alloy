@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.118";
+const APP_VERSION = "0.1.119";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -91,6 +91,17 @@ function formatKstYearDatePart(ts) {
   return `${getDatePart(parts, "year")}/${getDatePart(parts, "month")}/${getDatePart(parts, "day")}(${weekday})`;
 }
 
+// KST 기준 "YYYY-MM-DD" 날짜 키(일간 수익률 히트맵에서 날짜별로 데이터를 매칭하는 용도)
+function kstDateKey(ts) {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(ts * 1000));
+  return `${getDatePart(parts, "year")}-${getDatePart(parts, "month")}-${getDatePart(parts, "day")}`;
+}
+
 // KST 기준 "시:분"
 function formatKstTimePart(ts) {
   const parts = new Intl.DateTimeFormat("en-US", {
@@ -108,6 +119,72 @@ function formatKstAxisLabel(ts, periodKey) {
   if (periodKey === "1d") return formatKstTimePart(ts);
   if (periodKey === "1w") return formatKstDatePart(ts);
   return formatKstYearDatePart(ts);
+}
+
+const HEATMAP_WEEKS = 53;
+const HEATMAP_DAY_MS = 86400000;
+const HEATMAP_MONTH_LABELS = [
+  "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월",
+];
+const HEATMAP_WEEKDAY_LABELS = ["일", "월", "화", "수", "목", "금", "토"];
+
+// 일간 수익률 히트맵의 칸 배열을 생성 - 오늘이 포함된 주(일요일 시작)까지 총 HEATMAP_WEEKS주를 KST 기준으로 채운다.
+// GitHub 잔디처럼 열 = 주, 행 = 요일(0=일 ~ 6=토)이며, 날짜별 수익률(returnMap)을 매칭해 각 칸에 담는다.
+function buildDailyReturnHeatmapCells(returnMap) {
+  const now = new Date();
+  const todayParts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Seoul",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(now);
+  const ty = Number(getDatePart(todayParts, "year"));
+  const tm = Number(getDatePart(todayParts, "month"));
+  const td = Number(getDatePart(todayParts, "day"));
+  const todayUTC = Date.UTC(ty, tm - 1, td);
+  const todayDow = new Date(todayUTC).getUTCDay();
+  const lastSundayUTC = todayUTC - todayDow * HEATMAP_DAY_MS;
+  const gridStartUTC = lastSundayUTC - (HEATMAP_WEEKS - 1) * 7 * HEATMAP_DAY_MS;
+
+  const cells = [];
+  for (let i = 0; i < HEATMAP_WEEKS * 7; i++) {
+    const dayUTC = gridStartUTC + i * HEATMAP_DAY_MS;
+    const d = new Date(dayUTC);
+    const y = d.getUTCFullYear();
+    const mo = d.getUTCMonth() + 1;
+    const da = d.getUTCDate();
+    const key = `${y}-${String(mo).padStart(2, "0")}-${String(da).padStart(2, "0")}`;
+    cells.push({
+      key,
+      col: Math.floor(i / 7),
+      row: i % 7,
+      month: mo,
+      isFuture: dayUTC > todayUTC,
+      returnPct: Object.prototype.hasOwnProperty.call(returnMap, key) ? returnMap[key] : null,
+    });
+  }
+
+  // 월 라벨: 각 열의 일요일(row 0) 칸이 새로운 달로 넘어가는 열에만 표기
+  const monthLabels = [];
+  let prevMonth = null;
+  for (let col = 0; col < HEATMAP_WEEKS; col++) {
+    const sundayCell = cells[col * 7];
+    if (sundayCell.month !== prevMonth) {
+      monthLabels.push({ col, label: HEATMAP_MONTH_LABELS[sundayCell.month - 1] });
+      prevMonth = sundayCell.month;
+    }
+  }
+
+  return { cells, monthLabels };
+}
+
+// 히트맵 칸 색상 - 데이터 없음(주말/휴장일 등)은 은은한 회색, 상승은 초록, 하락은 빨강 계열
+function heatmapCellColor(returnPct, isLight) {
+  if (returnPct == null) return isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.07)";
+  if (returnPct >= 3) return "#1E9E4C";
+  if (returnPct >= 0) return "#9BE3AA";
+  if (returnPct > -3) return "#FFAFAF";
+  return "#E23F3F";
 }
 
 // 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
@@ -1482,6 +1559,102 @@ export default function Alloy() {
       cancelled = true;
     };
   }, [holdingsTickerKey]);
+
+  // 일간 수익률 히트맵(홈 탭 벤치마크 카드) - 보유 종목별 최근 1년 일봉 시세를 복원해
+  // 하루 전 대비 포트폴리오 평가금액 등락률(%)을 날짜별로 계산한다. 자산 추이와 동일한
+  // 방식(가장 데이터가 많은 종목의 타임스탬프를 기준으로 나머지 종목을 최근접 매칭)을 쓴다.
+  const [dailyReturnMap, setDailyReturnMap] = useState({}); // { "YYYY-MM-DD": 등락률(%) }
+  const [dailyHeatmapLoading, setDailyHeatmapLoading] = useState(false);
+
+  useEffect(() => {
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+    if (uniqueTickers.length === 0) {
+      setDailyReturnMap({});
+      return;
+    }
+    let cancelled = false;
+    setDailyHeatmapLoading(true);
+
+    const fetchOne = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: ticker, range: "1y", interval: "1d" },
+          });
+          if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
+            return data.history;
+          }
+        } catch (e) {
+          // 다음 후보로 계속 시도
+        }
+      }
+      return [];
+    };
+
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
+      (results) => {
+        if (cancelled) return;
+        const historyByTicker = {};
+        for (const [ticker, history] of results) historyByTicker[ticker] = history;
+
+        let referenceTicker = null;
+        let maxLen = 0;
+        for (const ticker of uniqueTickers) {
+          const len = (historyByTicker[ticker] || []).length;
+          if (len > maxLen) {
+            maxLen = len;
+            referenceTicker = ticker;
+          }
+        }
+        if (!referenceTicker) {
+          setDailyReturnMap({});
+          setDailyHeatmapLoading(false);
+          return;
+        }
+
+        const closestClose = (history, ts) => {
+          if (!history || history.length === 0) return null;
+          let best = history[0];
+          let bestDiff = Math.abs(history[0].ts - ts);
+          for (const p of history) {
+            const diff = Math.abs(p.ts - ts);
+            if (diff < bestDiff) {
+              best = p;
+              bestDiff = diff;
+            }
+          }
+          return best.close;
+        };
+
+        const points = historyByTicker[referenceTicker].map((refPoint) => {
+          let totalUSD = totalCashValueUSD;
+          holdings.forEach((h) => {
+            const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
+            if (close == null) return;
+            const nativeValue = close * h.quantity;
+            totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
+          });
+          return { ts: refPoint.ts, valueUSD: totalUSD };
+        });
+
+        const map = {};
+        for (let i = 1; i < points.length; i++) {
+          const prevValue = points[i - 1].valueUSD;
+          if (!(prevValue > 0)) continue;
+          const pct = ((points[i].valueUSD - prevValue) / prevValue) * 100;
+          map[kstDateKey(points[i].ts)] = pct;
+        }
+        setDailyReturnMap(map);
+        setDailyHeatmapLoading(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [holdingsTickerKey]);
+
+  const { cells: dailyHeatmapCells, monthLabels: dailyHeatmapMonthLabels } = buildDailyReturnHeatmapCells(dailyReturnMap);
 
   // 방금 로드를 완료한 세션의 user_id (ref라서 렌더를 기다리지 않고 즉시 반영됨).
   // 토큰 자동 갱신 등으로 session 객체가 바뀌면 LOAD 이펙트가 이 값을 먼저 null로 초기화하는데,
@@ -4091,6 +4264,109 @@ export default function Alloy() {
                   </div>
                 </div>
               </div>
+
+              {/* 일간 수익률 히트맵: GitHub 잔디 스타일로 최근 53주간의 일별 포트폴리오 등락률을 표기.
+                  요일 라벨은 고정하고 주(열) 영역만 가로 스크롤(53주 전체는 카드 너비보다 넓음). */}
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  marginBottom: 10,
+                }}
+              >
+                일간 수익률
+              </div>
+              {holdings.length === 0 ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    padding: "10px 0",
+                  }}
+                >
+                  아직 등록된 자산이 없어요
+                </div>
+              ) : dailyHeatmapLoading && Object.keys(dailyReturnMap).length === 0 ? (
+                <div
+                  style={{
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    padding: "10px 0",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : (
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                    <div style={{ height: 14 }} />
+                    {HEATMAP_WEEKDAY_LABELS.map((label, row) => (
+                      <div
+                        key={row}
+                        style={{
+                          height: 10,
+                          display: "flex",
+                          alignItems: "center",
+                          fontSize: 9,
+                          lineHeight: 1,
+                          color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                        }}
+                      >
+                        {row === 1 || row === 3 || row === 5 ? label : ""}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+                    <div style={{ position: "relative", height: 14, width: HEATMAP_WEEKS * 13 }}>
+                      {dailyHeatmapMonthLabels.map(({ col, label }) => (
+                        <span
+                          key={col}
+                          style={{
+                            position: "absolute",
+                            left: col * 13,
+                            fontSize: 9,
+                            lineHeight: 1,
+                            whiteSpace: "nowrap",
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateRows: "repeat(7, 10px)",
+                        gridAutoFlow: "column",
+                        gridAutoColumns: "10px",
+                        gap: 3,
+                      }}
+                    >
+                      {dailyHeatmapCells.map((cell) => (
+                        <div
+                          key={cell.key}
+                          title={cell.isFuture || cell.returnPct == null ? cell.key : `${cell.key} ${cell.returnPct >= 0 ? "+" : ""}${cell.returnPct.toFixed(2)}%`}
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 2,
+                            background: cell.isFuture ? "transparent" : heatmapCellColor(cell.returnPct, isLight),
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           </>
         )}
