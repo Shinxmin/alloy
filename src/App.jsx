@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.112";
+const APP_VERSION = "0.1.113";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -4151,16 +4151,16 @@ export default function Alloy() {
                   <div
                     key={key}
                     style={{
-                      padding: draggedInfo && draggedInfo.key === key ? "12px" : "0",
+                      padding: draggedInfo && draggedInfo.key === key ? "12px" : "20px 16px",
                       margin:
                         draggedInfo && draggedInfo.key === key
-                          ? "0 -12px 36px -12px"
-                          : "0 0 36px 0",
-                      borderRadius: 14,
+                          ? "0 -4px 16px -4px"
+                          : "0 0 16px 0",
+                      borderRadius: 24,
                       border:
                         draggedInfo && draggedInfo.key === key
                           ? "1.5px dashed rgba(143,167,255,0.55)"
-                          : "1.5px dashed transparent",
+                          : `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
                       transition: "border 0.2s ease, padding 0.2s ease, margin 0.2s ease",
                     }}
                   >
