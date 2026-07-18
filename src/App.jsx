@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.115";
+const APP_VERSION = "0.1.116";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -717,6 +717,9 @@ export default function Alloy() {
   const [assetType, setAssetType] = useState("stock"); // "stock" | "cash"
   const [editIndex, setEditIndex] = useState(null); // null = 추가 모드, 숫자 = 수정 모드
   const [deleteHovered, setDeleteHovered] = useState(false);
+  // 삭제 버튼(X 아이콘)을 닫기 버튼으로 착각해 누르는 실수를 막기 위한 2단계 확인 상태.
+  // 첫 클릭에서는 확인 상태로만 전환하고, 그 상태에서 다시 누를 때만 실제로 삭제한다.
+  const [deleteConfirming, setDeleteConfirming] = useState(false);
   const [draggedInfo, setDraggedInfo] = useState(null); // { key: 'stocks'|'cash', index }
   const [dragOverIndex, setDragOverIndex] = useState(null);
   const [ticker, setTicker] = useState("");
@@ -1407,6 +1410,7 @@ export default function Alloy() {
 
   const closeModal = () => {
     setModalVisible(false);
+    setDeleteConfirming(false);
     setTimeout(() => {
       setModalOpen(false);
       setEditIndex(null);
@@ -1918,7 +1922,12 @@ export default function Alloy() {
     chatDoneNotice,
   ]);
 
-  const handleDelete = () => {
+  // 삭제 버튼 클릭 - 첫 클릭은 확인 상태로 전환만 하고, 확인 상태에서 다시 누르면 실제로 삭제한다.
+  const handleDeleteClick = () => {
+    if (!deleteConfirming) {
+      setDeleteConfirming(true);
+      return;
+    }
     if (editIndex === null) {
       closeModal();
       return;
@@ -1928,8 +1937,16 @@ export default function Alloy() {
     } else {
       setHoldings((prev) => prev.filter((_, i) => i !== editIndex));
     }
+    setDeleteConfirming(false);
     closeModal();
   };
+
+  // 확인 상태로 전환된 후 일정 시간(3초) 안에 다시 누르지 않으면 실수 방지를 위해 자동으로 해제
+  useEffect(() => {
+    if (!deleteConfirming) return;
+    const timer = setTimeout(() => setDeleteConfirming(false), 3000);
+    return () => clearTimeout(timer);
+  }, [deleteConfirming]);
 
   // 같은 카테고리 내 종목 순서 변경 (드래그 앤 드롭)
   const handleDragStart = (key, index) => (e) => {
@@ -6731,40 +6748,61 @@ export default function Alloy() {
                 {editIndex !== null ? "수정하기" : "추가하기"}
               </h2>
 
-              {/* 수정 모드: 삭제 X 버튼 */}
+              {/* 수정 모드: 삭제 버튼 - 닫기(X)로 착각해 실수로 삭제하는 걸 막기 위해 휴지통 아이콘 +
+                  2단계 확인(한 번 더 누르면 진짜 삭제, 3초 안에 다시 누르지 않으면 자동 취소)으로 구성 */}
               {editIndex !== null && (
-                <button
-                  onClick={handleDelete}
-                  onMouseEnter={() => setDeleteHovered(true)}
-                  onMouseLeave={() => setDeleteHovered(false)}
-                  aria-label="삭제"
-                  style={{
-                    width: 26,
-                    height: 26,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: `1px solid ${isLight ? "rgba(255,107,107,0.3)" : "rgba(255,107,107,0.35)"}`,
-                    background: deleteHovered
-                      ? "rgba(255,107,107,0.22)"
-                      : (isLight ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.12)"),
-                    color: deleteHovered ? "#FF8A8A" : "rgba(255,138,138,0.85)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    opacity: modalVisible ? 1 : 0,
-                    transform: modalVisible
-                      ? `translateX(0) scale(${deleteHovered ? 1.1 : 1})`
-                      : "translateX(8px) scale(0.85)",
-                    transition:
-                      "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, color 0.25s ease",
-                  }}
-                >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round">
-                    <path d="M5 5l14 14M19 5L5 19" />
-                  </svg>
-                </button>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  {deleteConfirming && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        fontWeight: 600,
+                        color: "#FF8A8A",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      삭제할까요?
+                    </span>
+                  )}
+                  <button
+                    onClick={handleDeleteClick}
+                    onMouseEnter={() => setDeleteHovered(true)}
+                    onMouseLeave={() => setDeleteHovered(false)}
+                    aria-label={deleteConfirming ? "삭제 확인" : "삭제"}
+                    style={{
+                      width: 26,
+                      height: 26,
+                      flexShrink: 0,
+                      borderRadius: "50%",
+                      border: `1px solid ${isLight ? "rgba(255,107,107,0.3)" : "rgba(255,107,107,0.35)"}`,
+                      background: deleteConfirming
+                        ? "#FF6B6B"
+                        : deleteHovered
+                        ? "rgba(255,107,107,0.22)"
+                        : (isLight ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.12)"),
+                      color: deleteConfirming ? "#FFFFFF" : deleteHovered ? "#FF8A8A" : "rgba(255,138,138,0.85)",
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      cursor: "pointer",
+                      outline: "none",
+                      opacity: modalVisible ? 1 : 0,
+                      transform: modalVisible
+                        ? `translateX(0) scale(${deleteConfirming || deleteHovered ? 1.1 : 1})`
+                        : "translateX(8px) scale(0.85)",
+                      transition:
+                        "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.25s cubic-bezier(0.22, 1, 0.36, 1), background 0.25s ease, color 0.25s ease",
+                    }}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M3 6h18" />
+                      <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                      <path d="M10 6V4a2 2 0 0 1 2-2h0a2 2 0 0 1 2 2v2" />
+                      <path d="M10 11v6" />
+                      <path d="M14 11v6" />
+                    </svg>
+                  </button>
+                </div>
               )}
             </div>
 
