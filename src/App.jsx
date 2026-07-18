@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.110";
+const APP_VERSION = "0.1.111";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1115,6 +1115,44 @@ export default function Alloy() {
     }
   }, [goalEditing]);
 
+  // 벤치마크 목록 (현재는 S&P500 하나뿐이지만 추후 추가할 수 있도록 리스트 형태로 관리)
+  const BENCHMARK_OPTIONS = [{ key: "sp500", label: "S&P500", symbol: "^GSPC" }];
+
+  // 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시, 선택한 지수 대비 내 포트폴리오 수익률 비교 차트)
+  const [benchmarkModalOpen, setBenchmarkModalOpen] = useState(false);
+  const [benchmarkModalVisible, setBenchmarkModalVisible] = useState(false);
+  const [benchmarkPeriod, setBenchmarkPeriod] = useState("1d");
+  const [selectedBenchmark, setSelectedBenchmark] = useState(BENCHMARK_OPTIONS[0].key);
+  const [benchmarkListOpen, setBenchmarkListOpen] = useState(false);
+  const [benchmarkSeries, setBenchmarkSeries] = useState([]); // [{ ts, portfolioReturn, benchmarkReturn }]
+  const [benchmarkLoading, setBenchmarkLoading] = useState(false);
+
+  const openBenchmarkModal = () => {
+    setBenchmarkModalOpen(true);
+    requestAnimationFrame(() => setBenchmarkModalVisible(true));
+  };
+
+  const closeBenchmarkModal = () => {
+    setBenchmarkModalVisible(false);
+    setBenchmarkListOpen(false);
+    setTimeout(() => setBenchmarkModalOpen(false), 300);
+  };
+  const closeBenchmarkModalRef = useRef(closeBenchmarkModal);
+  closeBenchmarkModalRef.current = closeBenchmarkModal;
+
+  // 벤치마크 선택 리스트 버튼 바깥을 클릭하면 드롭다운을 닫는다
+  const benchmarkListRef = useRef(null);
+  useEffect(() => {
+    if (!benchmarkListOpen) return;
+    const handleClickOutside = (e) => {
+      if (benchmarkListRef.current && !benchmarkListRef.current.contains(e.target)) {
+        setBenchmarkListOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [benchmarkListOpen]);
+
   // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
   // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
   const yahooSymbolCandidates = (ticker) =>
@@ -1736,6 +1774,9 @@ export default function Alloy() {
         } else if (goalModalOpen) {
           e.preventDefault();
           closeGoalModalRef.current();
+        } else if (benchmarkModalOpen) {
+          e.preventDefault();
+          closeBenchmarkModalRef.current();
         } else if (snp500IndexModalOpen) {
           e.preventDefault();
           closeSnp500IndexModalRef.current();
@@ -2290,6 +2331,98 @@ export default function Alloy() {
     };
   }, [goalModalOpen, goalTargetUSD, goalPeriod, holdingsTickerKey]);
 
+  // 벤치마크 비교: 선택한 지수(예: S&P500)의 과거 시세와, 자산 추이와 동일한 방식으로 복원한 내 포트폴리오
+  // 평가금액을 지수의 타임스탬프 축에 맞춰 함께 구한 뒤, 각각 기간 시작 시점 대비 수익률(%)로 환산해 겹쳐 비교한다.
+  useEffect(() => {
+    if (!benchmarkModalOpen || !(grandTotalUSD > 0)) {
+      setBenchmarkSeries([]);
+      return;
+    }
+    const benchmarkSymbol =
+      BENCHMARK_OPTIONS.find((b) => b.key === selectedBenchmark)?.symbol || BENCHMARK_OPTIONS[0].symbol;
+    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === benchmarkPeriod) || INDEX_CANDLE_PERIODS[0];
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+
+    let cancelled = false;
+    setBenchmarkLoading(true);
+
+    const fetchHistory = async (symbol) => {
+      try {
+        const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+          body: { symbol, name: symbol, range: cfg.range, interval: cfg.interval },
+        });
+        if (!error && data && Array.isArray(data.history)) return data.history;
+      } catch (e) {
+        // 무시하고 빈 배열 반환
+      }
+      return [];
+    };
+
+    const fetchOneHolding = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        const history = await fetchHistory(symbol);
+        if (history.length > 0) return history;
+      }
+      return [];
+    };
+
+    Promise.all([
+      fetchHistory(benchmarkSymbol),
+      Promise.all(uniqueTickers.map((ticker) => fetchOneHolding(ticker).then((history) => [ticker, history]))),
+    ]).then(([benchmarkHistory, holdingResults]) => {
+      if (cancelled) return;
+      if (benchmarkHistory.length === 0) {
+        setBenchmarkSeries([]);
+        setBenchmarkLoading(false);
+        return;
+      }
+      const historyByTicker = {};
+      for (const [ticker, history] of holdingResults) historyByTicker[ticker] = history;
+
+      const closestClose = (history, ts) => {
+        if (!history || history.length === 0) return null;
+        let best = history[0];
+        let bestDiff = Math.abs(history[0].ts - ts);
+        for (const p of history) {
+          const diff = Math.abs(p.ts - ts);
+          if (diff < bestDiff) {
+            best = p;
+            bestDiff = diff;
+          }
+        }
+        return best.close;
+      };
+
+      const portfolioValueAt = (ts) => {
+        let totalUSD = totalCashValueUSD;
+        holdings.forEach((h) => {
+          const close = closestClose(historyByTicker[h.ticker], ts);
+          if (close == null) return;
+          const nativeValue = close * h.quantity;
+          totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
+        });
+        return totalUSD;
+      };
+
+      const benchmarkBaseClose = benchmarkHistory[0].close;
+      const portfolioBaseUSD = portfolioValueAt(benchmarkHistory[0].ts);
+
+      const series = benchmarkHistory.map((point) => {
+        const portfolioUSD = portfolioValueAt(point.ts);
+        const benchmarkReturn = benchmarkBaseClose ? ((point.close - benchmarkBaseClose) / benchmarkBaseClose) * 100 : 0;
+        const portfolioReturn = portfolioBaseUSD > 0 ? ((portfolioUSD - portfolioBaseUSD) / portfolioBaseUSD) * 100 : 0;
+        return { ts: point.ts, benchmarkReturn, portfolioReturn };
+      });
+
+      setBenchmarkSeries(series);
+      setBenchmarkLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [benchmarkModalOpen, benchmarkPeriod, selectedBenchmark, holdingsTickerKey]);
+
   // 문자열을 해시하여 팔레트 인덱스를 고정적으로 결정 (정렬 순서와 무관하게 항상 같은 색상)
   const hashToIndex = (str, length) => {
     let hash = 0;
@@ -2623,6 +2756,41 @@ export default function Alloy() {
         }}
       >
         {formatKstDatePart(d.ts)} {d.percent.toFixed(1)}%
+      </div>
+    );
+  };
+
+  // 벤치마크 비교 차트 색상: 내 포트폴리오 = 앱 기본 강조색, 벤치마크 지수 = 대비되는 보조색
+  const BENCHMARK_PORTFOLIO_COLOR = "#8FA7FF";
+  const BENCHMARK_INDEX_COLOR = "#FFB067";
+
+  // 벤치마크 모달 툴팁: "07/17(금) 내 포트폴리오 +3.2% · S&P500 +1.8%" 한 줄로 표기
+  const BenchmarkTooltip = ({ active, payload }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const d = payload[0].payload;
+    const benchmarkLabel = BENCHMARK_OPTIONS.find((b) => b.key === selectedBenchmark)?.label || "지수";
+    return (
+      <div
+        style={{
+          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+          borderRadius: 10,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "6px 10px",
+          color: isLight ? "#14161A" : "#FFFFFF",
+          whiteSpace: "nowrap",
+        }}
+      >
+        <div style={{ marginBottom: 2 }}>{formatKstDatePart(d.ts)}</div>
+        <div style={{ color: BENCHMARK_PORTFOLIO_COLOR }}>
+          내 포트폴리오 {d.portfolioReturn >= 0 ? "+" : ""}
+          {d.portfolioReturn.toFixed(2)}%
+        </div>
+        <div style={{ color: BENCHMARK_INDEX_COLOR }}>
+          {benchmarkLabel} {d.benchmarkReturn >= 0 ? "+" : ""}
+          {d.benchmarkReturn.toFixed(2)}%
+        </div>
       </div>
     );
   };
@@ -3668,6 +3836,154 @@ export default function Alloy() {
                         transition: "width 0.6s cubic-bezier(0.22, 1, 0.36, 1)",
                       }}
                     />
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 벤치마크 카드: 선택한 지수 대비 내 포트폴리오 수익률을 비교하는 벤치마크 모달을 연다 */}
+            <div
+              style={{
+                marginTop: 16,
+                padding: "20px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={openBenchmarkModal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openBenchmarkModal();
+                    }
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  벤치마크
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </div>
+
+                {/* 벤치마크 리스트형 선택 버튼 - 현재는 S&P500 하나뿐이지만 추후 다른 지수를 추가할 수 있는 구조 */}
+                <div ref={benchmarkListRef} style={{ position: "relative" }}>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setBenchmarkListOpen((v) => !v);
+                    }}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "5px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      transition: "opacity 0.2s ease, background 0.2s ease",
+                    }}
+                  >
+                    {BENCHMARK_OPTIONS.find((b) => b.key === selectedBenchmark)?.label}
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        transform: benchmarkListOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      right: 0,
+                      minWidth: 110,
+                      borderRadius: 12,
+                      background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                      backdropFilter: "blur(20px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                      overflow: "hidden",
+                      zIndex: 5,
+                      opacity: benchmarkListOpen ? 1 : 0,
+                      transform: benchmarkListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                      pointerEvents: benchmarkListOpen ? "auto" : "none",
+                      transformOrigin: "top right",
+                      transition:
+                        "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  >
+                    {BENCHMARK_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => {
+                          setSelectedBenchmark(opt.key);
+                          setBenchmarkListOpen(false);
+                        }}
+                        onMouseEnter={(e) => {
+                          if (opt.key !== selectedBenchmark)
+                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (opt.key !== selectedBenchmark) e.currentTarget.style.background = "transparent";
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "9px 12px",
+                          border: "none",
+                          background:
+                            opt.key === selectedBenchmark
+                              ? isLight
+                                ? "rgba(20,22,26,0.08)"
+                                : "rgba(255,255,255,0.1)"
+                              : "transparent",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 12,
+                          fontWeight: opt.key === selectedBenchmark ? 700 : 500,
+                          cursor: "pointer",
+                          outline: "none",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
                   </div>
                 </div>
               </div>
@@ -6071,6 +6387,213 @@ export default function Alloy() {
                       stroke="#8FA7FF"
                       strokeWidth={2}
                       fill="url(#goalProgressGradient)"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시): 선택한 지수(S&P500 등) 대비 내 포트폴리오의
+          수익률(%)을 기간 시작 시점 기준으로 환산해 겹쳐 비교하는 그래프. 자산 추이/목표 모달과 동일한
+          디자인(카드 크기, 기간 탭, 차트 레이아웃)을 그대로 따른다. */}
+      {benchmarkModalOpen && (
+        <div
+          onClick={closeBenchmarkModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: benchmarkModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: benchmarkModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: benchmarkModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(304px, 80vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: benchmarkModalVisible ? 1 : 0,
+              transform: benchmarkModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              벤치마크
+            </h2>
+
+            <div style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 700 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: BENCHMARK_PORTFOLIO_COLOR, flexShrink: 0 }} />
+                <span style={{ color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)", fontWeight: 600, fontSize: 13 }}>
+                  내 포트폴리오
+                </span>
+                <span style={{ color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  {benchmarkSeries.length > 0
+                    ? `${benchmarkSeries[benchmarkSeries.length - 1].portfolioReturn >= 0 ? "+" : ""}${benchmarkSeries[
+                        benchmarkSeries.length - 1
+                      ].portfolioReturn.toFixed(2)}%`
+                    : "-"}
+                </span>
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 15, fontWeight: 700 }}>
+                <span style={{ width: 8, height: 8, borderRadius: "50%", background: BENCHMARK_INDEX_COLOR, flexShrink: 0 }} />
+                <span style={{ color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)", fontWeight: 600, fontSize: 13 }}>
+                  {BENCHMARK_OPTIONS.find((b) => b.key === selectedBenchmark)?.label}
+                </span>
+                <span style={{ color: isLight ? "#14161A" : "#FFFFFF" }}>
+                  {benchmarkSeries.length > 0
+                    ? `${benchmarkSeries[benchmarkSeries.length - 1].benchmarkReturn >= 0 ? "+" : ""}${benchmarkSeries[
+                        benchmarkSeries.length - 1
+                      ].benchmarkReturn.toFixed(2)}%`
+                    : "-"}
+                </span>
+              </div>
+            </div>
+
+            {/* 1일/1주/3달/1년 기간 탭 - 지수 모달(IndexCandleChart)/자산 추이·목표 모달과 동일한 크기/레이아웃/위치 */}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 8 }}>
+              {INDEX_CANDLE_PERIODS.map((p) => (
+                <button
+                  key={p.key}
+                  onClick={() => setBenchmarkPeriod(p.key)}
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 8,
+                    border: "none",
+                    background:
+                      benchmarkPeriod === p.key
+                        ? isLight
+                          ? "rgba(20,22,26,0.14)"
+                          : "rgba(255,255,255,0.14)"
+                        : "transparent",
+                    color:
+                      benchmarkPeriod === p.key
+                        ? isLight
+                          ? "#14161A"
+                          : "#FFFFFF"
+                        : isLight
+                        ? "rgba(20,22,26,0.4)"
+                        : "rgba(255,255,255,0.4)",
+                    fontSize: 11,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "background 0.2s ease, color 0.2s ease",
+                  }}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            <div style={{ width: "100%", height: 190 }}>
+              {!(grandTotalUSD > 0) ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  아직 등록된 자산이 없어요
+                </div>
+              ) : benchmarkLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : benchmarkSeries.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  비교 데이터를 불러올 수 없어요
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={benchmarkSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="benchmarkPortfolioGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={BENCHMARK_PORTFOLIO_COLOR} stopOpacity={0.24} />
+                        <stop offset="100%" stopColor={BENCHMARK_PORTFOLIO_COLOR} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="ts"
+                      tickFormatter={(ts) => formatKstAxisLabel(ts, benchmarkPeriod)}
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin", "dataMax"]} />
+                    <Tooltip
+                      content={<BenchmarkTooltip />}
+                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="portfolioReturn"
+                      stroke={BENCHMARK_PORTFOLIO_COLOR}
+                      strokeWidth={2}
+                      fill="url(#benchmarkPortfolioGradient)"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="benchmarkReturn"
+                      stroke={BENCHMARK_INDEX_COLOR}
+                      strokeWidth={2}
+                      fill="transparent"
                       dot={false}
                       isAnimationActive={false}
                     />
