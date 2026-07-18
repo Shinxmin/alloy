@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.113";
+const APP_VERSION = "0.1.114";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -494,21 +494,67 @@ export default function Alloy() {
   const [session, setSession] = useState(null);
   const [authChecked, setAuthChecked] = useState(false);
   const [authMode, setAuthMode] = useState("signIn"); // "signIn" | "signUp"
-  const [authEmail, setAuthEmail] = useState("");
+  // 마지막으로 로그인했던 이메일을 기억해뒀다가 재로그인 창에 미리 채워준다 - 세션이 오래 쉬다가
+  // 끊겼을 때(브라우저 탭이 몇 시간 동안 백그라운드에 있으면 토큰 자동 갱신이 실패할 수 있음)
+  // 다시 로그인하기까지의 마찰을 줄이기 위함. 데이터 자체는 이미 Supabase에 저장돼 있어
+  // 재로그인만 하면 그대로 복구된다.
+  const [authEmail, setAuthEmail] = useState(() => {
+    try {
+      return localStorage.getItem("alloy_last_email") || "";
+    } catch (e) {
+      return "";
+    }
+  });
   const [authPassword, setAuthPassword] = useState("");
   const [authError, setAuthError] = useState("");
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [authNotice, setAuthNotice] = useState("");
+  // 이전에 이 브라우저에서 로그인한 적이 있었는지(재로그인 화면에서 안내 문구를 다르게 보여주기 위함)
+  const [isReturningSession, setIsReturningSession] = useState(false);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data }) => {
       setSession(data.session);
       setAuthChecked(true);
+      if (!data.session) {
+        try {
+          setIsReturningSession(!!localStorage.getItem("alloy_last_email"));
+        } catch (e) {
+          // localStorage 사용 불가 시 무시
+        }
+      }
     });
     const { data: listener } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
+      if (newSession) {
+        try {
+          localStorage.setItem("alloy_last_email", newSession.user.email || "");
+        } catch (e) {
+          // localStorage 사용 불가 시 무시
+        }
+      } else {
+        try {
+          setIsReturningSession(!!localStorage.getItem("alloy_last_email"));
+        } catch (e) {
+          // localStorage 사용 불가 시 무시
+        }
+      }
     });
-    return () => listener.subscription.unsubscribe();
+    // 브라우저 탭이 오래 백그라운드에 있으면 토큰 자동 갱신 타이머가 지연될 수 있다.
+    // 탭이 다시 보이게 될 때마다 세션 상태를 명시적으로 재확인해, 만료된 세션을 최대한 빨리
+    // 감지(또는 복구)하도록 보강한다.
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        supabase.auth.getSession().then(({ data }) => {
+          setSession(data.session);
+        });
+      }
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
+    return () => {
+      listener.subscription.unsubscribe();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
+    };
   }, []);
 
   const handleAuthSubmit = async (e) => {
@@ -2928,7 +2974,7 @@ export default function Alloy() {
           </h1>
           <h2
             style={{
-              margin: "0 0 20px 0",
+              margin: isReturningSession && authMode === "signIn" ? "0 0 4px 0" : "0 0 20px 0",
               fontSize: 15,
               fontWeight: 600,
               color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
@@ -2936,6 +2982,18 @@ export default function Alloy() {
           >
             {authMode === "signUp" ? "회원가입" : "로그인"}
           </h2>
+          {isReturningSession && authMode === "signIn" && (
+            <div
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: 12,
+                lineHeight: 1.5,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              세션이 만료되었어요. 다시 로그인하면 저장해둔 자산이 그대로 나타나요.
+            </div>
+          )}
 
           <label style={fieldLabelStyle}>이메일</label>
           <input
