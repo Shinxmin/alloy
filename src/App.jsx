@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.126";
+const APP_VERSION = "0.1.127";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1629,6 +1629,29 @@ export default function Alloy() {
       setDailyHeatmapTarget("portfolio");
     }
   }, [holdingsTickerKey]);
+
+  // 일간 수익률 히트맵 가로 스크롤 - 스크롤바를 숨긴 대신 마우스로 좌우 드래그해 스크롤할 수 있게 함
+  const dailyHeatmapScrollRef = useRef(null);
+  const dailyHeatmapDragState = useRef({ dragging: false, startX: 0, scrollLeft: 0 });
+  const handleDailyHeatmapDragStart = (e) => {
+    const el = dailyHeatmapScrollRef.current;
+    if (!el) return;
+    dailyHeatmapDragState.current = { dragging: true, startX: e.pageX - el.offsetLeft, scrollLeft: el.scrollLeft };
+    el.style.cursor = "grabbing";
+  };
+  const handleDailyHeatmapDragMove = (e) => {
+    const state = dailyHeatmapDragState.current;
+    const el = dailyHeatmapScrollRef.current;
+    if (!state.dragging || !el) return;
+    e.preventDefault();
+    const x = e.pageX - el.offsetLeft;
+    el.scrollLeft = state.scrollLeft - (x - state.startX);
+  };
+  const handleDailyHeatmapDragEnd = () => {
+    dailyHeatmapDragState.current.dragging = false;
+    const el = dailyHeatmapScrollRef.current;
+    if (el) el.style.cursor = "grab";
+  };
 
   useEffect(() => {
     const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
@@ -4368,8 +4391,8 @@ export default function Alloy() {
                 </div>
               </div>
 
-              {/* 일간 수익률: 클릭하면 모달을 열어 히트맵(포트폴리오/종목 토글 포함)과
-                  등락률 색상 척도를 보여준다. */}
+              {/* 일간 수익률: 제목을 클릭하면 모달을 열어 히트맵과 등락률 색상 척도를 보여준다.
+                  종목 선택 토글은 모달 밖, 이 줄의 오른쪽 끝에 둔다. */}
               <div
                 style={{
                   height: 1,
@@ -4377,35 +4400,143 @@ export default function Alloy() {
                   margin: "16px 0",
                 }}
               />
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={openDailyReturnModal}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    openDailyReturnModal();
-                  }
-                }}
-                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
-                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 4,
-                  width: "fit-content",
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  cursor: "pointer",
-                  outline: "none",
-                  transition: "opacity 0.2s ease",
-                }}
-              >
-                일간 수익률
-                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M9 6l6 6-6 6" />
-                </svg>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={openDailyReturnModal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openDailyReturnModal();
+                    }
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    width: "fit-content",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  일간 수익률
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </div>
+
+                {holdings.length > 0 && (
+                  <div ref={dailyHeatmapListRef} style={{ position: "relative" }}>
+                    <button
+                      onClick={() => setDailyHeatmapListOpen((v) => !v)}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "5px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                        background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "opacity 0.2s ease, background 0.2s ease",
+                      }}
+                    >
+                      {dailyHeatmapOptions.find((o) => o.key === dailyHeatmapTarget)?.label || "포트폴리오"}
+                      <svg
+                        width="9"
+                        height="9"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{
+                          transform: dailyHeatmapListOpen ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </button>
+
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        right: 0,
+                        minWidth: 110,
+                        maxHeight: 220,
+                        overflowY: "auto",
+                        borderRadius: 12,
+                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                        backdropFilter: "blur(20px) saturate(180%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                        overflow: "hidden",
+                        zIndex: 5,
+                        opacity: dailyHeatmapListOpen ? 1 : 0,
+                        transform: dailyHeatmapListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                        pointerEvents: dailyHeatmapListOpen ? "auto" : "none",
+                        transformOrigin: "top right",
+                        transition:
+                          "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      {dailyHeatmapOptions.map((opt) => (
+                        <button
+                          key={opt.key}
+                          onClick={() => {
+                            setDailyHeatmapTarget(opt.key);
+                            setDailyHeatmapListOpen(false);
+                          }}
+                          onMouseEnter={(e) => {
+                            if (opt.key !== dailyHeatmapTarget)
+                              e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (opt.key !== dailyHeatmapTarget) e.currentTarget.style.background = "transparent";
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "9px 12px",
+                            border: "none",
+                            background:
+                              opt.key === dailyHeatmapTarget
+                                ? isLight
+                                  ? "rgba(20,22,26,0.08)"
+                                  : "rgba(255,255,255,0.1)"
+                                : "transparent",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            fontSize: 12,
+                            fontWeight: opt.key === dailyHeatmapTarget ? 700 : 500,
+                            cursor: "pointer",
+                            outline: "none",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -6443,125 +6574,17 @@ export default function Alloy() {
               boxSizing: "border-box",
             }}
           >
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <h2
-                style={{
-                  margin: 0,
-                  fontSize: 17,
-                  fontWeight: 600,
-                  color: isLight ? "#14161A" : "#FFFFFF",
-                  letterSpacing: 0.2,
-                }}
-              >
-                일간 수익률
-              </h2>
-
-              {holdings.length > 0 && (
-                <div ref={dailyHeatmapListRef} style={{ position: "relative" }}>
-                  <button
-                    onClick={() => setDailyHeatmapListOpen((v) => !v)}
-                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                    style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "5px 10px",
-                      borderRadius: 8,
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
-                      outline: "none",
-                      transition: "opacity 0.2s ease, background 0.2s ease",
-                    }}
-                  >
-                    {dailyHeatmapOptions.find((o) => o.key === dailyHeatmapTarget)?.label || "포트폴리오"}
-                    <svg
-                      width="9"
-                      height="9"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{
-                        transform: dailyHeatmapListOpen ? "rotate(180deg)" : "rotate(0deg)",
-                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                    >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
-
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: "calc(100% + 6px)",
-                      right: 0,
-                      minWidth: 110,
-                      maxHeight: 220,
-                      overflowY: "auto",
-                      borderRadius: 12,
-                      background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                      backdropFilter: "blur(20px) saturate(180%)",
-                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
-                      overflow: "hidden",
-                      zIndex: 5,
-                      opacity: dailyHeatmapListOpen ? 1 : 0,
-                      transform: dailyHeatmapListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                      pointerEvents: dailyHeatmapListOpen ? "auto" : "none",
-                      transformOrigin: "top right",
-                      transition:
-                        "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                    }}
-                  >
-                    {dailyHeatmapOptions.map((opt) => (
-                      <button
-                        key={opt.key}
-                        onClick={() => {
-                          setDailyHeatmapTarget(opt.key);
-                          setDailyHeatmapListOpen(false);
-                        }}
-                        onMouseEnter={(e) => {
-                          if (opt.key !== dailyHeatmapTarget)
-                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
-                        }}
-                        onMouseLeave={(e) => {
-                          if (opt.key !== dailyHeatmapTarget) e.currentTarget.style.background = "transparent";
-                        }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "9px 12px",
-                          border: "none",
-                          background:
-                            opt.key === dailyHeatmapTarget
-                              ? isLight
-                                ? "rgba(20,22,26,0.08)"
-                                : "rgba(255,255,255,0.1)"
-                              : "transparent",
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 12,
-                          fontWeight: opt.key === dailyHeatmapTarget ? 700 : 500,
-                          cursor: "pointer",
-                          outline: "none",
-                          transition: "background 0.15s ease",
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+            <h2
+              style={{
+                margin: "0 0 14px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              일간 수익률
+            </h2>
 
             {holdings.length === 0 ? (
               <div
@@ -6610,7 +6633,14 @@ export default function Alloy() {
                       </div>
                     ))}
                   </div>
-                  <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+                  <div
+                    ref={dailyHeatmapScrollRef}
+                    onMouseDown={handleDailyHeatmapDragStart}
+                    onMouseMove={handleDailyHeatmapDragMove}
+                    onMouseUp={handleDailyHeatmapDragEnd}
+                    onMouseLeave={handleDailyHeatmapDragEnd}
+                    style={{ flex: 1, minWidth: 0, overflowX: "auto", cursor: "grab", userSelect: "none" }}
+                  >
                     <div style={{ position: "relative", height: 14, width: dailyHeatmapWeeksCount * 13 }}>
                       {dailyHeatmapMonthLabels.map(({ col, label }) => (
                         <span
