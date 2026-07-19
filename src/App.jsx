@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.124";
+const APP_VERSION = "0.1.125";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1249,6 +1249,22 @@ export default function Alloy() {
   const closeDividendModalRef = useRef(closeDividendModal);
   closeDividendModalRef.current = closeDividendModal;
 
+  // 상관계수 매트릭스 모달 (홈 탭 "상관계수 매트릭스" 클릭 시 표시, 보유 종목 간 일간 수익률 상관계수 히트맵)
+  const [correlationModalOpen, setCorrelationModalOpen] = useState(false);
+  const [correlationModalVisible, setCorrelationModalVisible] = useState(false);
+
+  const openCorrelationModal = () => {
+    setCorrelationModalOpen(true);
+    requestAnimationFrame(() => setCorrelationModalVisible(true));
+  };
+
+  const closeCorrelationModal = () => {
+    setCorrelationModalVisible(false);
+    setTimeout(() => setCorrelationModalOpen(false), 300);
+  };
+  const closeCorrelationModalRef = useRef(closeCorrelationModal);
+  closeCorrelationModalRef.current = closeCorrelationModal;
+
   // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산, 배당금, 배당 캘린더 모달 표기 전부에 적용됨
   const [homeCurrency, setHomeCurrency] = useState("USD");
   const [homeCurrencyIndicator, setHomeCurrencyIndicator] = useState({ left: 0, width: 0 });
@@ -1441,6 +1457,7 @@ export default function Alloy() {
       modalOpen ||
       infoModalOpen ||
       dividendModalOpen ||
+      correlationModalOpen ||
       assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1473,6 +1490,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
+    correlationModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -2160,6 +2178,9 @@ export default function Alloy() {
         } else if (dividendModalOpen) {
           e.preventDefault();
           closeDividendModalRef.current();
+        } else if (correlationModalOpen) {
+          e.preventDefault();
+          closeCorrelationModalRef.current();
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
@@ -2237,6 +2258,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
+    correlationModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -4405,6 +4427,46 @@ export default function Alloy() {
                 </div>
               </div>
 
+              {/* 상관계수 매트릭스: 클릭하면 모달을 열어 보유 종목(ETF 포함, 주식/ETF 구분 없이
+                  동일한 방식으로 계산)들의 일간 수익률 간 피어슨 상관계수 히트맵과 척도 설명을 보여준다. */}
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={openCorrelationModal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openCorrelationModal();
+                  }
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  width: "fit-content",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "opacity 0.2s ease",
+                }}
+              >
+                상관계수 매트릭스
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
+              </div>
+
               {/* 일간 수익률 히트맵: GitHub 잔디 스타일로 최근 53주간의 일별 포트폴리오 등락률을 표기.
                   요일 라벨은 고정하고 주(열) 영역만 가로 스크롤(53주 전체는 카드 너비보다 넓음). */}
               <div
@@ -4613,154 +4675,6 @@ export default function Alloy() {
                     </div>
                   </div>
                 </div>
-              )}
-
-              {/* 상관계수 매트릭스: 보유 종목(ETF 포함, 주식/ETF 구분 없이 동일한 방식으로 계산)들의
-                  일간 수익률 간 피어슨 상관계수를 색상 표로 시각화 - 1에 가까우면 같이 움직이는(분산
-                  안 됨) 빨강, -1에 가까우면 반대로 움직이는(분산 효과) 파랑으로 표기. */}
-              <div
-                style={{
-                  height: 1,
-                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
-                  margin: "16px 0",
-                }}
-              />
-              <div
-                style={{
-                  fontSize: 13,
-                  fontWeight: 600,
-                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  marginBottom: 10,
-                }}
-              >
-                상관계수 매트릭스
-              </div>
-              {holdings.length === 0 ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    padding: "10px 0",
-                  }}
-                >
-                  아직 등록된 자산이 없어요
-                </div>
-              ) : correlationTickers.length < 2 ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    padding: "10px 0",
-                  }}
-                >
-                  종목이 2개 이상일 때 상관계수를 확인할 수 있어요
-                </div>
-              ) : (
-                <>
-                  <div style={{ display: "flex", gap: 2 }}>
-                    <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                      <div style={{ width: 42, height: 28 }} />
-                      {correlationTickers.map((rowTicker) => (
-                        <div
-                          key={rowTicker}
-                          style={{
-                            width: 42,
-                            height: 28,
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "flex-end",
-                            paddingRight: 4,
-                            fontSize: 9,
-                            fontWeight: 600,
-                            lineHeight: 1.1,
-                            whiteSpace: "nowrap",
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                          }}
-                        >
-                          {rowTicker}
-                        </div>
-                      ))}
-                    </div>
-                    <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-                      <div style={{ width: correlationTickers.length * 30 }}>
-                        <div style={{ display: "flex", gap: 2, marginBottom: 2 }}>
-                          {correlationTickers.map((colTicker) => (
-                            <div
-                              key={colTicker}
-                              style={{
-                                width: 28,
-                                height: 28,
-                                display: "flex",
-                                alignItems: "center",
-                                justifyContent: "center",
-                                fontSize: 9,
-                                fontWeight: 600,
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                              }}
-                            >
-                              {colTicker}
-                            </div>
-                          ))}
-                        </div>
-                        {correlationTickers.map((rowTicker) => (
-                          <div key={rowTicker} style={{ display: "flex", gap: 2, marginBottom: 2 }}>
-                            {correlationTickers.map((colTicker) => {
-                              const corr = correlationMatrix[rowTicker][colTicker];
-                              const { bg, text } = correlationCellStyle(corr, isLight);
-                              return (
-                                <div
-                                  key={colTicker}
-                                  title={`${rowTicker} × ${colTicker}: ${corr == null ? "데이터 부족" : corr.toFixed(2)}`}
-                                  style={{
-                                    width: 28,
-                                    height: 28,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    borderRadius: 4,
-                                    background: bg,
-                                    color: text,
-                                    fontSize: 9,
-                                    fontWeight: 700,
-                                  }}
-                                >
-                                  {corr == null ? "-" : corr.toFixed(2)}
-                                </div>
-                              );
-                            })}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 12, fontSize: 10 }}>
-                    <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>-1</span>
-                    <div
-                      style={{
-                        flex: 1,
-                        height: 6,
-                        borderRadius: 3,
-                        background: "linear-gradient(90deg, #3E8EFF, #AFD3FF, rgba(128,128,128,0.3), #FFAFAF, #E23F3F)",
-                      }}
-                    />
-                    <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>+1</span>
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 10,
-                      color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                      marginTop: 4,
-                    }}
-                  >
-                    빨강에 가까울수록 함께 움직이고(분산 위험), 파랑에 가까울수록 반대로 움직여요(분산 효과)
-                  </div>
-                </>
               )}
             </div>
           </>
@@ -6754,6 +6668,194 @@ export default function Alloy() {
                       </span>
                     </div>
                   ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 상관계수 매트릭스 모달 (홈 탭 "상관계수 매트릭스" 클릭 시 표시): 보유 종목(ETF 포함, 주식/ETF
+          구분 없이 동일한 방식으로 계산) 간 일간 수익률 피어슨 상관계수 히트맵 + 척도 설명 그래픽.
+          헤더의 종목 텍스트는 세로(writing-mode: vertical-rl)로 표기해 칸 폭을 넘어가지 않게 한다. */}
+      {correlationModalOpen && (
+        <div
+          onClick={closeCorrelationModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: correlationModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: correlationModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: correlationModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(320px, 84vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: correlationModalVisible ? 1 : 0,
+              transform: correlationModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 2px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              상관계수 매트릭스
+            </h2>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              보유 종목 일간 수익률 상관계수
+            </span>
+
+            {holdings.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 150,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                아직 등록된 자산이 없어요
+              </div>
+            ) : correlationTickers.length < 2 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 150,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                종목이 2개 이상일 때 상관계수를 확인할 수 있어요
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 2, marginTop: 14 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
+                    <div style={{ width: 42, height: 56 }} />
+                    {correlationTickers.map((rowTicker) => (
+                      <div
+                        key={rowTicker}
+                        style={{
+                          width: 42,
+                          height: 28,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "flex-end",
+                          paddingRight: 4,
+                          fontSize: 9,
+                          fontWeight: 600,
+                          lineHeight: 1.1,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                        }}
+                      >
+                        {rowTicker}
+                      </div>
+                    ))}
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
+                    <div style={{ width: correlationTickers.length * 30 }}>
+                      <div style={{ display: "flex", gap: 2, marginBottom: 2 }}>
+                        {correlationTickers.map((colTicker) => (
+                          <div
+                            key={colTicker}
+                            style={{
+                              width: 28,
+                              height: 56,
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              writingMode: "vertical-rl",
+                              textOrientation: "upright",
+                              fontSize: 9,
+                              fontWeight: 600,
+                              letterSpacing: 0,
+                              whiteSpace: "nowrap",
+                              color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                            }}
+                          >
+                            {colTicker}
+                          </div>
+                        ))}
+                      </div>
+                      {correlationTickers.map((rowTicker) => (
+                        <div key={rowTicker} style={{ display: "flex", gap: 2, marginBottom: 2 }}>
+                          {correlationTickers.map((colTicker) => {
+                            const corr = correlationMatrix[rowTicker][colTicker];
+                            const { bg, text } = correlationCellStyle(corr, isLight);
+                            return (
+                              <div
+                                key={colTicker}
+                                title={`${rowTicker} × ${colTicker}: ${corr == null ? "데이터 부족" : corr.toFixed(2)}`}
+                                style={{
+                                  width: 28,
+                                  height: 28,
+                                  display: "flex",
+                                  alignItems: "center",
+                                  justifyContent: "center",
+                                  borderRadius: 4,
+                                  background: bg,
+                                  color: text,
+                                  fontSize: 9,
+                                  fontWeight: 700,
+                                }}
+                              >
+                                {corr == null ? "-" : corr.toFixed(2)}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 10 }}>
+                  <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>-1</span>
+                  <div
+                    style={{
+                      flex: 1,
+                      height: 6,
+                      borderRadius: 3,
+                      background: "linear-gradient(90deg, #3E8EFF, #AFD3FF, rgba(128,128,128,0.3), #FFAFAF, #E23F3F)",
+                    }}
+                  />
+                  <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>+1</span>
                 </div>
               </>
             )}
