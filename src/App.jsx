@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.125";
+const APP_VERSION = "0.1.126";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -208,52 +208,6 @@ function heatmapCellColor(returnPct, isLight) {
   if (returnPct >= 0) return "#9BE3AA";
   if (returnPct > -3) return "#FFAFAF";
   return "#E23F3F";
-}
-
-// 두 종목의 일간 수익률(%) 시계열 간 피어슨 상관계수(-1~1) 계산 - 상관계수 매트릭스에서 사용.
-// 주식/ETF 구분 없이 동일한 날짜별 등락률 맵을 그대로 비교하므로 ETF 종목도 별도 처리 없이
-// 자연스럽게 포함된다. 겹치는 날짜가 너무 적으면(5일 미만) 신뢰할 수 없어 null을 반환한다.
-function pearsonCorrelation(returnMapA, returnMapB) {
-  const commonDates = Object.keys(returnMapA).filter((d) =>
-    Object.prototype.hasOwnProperty.call(returnMapB, d)
-  );
-  if (commonDates.length < 5) return null;
-  const xs = commonDates.map((d) => returnMapA[d]);
-  const ys = commonDates.map((d) => returnMapB[d]);
-  const n = xs.length;
-  const meanX = xs.reduce((a, b) => a + b, 0) / n;
-  const meanY = ys.reduce((a, b) => a + b, 0) / n;
-  let num = 0;
-  let denX = 0;
-  let denY = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX;
-    const dy = ys[i] - meanY;
-    num += dx * dy;
-    denX += dx * dx;
-    denY += dy * dy;
-  }
-  if (denX === 0 || denY === 0) return null;
-  return num / Math.sqrt(denX * denY);
-}
-
-// 상관계수 매트릭스 칸 색상+텍스트 - 1에 가까울수록(같이 움직임=분산 위험) 진한 빨강,
-// -1에 가까울수록(반대로 움직임=분산 효과) 진한 파랑, 0 근처는 중립 회색.
-function correlationCellStyle(corr, isLight) {
-  if (corr == null)
-    return {
-      bg: isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.07)",
-      text: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-    };
-  if (corr >= 0.7) return { bg: "#E23F3F", text: "#FFFFFF" };
-  if (corr >= 0.3) return { bg: "#FFAFAF", text: "#7A1F1F" };
-  if (corr > -0.3)
-    return {
-      bg: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
-      text: isLight ? "#14161A" : "#FFFFFF",
-    };
-  if (corr > -0.7) return { bg: "#AFD3FF", text: "#1B4A8A" };
-  return { bg: "#3E8EFF", text: "#FFFFFF" };
 }
 
 // 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
@@ -1249,21 +1203,21 @@ export default function Alloy() {
   const closeDividendModalRef = useRef(closeDividendModal);
   closeDividendModalRef.current = closeDividendModal;
 
-  // 상관계수 매트릭스 모달 (홈 탭 "상관계수 매트릭스" 클릭 시 표시, 보유 종목 간 일간 수익률 상관계수 히트맵)
-  const [correlationModalOpen, setCorrelationModalOpen] = useState(false);
-  const [correlationModalVisible, setCorrelationModalVisible] = useState(false);
+  // 일간 수익률 모달 (홈 탭 "일간 수익률" 클릭 시 표시, 히트맵 + 포트폴리오/종목 토글 + 색상 척도)
+  const [dailyReturnModalOpen, setDailyReturnModalOpen] = useState(false);
+  const [dailyReturnModalVisible, setDailyReturnModalVisible] = useState(false);
 
-  const openCorrelationModal = () => {
-    setCorrelationModalOpen(true);
-    requestAnimationFrame(() => setCorrelationModalVisible(true));
+  const openDailyReturnModal = () => {
+    setDailyReturnModalOpen(true);
+    requestAnimationFrame(() => setDailyReturnModalVisible(true));
   };
 
-  const closeCorrelationModal = () => {
-    setCorrelationModalVisible(false);
-    setTimeout(() => setCorrelationModalOpen(false), 300);
+  const closeDailyReturnModal = () => {
+    setDailyReturnModalVisible(false);
+    setTimeout(() => setDailyReturnModalOpen(false), 300);
   };
-  const closeCorrelationModalRef = useRef(closeCorrelationModal);
-  closeCorrelationModalRef.current = closeCorrelationModal;
+  const closeDailyReturnModalRef = useRef(closeDailyReturnModal);
+  closeDailyReturnModalRef.current = closeDailyReturnModal;
 
   // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산, 배당금, 배당 캘린더 모달 표기 전부에 적용됨
   const [homeCurrency, setHomeCurrency] = useState("USD");
@@ -1457,7 +1411,7 @@ export default function Alloy() {
       modalOpen ||
       infoModalOpen ||
       dividendModalOpen ||
-      correlationModalOpen ||
+      dailyReturnModalOpen ||
       assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1490,7 +1444,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
-    correlationModalOpen,
+    dailyReturnModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -1800,19 +1754,6 @@ export default function Alloy() {
     monthLabels: dailyHeatmapMonthLabels,
     weeksCount: dailyHeatmapWeeksCount,
   } = buildDailyReturnHeatmapCells(dailyReturnMap);
-
-  // 포트폴리오 상관계수 매트릭스 - 보유 종목(ETF 포함, 구분 없이 동일하게 계산)들의 일간 수익률
-  // 시계열을 종목 쌍마다 비교해 피어슨 상관계수를 구한다. 일간 수익률 히트맵 조회 시 이미 계산해 둔
-  // 종목별 등락률 맵(dailyReturnMaps)을 그대로 재사용하므로 별도 데이터 조회는 필요 없다.
-  const correlationTickers = [...new Set(holdings.map((h) => h.ticker))];
-  const correlationMatrix = {};
-  correlationTickers.forEach((t1) => {
-    correlationMatrix[t1] = {};
-    correlationTickers.forEach((t2) => {
-      correlationMatrix[t1][t2] =
-        t1 === t2 ? 1 : pearsonCorrelation(dailyReturnMaps[t1] || {}, dailyReturnMaps[t2] || {});
-    });
-  });
 
   // 방금 로드를 완료한 세션의 user_id (ref라서 렌더를 기다리지 않고 즉시 반영됨).
   // 토큰 자동 갱신 등으로 session 객체가 바뀌면 LOAD 이펙트가 이 값을 먼저 null로 초기화하는데,
@@ -2178,9 +2119,9 @@ export default function Alloy() {
         } else if (dividendModalOpen) {
           e.preventDefault();
           closeDividendModalRef.current();
-        } else if (correlationModalOpen) {
+        } else if (dailyReturnModalOpen) {
           e.preventDefault();
-          closeCorrelationModalRef.current();
+          closeDailyReturnModalRef.current();
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
@@ -2258,7 +2199,7 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
-    correlationModalOpen,
+    dailyReturnModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -4427,8 +4368,8 @@ export default function Alloy() {
                 </div>
               </div>
 
-              {/* 상관계수 매트릭스: 클릭하면 모달을 열어 보유 종목(ETF 포함, 주식/ETF 구분 없이
-                  동일한 방식으로 계산)들의 일간 수익률 간 피어슨 상관계수 히트맵과 척도 설명을 보여준다. */}
+              {/* 일간 수익률: 클릭하면 모달을 열어 히트맵(포트폴리오/종목 토글 포함)과
+                  등락률 색상 척도를 보여준다. */}
               <div
                 style={{
                   height: 1,
@@ -4439,11 +4380,11 @@ export default function Alloy() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={openCorrelationModal}
+                onClick={openDailyReturnModal}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    openCorrelationModal();
+                    openDailyReturnModal();
                   }
                 }}
                 onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
@@ -4461,221 +4402,11 @@ export default function Alloy() {
                   transition: "opacity 0.2s ease",
                 }}
               >
-                상관계수 매트릭스
+                일간 수익률
                 <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                   <path d="M9 6l6 6-6 6" />
                 </svg>
               </div>
-
-              {/* 일간 수익률 히트맵: GitHub 잔디 스타일로 최근 53주간의 일별 포트폴리오 등락률을 표기.
-                  요일 라벨은 고정하고 주(열) 영역만 가로 스크롤(53주 전체는 카드 너비보다 넓음). */}
-              <div
-                style={{
-                  height: 1,
-                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
-                  margin: "16px 0",
-                }}
-              />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <div
-                  style={{
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  }}
-                >
-                  일간 수익률
-                </div>
-
-                {holdings.length > 0 && (
-                  <div ref={dailyHeatmapListRef} style={{ position: "relative" }}>
-                    <button
-                      onClick={() => setDailyHeatmapListOpen((v) => !v)}
-                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 4,
-                        padding: "5px 10px",
-                        borderRadius: 8,
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                        background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
-                        color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        outline: "none",
-                        transition: "opacity 0.2s ease, background 0.2s ease",
-                      }}
-                    >
-                      {dailyHeatmapOptions.find((o) => o.key === dailyHeatmapTarget)?.label || "포트폴리오"}
-                      <svg
-                        width="9"
-                        height="9"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2.5"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        style={{
-                          transform: dailyHeatmapListOpen ? "rotate(180deg)" : "rotate(0deg)",
-                          transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                        }}
-                      >
-                        <path d="M6 9l6 6 6-6" />
-                      </svg>
-                    </button>
-
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: "calc(100% + 6px)",
-                        right: 0,
-                        minWidth: 110,
-                        maxHeight: 220,
-                        overflowY: "auto",
-                        borderRadius: 12,
-                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                        backdropFilter: "blur(20px) saturate(180%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                        boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
-                        overflow: "hidden",
-                        zIndex: 5,
-                        opacity: dailyHeatmapListOpen ? 1 : 0,
-                        transform: dailyHeatmapListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                        pointerEvents: dailyHeatmapListOpen ? "auto" : "none",
-                        transformOrigin: "top right",
-                        transition:
-                          "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                    >
-                      {dailyHeatmapOptions.map((opt) => (
-                        <button
-                          key={opt.key}
-                          onClick={() => {
-                            setDailyHeatmapTarget(opt.key);
-                            setDailyHeatmapListOpen(false);
-                          }}
-                          onMouseEnter={(e) => {
-                            if (opt.key !== dailyHeatmapTarget)
-                              e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
-                          }}
-                          onMouseLeave={(e) => {
-                            if (opt.key !== dailyHeatmapTarget) e.currentTarget.style.background = "transparent";
-                          }}
-                          style={{
-                            display: "block",
-                            width: "100%",
-                            textAlign: "left",
-                            padding: "9px 12px",
-                            border: "none",
-                            background:
-                              opt.key === dailyHeatmapTarget
-                                ? isLight
-                                  ? "rgba(20,22,26,0.08)"
-                                  : "rgba(255,255,255,0.1)"
-                                : "transparent",
-                            color: isLight ? "#14161A" : "#FFFFFF",
-                            fontSize: 12,
-                            fontWeight: opt.key === dailyHeatmapTarget ? 700 : 500,
-                            cursor: "pointer",
-                            outline: "none",
-                            transition: "background 0.15s ease",
-                          }}
-                        >
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                )}
-              </div>
-              {holdings.length === 0 ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    padding: "10px 0",
-                  }}
-                >
-                  아직 등록된 자산이 없어요
-                </div>
-              ) : dailyHeatmapLoading && Object.keys(dailyReturnMap).length === 0 ? (
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    padding: "10px 0",
-                  }}
-                >
-                  불러오는 중...
-                </div>
-              ) : (
-                <div style={{ display: "flex", gap: 4 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
-                    <div style={{ height: 14 }} />
-                    {HEATMAP_WEEKDAY_LABELS.map((label, row) => (
-                      <div
-                        key={row}
-                        style={{
-                          height: 10,
-                          display: "flex",
-                          alignItems: "center",
-                          fontSize: 9,
-                          lineHeight: 1,
-                          color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                        }}
-                      >
-                        {row === 0 || row === 2 || row === 4 ? label : ""}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-                    <div style={{ position: "relative", height: 14, width: dailyHeatmapWeeksCount * 13 }}>
-                      {dailyHeatmapMonthLabels.map(({ col, label }) => (
-                        <span
-                          key={col}
-                          style={{
-                            position: "absolute",
-                            left: col * 13,
-                            fontSize: 9,
-                            lineHeight: 1,
-                            whiteSpace: "nowrap",
-                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                          }}
-                        >
-                          {label}
-                        </span>
-                      ))}
-                    </div>
-                    <div
-                      style={{
-                        display: "grid",
-                        gridTemplateRows: "repeat(5, 10px)",
-                        gridAutoFlow: "column",
-                        gridAutoColumns: "10px",
-                        gap: 3,
-                      }}
-                    >
-                      {dailyHeatmapCells.map((cell) => (
-                        <div
-                          key={cell.key}
-                          title={cell.hidden || cell.returnPct == null ? cell.key : `${cell.key} ${cell.returnPct >= 0 ? "+" : ""}${cell.returnPct.toFixed(2)}%`}
-                          style={{
-                            width: 10,
-                            height: 10,
-                            borderRadius: 2,
-                            background: cell.hidden ? "transparent" : heatmapCellColor(cell.returnPct, isLight),
-                          }}
-                        />
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           </>
         )}
@@ -6675,12 +6406,11 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* 상관계수 매트릭스 모달 (홈 탭 "상관계수 매트릭스" 클릭 시 표시): 보유 종목(ETF 포함, 주식/ETF
-          구분 없이 동일한 방식으로 계산) 간 일간 수익률 피어슨 상관계수 히트맵 + 척도 설명 그래픽.
-          헤더의 종목 텍스트는 세로(writing-mode: vertical-rl)로 표기해 칸 폭을 넘어가지 않게 한다. */}
-      {correlationModalOpen && (
+      {/* 일간 수익률 모달 (홈 탭 "일간 수익률" 클릭 시 표시): 포트폴리오/보유 종목 토글 + GitHub 잔디
+          스타일 히트맵 + 등락률 색상 척도 범례. 부연 설명 문구는 넣지 않는다. */}
+      {dailyReturnModalOpen && (
         <div
-          onClick={closeCorrelationModal}
+          onClick={closeDailyReturnModal}
           style={{
             position: "fixed",
             inset: 0,
@@ -6688,9 +6418,9 @@ export default function Alloy() {
             alignItems: "center",
             justifyContent: "center",
             zIndex: 10,
-            background: correlationModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: correlationModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: correlationModalVisible ? "blur(6px)" : "blur(0px)",
+            background: dailyReturnModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: dailyReturnModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: dailyReturnModalVisible ? "blur(6px)" : "blur(0px)",
             transition: "background 0.35s ease, backdrop-filter 0.35s ease",
           }}
         >
@@ -6698,7 +6428,7 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(320px, 84vw)",
+              width: "min(360px, 90vw)",
               padding: "22px 20px",
               borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
@@ -6706,33 +6436,132 @@ export default function Alloy() {
               WebkitBackdropFilter: "blur(28px) saturate(180%)",
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: correlationModalVisible ? 1 : 0,
-              transform: correlationModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              opacity: dailyReturnModalVisible ? 1 : 0,
+              transform: dailyReturnModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
               transition:
                 "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
               boxSizing: "border-box",
             }}
           >
-            <h2
-              style={{
-                margin: "0 0 2px 0",
-                fontSize: 17,
-                fontWeight: 600,
-                color: isLight ? "#14161A" : "#FFFFFF",
-                letterSpacing: 0.2,
-              }}
-            >
-              상관계수 매트릭스
-            </h2>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-              }}
-            >
-              보유 종목 일간 수익률 상관계수
-            </span>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 17,
+                  fontWeight: 600,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  letterSpacing: 0.2,
+                }}
+              >
+                일간 수익률
+              </h2>
+
+              {holdings.length > 0 && (
+                <div ref={dailyHeatmapListRef} style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setDailyHeatmapListOpen((v) => !v)}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "5px 10px",
+                      borderRadius: 8,
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      transition: "opacity 0.2s ease, background 0.2s ease",
+                    }}
+                  >
+                    {dailyHeatmapOptions.find((o) => o.key === dailyHeatmapTarget)?.label || "포트폴리오"}
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        transform: dailyHeatmapListOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      right: 0,
+                      minWidth: 110,
+                      maxHeight: 220,
+                      overflowY: "auto",
+                      borderRadius: 12,
+                      background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                      backdropFilter: "blur(20px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                      overflow: "hidden",
+                      zIndex: 5,
+                      opacity: dailyHeatmapListOpen ? 1 : 0,
+                      transform: dailyHeatmapListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                      pointerEvents: dailyHeatmapListOpen ? "auto" : "none",
+                      transformOrigin: "top right",
+                      transition:
+                        "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  >
+                    {dailyHeatmapOptions.map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => {
+                          setDailyHeatmapTarget(opt.key);
+                          setDailyHeatmapListOpen(false);
+                        }}
+                        onMouseEnter={(e) => {
+                          if (opt.key !== dailyHeatmapTarget)
+                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (opt.key !== dailyHeatmapTarget) e.currentTarget.style.background = "transparent";
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "9px 12px",
+                          border: "none",
+                          background:
+                            opt.key === dailyHeatmapTarget
+                              ? isLight
+                                ? "rgba(20,22,26,0.08)"
+                                : "rgba(255,255,255,0.1)"
+                              : "transparent",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 12,
+                          fontWeight: opt.key === dailyHeatmapTarget ? 700 : 500,
+                          cursor: "pointer",
+                          outline: "none",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
 
             {holdings.length === 0 ? (
               <div
@@ -6747,7 +6576,7 @@ export default function Alloy() {
               >
                 아직 등록된 자산이 없어요
               </div>
-            ) : correlationTickers.length < 2 ? (
+            ) : dailyHeatmapLoading && Object.keys(dailyReturnMap).length === 0 ? (
               <div
                 style={{
                   display: "flex",
@@ -6758,104 +6587,92 @@ export default function Alloy() {
                   color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                 }}
               >
-                종목이 2개 이상일 때 상관계수를 확인할 수 있어요
+                불러오는 중...
               </div>
             ) : (
               <>
-                <div style={{ display: "flex", gap: 2, marginTop: 14 }}>
-                  <div style={{ display: "flex", flexDirection: "column", gap: 2, flexShrink: 0 }}>
-                    <div style={{ width: 42, height: 56 }} />
-                    {correlationTickers.map((rowTicker) => (
+                <div style={{ display: "flex", gap: 4 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 3, flexShrink: 0 }}>
+                    <div style={{ height: 14 }} />
+                    {HEATMAP_WEEKDAY_LABELS.map((label, row) => (
                       <div
-                        key={rowTicker}
+                        key={row}
                         style={{
-                          width: 42,
-                          height: 28,
+                          height: 10,
                           display: "flex",
                           alignItems: "center",
-                          justifyContent: "flex-end",
-                          paddingRight: 4,
                           fontSize: 9,
-                          fontWeight: 600,
-                          lineHeight: 1.1,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                          lineHeight: 1,
+                          color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                         }}
                       >
-                        {rowTicker}
+                        {row === 0 || row === 2 || row === 4 ? label : ""}
                       </div>
                     ))}
                   </div>
                   <div style={{ flex: 1, minWidth: 0, overflowX: "auto" }}>
-                    <div style={{ width: correlationTickers.length * 30 }}>
-                      <div style={{ display: "flex", gap: 2, marginBottom: 2 }}>
-                        {correlationTickers.map((colTicker) => (
-                          <div
-                            key={colTicker}
-                            style={{
-                              width: 28,
-                              height: 56,
-                              display: "flex",
-                              alignItems: "center",
-                              justifyContent: "center",
-                              writingMode: "vertical-rl",
-                              textOrientation: "upright",
-                              fontSize: 9,
-                              fontWeight: 600,
-                              letterSpacing: 0,
-                              whiteSpace: "nowrap",
-                              color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                            }}
-                          >
-                            {colTicker}
-                          </div>
-                        ))}
-                      </div>
-                      {correlationTickers.map((rowTicker) => (
-                        <div key={rowTicker} style={{ display: "flex", gap: 2, marginBottom: 2 }}>
-                          {correlationTickers.map((colTicker) => {
-                            const corr = correlationMatrix[rowTicker][colTicker];
-                            const { bg, text } = correlationCellStyle(corr, isLight);
-                            return (
-                              <div
-                                key={colTicker}
-                                title={`${rowTicker} × ${colTicker}: ${corr == null ? "데이터 부족" : corr.toFixed(2)}`}
-                                style={{
-                                  width: 28,
-                                  height: 28,
-                                  display: "flex",
-                                  alignItems: "center",
-                                  justifyContent: "center",
-                                  borderRadius: 4,
-                                  background: bg,
-                                  color: text,
-                                  fontSize: 9,
-                                  fontWeight: 700,
-                                }}
-                              >
-                                {corr == null ? "-" : corr.toFixed(2)}
-                              </div>
-                            );
-                          })}
-                        </div>
+                    <div style={{ position: "relative", height: 14, width: dailyHeatmapWeeksCount * 13 }}>
+                      {dailyHeatmapMonthLabels.map(({ col, label }) => (
+                        <span
+                          key={col}
+                          style={{
+                            position: "absolute",
+                            left: col * 13,
+                            fontSize: 9,
+                            lineHeight: 1,
+                            whiteSpace: "nowrap",
+                            color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          }}
+                        >
+                          {label}
+                        </span>
+                      ))}
+                    </div>
+                    <div
+                      style={{
+                        display: "grid",
+                        gridTemplateRows: "repeat(5, 10px)",
+                        gridAutoFlow: "column",
+                        gridAutoColumns: "10px",
+                        gap: 3,
+                      }}
+                    >
+                      {dailyHeatmapCells.map((cell) => (
+                        <div
+                          key={cell.key}
+                          title={cell.hidden || cell.returnPct == null ? cell.key : `${cell.key} ${cell.returnPct >= 0 ? "+" : ""}${cell.returnPct.toFixed(2)}%`}
+                          style={{
+                            width: 10,
+                            height: 10,
+                            borderRadius: 2,
+                            background: cell.hidden ? "transparent" : heatmapCellColor(cell.returnPct, isLight),
+                          }}
+                        />
                       ))}
                     </div>
                   </div>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 14, fontSize: 10 }}>
-                  <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>-1</span>
-                  <div
-                    style={{
-                      flex: 1,
-                      height: 6,
-                      borderRadius: 3,
-                      background: "linear-gradient(90deg, #3E8EFF, #AFD3FF, rgba(128,128,128,0.3), #FFAFAF, #E23F3F)",
-                    }}
-                  />
-                  <span style={{ color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>+1</span>
+                <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 10, marginTop: 16 }}>
+                  {[
+                    { color: "#9BE3AA", label: "0~3%" },
+                    { color: "#1E9E4C", label: "3%~" },
+                    { color: "#FFAFAF", label: "0~-3%" },
+                    { color: "#E23F3F", label: "-3%~" },
+                  ].map((item) => (
+                    <div key={item.label} style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                      <div style={{ width: 10, height: 10, borderRadius: 2, background: item.color }} />
+                      <span
+                        style={{
+                          fontSize: 10,
+                          fontWeight: 500,
+                          color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                        }}
+                      >
+                        {item.label}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </>
             )}
