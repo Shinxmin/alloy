@@ -5,6 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <meta name="theme-color" content="#17191D" />
     <title>αlloy</title>
+    <style>
+      /* 웹사이트 내 모든 스크롤바를 시각적으로 숨김(스크롤 동작 자체는 유지) */
+      * {
+        scrollbar-width: none;
+        -ms-overflow-style: none;
+      }
+      *::-webkit-scrollbar {
+        display: none;
+        width: 0;
+        height: 0;
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
