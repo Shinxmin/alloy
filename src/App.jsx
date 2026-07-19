@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.127";
+const APP_VERSION = "0.1.128";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -111,6 +111,74 @@ function formatKstTimePart(ts) {
     hourCycle: "h23",
   }).formatToParts(new Date(ts * 1000));
   return `${getDatePart(parts, "hour")}:${getDatePart(parts, "minute")}`;
+}
+
+const WEEKDAY_INDEX = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+// 특정 IANA 타임존 기준 현재 요일(0=일~6=토)/시/분/초 - 서머타임(DST) 여부는 Intl이 타임존 규칙에
+// 따라 자동으로 반영하므로 별도의 수동 오프셋 계산이 필요 없다(예: America/New_York은 3월 둘째 주
+// 일요일~11월 첫째 주 일요일 EDT(UTC-4), 그 외 EST(UTC-5); Asia/Seoul은 서머타임 없이 항상 UTC+9).
+function getZonedDateParts(date, timeZone) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone,
+    weekday: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(date);
+  return {
+    weekday: WEEKDAY_INDEX[getDatePart(parts, "weekday")],
+    hour: Number(getDatePart(parts, "hour")),
+    minute: Number(getDatePart(parts, "minute")),
+    second: Number(getDatePart(parts, "second")),
+  };
+}
+
+// 미국(뉴욕증권거래소/나스닥) 시장 상태 - 프리마켓 04:00~09:30, 정규장 09:30~16:00, 애프터마켓
+// 16:00~20:00(America/New_York 현지시각 기준, 이 시간대들은 1985년 이후 표준 거래시간으로 변경 없음).
+// 서머타임 전환은 America/New_York 타임존 자체가 처리하므로 이 함수는 그 지역시각만 그대로 사용한다.
+function getUsMarketStatus(date) {
+  const { weekday, hour, minute, second } = getZonedDateParts(date, "America/New_York");
+  const totalSec = hour * 3600 + minute * 60 + second;
+  const isWeekday = weekday >= 1 && weekday <= 5;
+  const PRE_START = 4 * 3600;
+  const REGULAR_START = 9 * 3600 + 30 * 60;
+  const REGULAR_END = 16 * 3600;
+  const AFTER_END = 20 * 3600;
+
+  if (!isWeekday) return { session: "closed", secondsToClose: null };
+  if (totalSec >= PRE_START && totalSec < REGULAR_START) return { session: "pre", secondsToClose: null };
+  if (totalSec >= REGULAR_START && totalSec < REGULAR_END)
+    return { session: "regular", secondsToClose: REGULAR_END - totalSec };
+  if (totalSec >= REGULAR_END && totalSec < AFTER_END) return { session: "after", secondsToClose: null };
+  return { session: "closed", secondsToClose: null };
+}
+
+// 한국(코스피/코스닥) 시장 상태 - 정규장 09:00~15:30(KRX 표준 거래시간), 애프터마켓(NXT, 2025년 3월
+// 출범한 대체거래소 넥스트레이드의 애프터마켓 세션) 15:30~20:00. Asia/Seoul은 서머타임이 없어
+// 연중 항상 UTC+9로 고정된다.
+function getKrMarketStatus(date) {
+  const { weekday, hour, minute, second } = getZonedDateParts(date, "Asia/Seoul");
+  const totalSec = hour * 3600 + minute * 60 + second;
+  const isWeekday = weekday >= 1 && weekday <= 5;
+  const REGULAR_START = 9 * 3600;
+  const REGULAR_END = 15 * 3600 + 30 * 60;
+  const AFTER_END = 20 * 3600;
+
+  if (!isWeekday) return { session: "closed", secondsToClose: null };
+  if (totalSec >= REGULAR_START && totalSec < REGULAR_END)
+    return { session: "regular", secondsToClose: REGULAR_END - totalSec };
+  if (totalSec >= REGULAR_END && totalSec < AFTER_END) return { session: "after", secondsToClose: null };
+  return { session: "closed", secondsToClose: null };
+}
+
+// "H시간 M분 남음" 카운트다운을 "04:50" 형식으로 포맷(정규장 상태일 때만 사용)
+function formatMarketCountdown(secondsToClose) {
+  const totalMinutes = Math.max(0, Math.floor(secondsToClose / 60));
+  const hh = Math.floor(totalMinutes / 60);
+  const mm = totalMinutes % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 // X축 하단 라벨: 주기별로 KST 기준 표기 형식이 다름
@@ -589,6 +657,18 @@ export default function Alloy() {
       vv.removeEventListener("scroll", updateKeyboardOffset);
     };
   }, []);
+
+  // 시장 개장 상태(Market Clock) - 홈 탭 지수 위젯 바로 위에 미국/한국 장 상태 뱃지를 표기.
+  // 30초 간격으로만 갱신해도 분 단위 카운트다운 표기에는 충분해 큰 컴포넌트 트리 리렌더 비용을 아낀다.
+  const [marketClockNow, setMarketClockNow] = useState(() => new Date());
+  useEffect(() => {
+    const id = setInterval(() => setMarketClockNow(new Date()), 30000);
+    return () => clearInterval(id);
+  }, []);
+  const usMarketStatus = getUsMarketStatus(marketClockNow);
+  const krMarketStatus = getKrMarketStatus(marketClockNow);
+  const US_MARKET_SESSION_LABEL = { pre: "프리마켓", regular: "정규장", after: "애프터마켓", closed: "마감" };
+  const KR_MARKET_SESSION_LABEL = { regular: "정규장", after: "애프터마켓(NXT)", closed: "마감" };
 
   // Supabase 로그인 세션
   const [session, setSession] = useState(null);
@@ -3561,6 +3641,70 @@ export default function Alloy() {
               </div>
             </div>
 
+            {/* 시장 개장 상태(Market Clock): 지수 위젯 바로 위에 미국/한국 장 상태를 뱃지로 표기.
+                개장(프리마켓/정규장/애프터마켓) 중에는 초록 점, 마감일 때는 회색 점. 정규장일 때만
+                마감까지 남은 시간을 "정규장 04:50 남음" 형식으로 덧붙인다. 휴장일(공휴일) 캘린더는
+                반영하지 않고 요일 + 시각만으로 판단한다(America/New_York 서머타임은 Intl 타임존이
+                자동 처리, Asia/Seoul은 서머타임이 없어 연중 UTC+9 고정). */}
+            <div
+              style={{
+                marginTop: 56,
+                padding: "14px 16px",
+                borderRadius: 20,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                display: "flex",
+                flexDirection: "column",
+                gap: 10,
+              }}
+            >
+              {[
+                { label: "미국", status: usMarketStatus, sessionLabel: US_MARKET_SESSION_LABEL[usMarketStatus.session] },
+                { label: "한국", status: krMarketStatus, sessionLabel: KR_MARKET_SESSION_LABEL[krMarketStatus.session] },
+              ].map((market) => (
+                <div key={market.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                    <span
+                      style={{
+                        width: 7,
+                        height: 7,
+                        borderRadius: "50%",
+                        background:
+                          market.status.session === "closed"
+                            ? isLight
+                              ? "rgba(20,22,26,0.25)"
+                              : "rgba(255,255,255,0.25)"
+                            : "#1E9E4C",
+                        flexShrink: 0,
+                      }}
+                    />
+                    <span style={{ fontSize: 13, fontWeight: 600, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                      {market.label}
+                    </span>
+                    <span
+                      style={{
+                        fontSize: 13,
+                        fontWeight: 500,
+                        color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                      }}
+                    >
+                      {market.sessionLabel}
+                    </span>
+                  </div>
+                  {market.status.session === "regular" && (
+                    <span
+                      style={{
+                        fontSize: 12,
+                        fontWeight: 600,
+                        color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                      }}
+                    >
+                      정규장 {formatMarketCountdown(market.status.secondsToClose)} 남음
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+
             {/* 지수 위젯 카드: 하단 점 버튼 또는 좌우 드래그(스와이프)로 "주가지수 4종" / "환율·미국채" 두 페이지 전환.
                 두 페이지를 가로로 나란히 두고 translateX로 슬라이드시키는 방식이라, 두 페이지 모두 항상 DOM에 떠있으며
                 내용이 더 큰 쪽 높이에 flex stretch로 맞춰져 카드 테두리 세로폭이 두 페이지에서 항상 동일하다. */}
@@ -3574,7 +3718,7 @@ export default function Alloy() {
               onTouchEnd={handleIndexDragEnd}
               onClickCapture={handleIndexClickCapture}
               style={{
-                marginTop: 56,
+                marginTop: 12,
                 padding: "20px 16px 16px",
                 borderRadius: 24,
                 border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
