@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.121";
+const APP_VERSION = "0.1.122";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -208,25 +208,6 @@ function heatmapCellColor(returnPct, isLight) {
   if (returnPct >= 0) return "#9BE3AA";
   if (returnPct > -3) return "#FFAFAF";
   return "#E23F3F";
-}
-
-// 요일별(월~금) 상승/하락 일수 집계 - 일간 수익률 모달의 막대그래프에 사용.
-// 히트맵과 동일하게 올해(KST) 데이터만 집계 대상으로 한다. 하락일은 아래쪽(음수)으로
-// 표기하기 위해 down 값을 음수로 저장한다.
-function buildWeekdayReturnStats(returnMap) {
-  const currentYear = Number(
-    new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric" }).format(new Date())
-  );
-  const counts = HEATMAP_WEEKDAY_LABELS.map((label) => ({ day: label, up: 0, down: 0 }));
-  Object.keys(returnMap).forEach((key) => {
-    const [y, m, d] = key.split("-").map(Number);
-    if (y !== currentYear) return;
-    const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay(); // 1=월 ... 5=금
-    if (dow < 1 || dow > 5) return;
-    if (returnMap[key] >= 0) counts[dow - 1].up += 1;
-    else counts[dow - 1].down += 1;
-  });
-  return counts.map((c) => ({ day: c.day, up: c.up, down: -c.down }));
 }
 
 // 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
@@ -1222,22 +1203,6 @@ export default function Alloy() {
   const closeDividendModalRef = useRef(closeDividendModal);
   closeDividendModalRef.current = closeDividendModal;
 
-  // 일간 수익률 모달 (홈 탭 "일간 수익률" 제목 클릭 시 표시, 요일별 상승/하락 일수 막대그래프)
-  const [dailyReturnModalOpen, setDailyReturnModalOpen] = useState(false);
-  const [dailyReturnModalVisible, setDailyReturnModalVisible] = useState(false);
-
-  const openDailyReturnModal = () => {
-    setDailyReturnModalOpen(true);
-    requestAnimationFrame(() => setDailyReturnModalVisible(true));
-  };
-
-  const closeDailyReturnModal = () => {
-    setDailyReturnModalVisible(false);
-    setTimeout(() => setDailyReturnModalOpen(false), 300);
-  };
-  const closeDailyReturnModalRef = useRef(closeDailyReturnModal);
-  closeDailyReturnModalRef.current = closeDailyReturnModal;
-
   // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산, 배당금, 배당 캘린더 모달 표기 전부에 적용됨
   const [homeCurrency, setHomeCurrency] = useState("USD");
   const [homeCurrencyIndicator, setHomeCurrencyIndicator] = useState({ left: 0, width: 0 });
@@ -1430,7 +1395,6 @@ export default function Alloy() {
       modalOpen ||
       infoModalOpen ||
       dividendModalOpen ||
-      dailyReturnModalOpen ||
       assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1463,7 +1427,6 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
-    dailyReturnModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -1722,8 +1685,6 @@ export default function Alloy() {
     monthLabels: dailyHeatmapMonthLabels,
     weeksCount: dailyHeatmapWeeksCount,
   } = buildDailyReturnHeatmapCells(dailyReturnMap);
-
-  const dailyWeekdayStats = buildWeekdayReturnStats(dailyReturnMap);
 
   // 방금 로드를 완료한 세션의 user_id (ref라서 렌더를 기다리지 않고 즉시 반영됨).
   // 토큰 자동 갱신 등으로 session 객체가 바뀌면 LOAD 이펙트가 이 값을 먼저 null로 초기화하는데,
@@ -2089,9 +2050,6 @@ export default function Alloy() {
         } else if (dividendModalOpen) {
           e.preventDefault();
           closeDividendModalRef.current();
-        } else if (dailyReturnModalOpen) {
-          e.preventDefault();
-          closeDailyReturnModalRef.current();
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
@@ -2169,7 +2127,6 @@ export default function Alloy() {
     modalOpen,
     infoModalOpen,
     dividendModalOpen,
-    dailyReturnModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -4348,14 +4305,11 @@ export default function Alloy() {
                 }}
               />
               <div
-                onClick={openDailyReturnModal}
                 style={{
                   fontSize: 13,
                   fontWeight: 600,
                   color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
                   marginBottom: 10,
-                  cursor: "pointer",
-                  width: "fit-content",
                 }}
               >
                 일간 수익률
@@ -6435,131 +6389,6 @@ export default function Alloy() {
                       </span>
                     </div>
                   ))}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-
-      {/* 일간 수익률 모달 (홈 탭 "일간 수익률" 제목 클릭 시 표시): 올해 요일별(월~금) 상승일/하락일
-          수를 막대그래프로 표기. 상승일은 위쪽(+), 하락일은 아래쪽(-)으로 그린다. */}
-      {dailyReturnModalOpen && (
-        <div
-          onClick={closeDailyReturnModal}
-          style={{
-            position: "fixed",
-            inset: 0,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            zIndex: 10,
-            background: dailyReturnModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: dailyReturnModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: dailyReturnModalVisible ? "blur(6px)" : "blur(0px)",
-            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
-          }}
-        >
-          <div
-            onClick={(e) => e.stopPropagation()}
-            style={{
-              position: "relative",
-              width: "min(304px, 80vw)",
-              padding: "22px 20px",
-              borderRadius: 20,
-              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
-              backdropFilter: "blur(28px) saturate(180%)",
-              WebkitBackdropFilter: "blur(28px) saturate(180%)",
-              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: dailyReturnModalVisible ? 1 : 0,
-              transform: dailyReturnModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
-              transition:
-                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-              boxSizing: "border-box",
-            }}
-          >
-            <h2
-              style={{
-                margin: "0 0 2px 0",
-                fontSize: 17,
-                fontWeight: 600,
-                color: isLight ? "#14161A" : "#FFFFFF",
-                letterSpacing: 0.2,
-              }}
-            >
-              일간 수익률
-            </h2>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-              }}
-            >
-              올해 요일별 상승일 · 하락일
-            </span>
-
-            {holdings.length === 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: 150,
-                  fontSize: 12,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                }}
-              >
-                아직 등록된 자산이 없어요
-              </div>
-            ) : (
-              <>
-                <div style={{ width: "100%", height: 190, marginTop: 14 }}>
-                  <ResponsiveContainer width="100%" height="100%">
-                    <ComposedChart data={dailyWeekdayStats} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                      <XAxis
-                        dataKey="day"
-                        tick={{
-                          fontSize: 11,
-                          fill: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                        }}
-                        axisLine={false}
-                        tickLine={false}
-                        interval={0}
-                      />
-                      <YAxis hide />
-                      <Bar dataKey="up" fill="#1E9E4C" radius={[3, 3, 0, 0]} isAnimationActive={false} />
-                      <Bar dataKey="down" fill="#E23F3F" radius={[0, 0, 3, 3]} isAnimationActive={false} />
-                    </ComposedChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div style={{ display: "flex", gap: 14, marginTop: 14 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#1E9E4C", flexShrink: 0 }} />
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-                      }}
-                    >
-                      상승일
-                    </span>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                    <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#E23F3F", flexShrink: 0 }} />
-                    <span
-                      style={{
-                        fontSize: 12,
-                        fontWeight: 500,
-                        color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
-                      }}
-                    >
-                      하락일
-                    </span>
-                  </div>
                 </div>
               </>
             )}
