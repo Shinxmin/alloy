@@ -35,11 +35,20 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.131";
+const APP_VERSION = "0.1.132";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
-const DIVIDEND_TAX_RATE = 0.15;
+export const DIVIDEND_TAX_RATE = 0.15;
+
+// 숫자가 하나라도 포함된 티커는 국내(코스피/코스닥) 종목으로 취급 (예: 005930, 0198A0 같은
+// 영문 혼합 ETF 코드도 포함 - 미국 종목 티커는 숫자 없이 순수 영문으로만 구성됨)
+export const isNumericTicker = (ticker) => /[0-9]/.test(ticker || "");
+
+// 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
+// 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
+export const yahooSymbolCandidates = (ticker) =>
+  isNumericTicker(ticker) ? [`${ticker}.KS`, `${ticker}.KQ`] : [ticker];
 
 // 지수 모달 캔들차트 표기 주기 (야후 파이낸스 차트 API의 range/interval 파라미터)
 const INDEX_CANDLE_PERIODS = [
@@ -51,7 +60,7 @@ const INDEX_CANDLE_PERIODS = [
 
 
 // Intl.DateTimeFormat의 formatToParts 결과에서 특정 필드만 뽑아내는 헬퍼
-function getDatePart(parts, type) {
+export function getDatePart(parts, type) {
   return parts.find((p) => p.type === type)?.value || "";
 }
 
@@ -92,7 +101,7 @@ function formatKstYearDatePart(ts) {
 }
 
 // KST 기준 "YYYY-MM-DD" 날짜 키(일간 수익률 히트맵에서 날짜별로 데이터를 매칭하는 용도)
-function kstDateKey(ts) {
+export function kstDateKey(ts) {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
     year: "numeric",
@@ -190,16 +199,16 @@ function formatKstAxisLabel(ts, periodKey) {
 }
 
 const HEATMAP_DAY_MS = 86400000;
-const HEATMAP_MONTH_LABELS = [
+export const HEATMAP_MONTH_LABELS = [
   "1월", "2월", "3월", "4월", "5월", "6월", "7월", "8월", "9월", "10월", "11월", "12월",
 ];
 // 국내외 증시 모두 토/일은 항상 휴장이라 칸 자체를 만들지 않는다 - 세로 5칸(월~금)만 유지.
-const HEATMAP_WEEKDAY_LABELS = ["월", "화", "수", "목", "금"];
+export const HEATMAP_WEEKDAY_LABELS = ["월", "화", "수", "목", "금"];
 
 // 일간 수익률 히트맵의 칸 배열을 생성 - 올해(1/1~12/31, KST 기준) 안에서만 채우고 해가 바뀌면
 // 자동으로 새해 1월부터 다시 시작한다. 열 = 주(월요일 시작), 행 = 요일(0=월 ~ 4=금, 주말 칸 없음).
 // 아직 장이 마감되지 않은 오늘/미래 날짜는 데이터를 넣지 않는다(returnMap에 값이 없으면 자동으로 빈 칸).
-function buildDailyReturnHeatmapCells(returnMap) {
+export function buildDailyReturnHeatmapCells(returnMap) {
   const now = new Date();
   const todayParts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Seoul",
@@ -270,7 +279,7 @@ function buildDailyReturnHeatmapCells(returnMap) {
 }
 
 // 히트맵 칸 색상 - 데이터 없음(주말/휴장일 등)은 은은한 회색, 상승은 초록, 하락은 빨강 계열
-function heatmapCellColor(returnPct, isLight) {
+export function heatmapCellColor(returnPct, isLight) {
   if (returnPct == null) return isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.07)";
   if (returnPct >= 3) return "#1E9E4C";
   if (returnPct >= 0) return "#9BE3AA";
@@ -1512,11 +1521,6 @@ export default function Alloy() {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [benchmarkListOpen]);
 
-  // 티커 → 야후 파이낸스 심볼 후보. 숫자 티커(국내 종목)는 코스피(.KS)를 먼저 시도하고,
-  // 없으면 코스닥(.KQ)으로 재시도한다. 그 외(영문 등) 티커는 그대로 미국장 심볼로 사용한다.
-  const yahooSymbolCandidates = (ticker) =>
-    isNumericTicker(ticker) ? [`${ticker}.KS`, `${ticker}.KQ`] : [ticker];
-
   // 모달이 열리면 후보 심볼을 순서대로 시도해 실제로 시세가 있는 심볼을 찾는다 (헤더 현재가/등락 포함)
   const [infoSymbol, setInfoSymbol] = useState(null);
   const [infoCurrent, setInfoCurrent] = useState(null); // { name, price, changeAmount, changePercent }
@@ -1726,10 +1730,6 @@ export default function Alloy() {
   const [holdings, setHoldings] = useState([]); // [{ ticker, quantity, avgPrice, currency, exchangeRate }]
   const [cashHoldings, setCashHoldings] = useState([]); // [{ currency, amount, exchangeRate }]
   const [dataLoaded, setDataLoaded] = useState(false);
-
-  // 숫자가 하나라도 포함된 티커는 국내(코스피/코스닥) 종목으로 취급 (예: 005930, 0198A0 같은
-  // 영문 혼합 ETF 코드도 포함 - 미국 종목 티커는 숫자 없이 순수 영문으로만 구성됨)
-  const isNumericTicker = (ticker) => /[0-9]/.test(ticker || "");
 
   // 보유 종목 현재가(수익률/현재 평가금액 계산용) - 야후 파이낸스로 조회. 숫자 티커(국내 종목)는
   // 코스피(.KS)를 먼저 시도하고 실패하면 코스닥(.KQ)으로 재시도하며, 그 외(영문) 티커는 그대로 조회한다.
@@ -5370,6 +5370,35 @@ export default function Alloy() {
                 </div>
               </div>
             )}
+
+            {/* 포트폴리오 탭 최하단: 드래그 앤 드롭 블록 그리드로 재구성한 새 디자인 미리보기(베타)로
+                이동하는 링크. 같은 로그인 세션을 공유하는 새 브라우저 탭으로 연다. */}
+            <div style={{ display: "flex", justifyContent: "center", padding: "28px 0 8px" }}>
+              <span
+                role="link"
+                tabIndex={0}
+                onClick={() => {
+                  const url = `${window.location.origin}${window.location.pathname}?view=grid`;
+                  window.open(url, "_blank");
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    const url = `${window.location.origin}${window.location.pathname}?view=grid`;
+                    window.open(url, "_blank");
+                  }
+                }}
+                style={{
+                  fontSize: 12,
+                  fontWeight: 500,
+                  color: isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)",
+                  cursor: "pointer",
+                  outline: "none",
+                }}
+              >
+                새로운 디자인으로 보기
+              </span>
+            </div>
           </>
         )}
 
