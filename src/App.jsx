@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.130";
+const APP_VERSION = "0.1.131";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -881,12 +881,11 @@ export default function Alloy() {
   const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset" | "forest"
   // 테마별 대표 색상/그라데이션 (배경 레이어와 /theme 선택지 원형 스와치에서 공용으로 사용)
   const THEME_SWATCHES = {
-    light: "#F8F9FA",
-    dark: "#17191D",
+    light: "#F4F3EE",
+    dark: "#141413",
     sunset: "radial-gradient(circle at 50% 50%, #47301e 0%, #2a1f1a 55%, #17191D 95%)",
     forest: "radial-gradient(circle at 50% 50%, #1f3d28 0%, #1a2a20 55%, #17191D 95%)",
   };
-  const [themeHovered, setThemeHovered] = useState(false);
   const [themeLoaded, setThemeLoaded] = useState(false);
   const isLight = theme === "light";
 
@@ -907,7 +906,17 @@ export default function Alloy() {
     } catch (e) {}
   }, [theme, themeLoaded]);
 
-  const toggleTheme = () => setTheme((t) => (t === "dark" ? "light" : "dark"));
+  // 설정 탭 "테마" 슬라이드 토글(라이트/다크) - 홈 탭 총자산 $/₩ 토글과 동일한 슬라이딩 인디케이터 방식
+  const [themeIndicator, setThemeIndicator] = useState({ left: 0, width: 0 });
+  const themeBtnRefs = useRef([]);
+  const [themeSelectHoverIdx, setThemeSelectHoverIdx] = useState(null);
+  useEffect(() => {
+    const idx = isLight ? 0 : 1;
+    const el = themeBtnRefs.current[idx];
+    if (el) {
+      setThemeIndicator({ left: el.offsetLeft, width: el.offsetWidth });
+    }
+  }, [isLight, active]);
 
   useEffect(() => {
     const el = btnRefs.current[active];
@@ -3445,7 +3454,7 @@ export default function Alloy() {
     justifyContent: "space-between",
     margin: "0 -20px 24px -20px",
     padding: "22px 20px 14px 20px",
-    background: isLight ? "rgba(248,249,250,0.45)" : "rgba(23,25,29,0.45)",
+    background: isLight ? "rgba(244,243,238,0.45)" : "rgba(20,20,19,0.45)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
   };
@@ -3474,7 +3483,7 @@ export default function Alloy() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: isLight ? "#F8F9FA" : "#17191D",
+          background: isLight ? "#F4F3EE" : "#141413",
           color: isLight ? "#14161A" : "#FFFFFF",
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
         }}
@@ -3493,7 +3502,7 @@ export default function Alloy() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: isLight ? "#F8F9FA" : "#17191D",
+          background: isLight ? "#F4F3EE" : "#141413",
           fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
           padding: 20,
           boxSizing: "border-box",
@@ -3648,7 +3657,7 @@ export default function Alloy() {
           margin: 0;
           padding: 0;
           min-height: 100%;
-          background: ${isLight ? "#F8F9FA" : "#17191D"};
+          background: ${isLight ? "#F4F3EE" : "#141413"};
         }
         .recharts-wrapper, .recharts-surface, .recharts-sector,
         .recharts-pie-sector, .recharts-layer {
@@ -3713,61 +3722,6 @@ export default function Alloy() {
                 >
                   대시보드
                 </h1>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-                <button
-                  onClick={() => {
-                    toggleTheme();
-                    setThemeHovered(false);
-                  }}
-                  onMouseEnter={() => setThemeHovered(true)}
-                  onMouseLeave={() => setThemeHovered(false)}
-                  aria-label="테마 전환"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.12)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: themeHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: themeHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                  }}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill={isLight ? "#14161A" : "#FFFFFF"}
-                  >
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
-                </button>
               </div>
             </div>
 
@@ -4984,61 +4938,6 @@ export default function Alloy() {
                   포트폴리오
                 </h1>
               </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-                <button
-                  onClick={() => {
-                    toggleTheme();
-                    setThemeHovered(false);
-                  }}
-                  onMouseEnter={() => setThemeHovered(true)}
-                  onMouseLeave={() => setThemeHovered(false)}
-                  aria-label="테마 전환"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.12)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: themeHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: themeHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                  }}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill={isLight ? "#14161A" : "#FFFFFF"}
-                  >
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
-                </button>
-              </div>
             </div>
 
             {/* 원그래프 */}
@@ -5502,61 +5401,6 @@ export default function Alloy() {
                   설정
                 </h1>
               </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                {/* 라이트/다크 모드 토글 (리퀴드 글래스 원형 버튼) */}
-                <button
-                  onClick={() => {
-                    toggleTheme();
-                    setThemeHovered(false);
-                  }}
-                  onMouseEnter={() => setThemeHovered(true)}
-                  onMouseLeave={() => setThemeHovered(false)}
-                  aria-label="테마 전환"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    flexShrink: 0,
-                    borderRadius: "50%",
-                    border: isLight
-                      ? "1px solid rgba(20,22,26,0.12)"
-                      : "1px solid rgba(255,255,255,0.14)",
-                    background: themeHovered
-                      ? isLight
-                        ? "rgba(255,255,255,0.85)"
-                        : "rgba(255,255,255,0.14)"
-                      : isLight
-                      ? "rgba(255,255,255,0.65)"
-                      : "rgba(255,255,255,0.06)",
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: themeHovered
-                      ? isLight
-                        ? "0 6px 20px rgba(20,22,26,0.14), inset 0 1px 0 rgba(255,255,255,0.6)"
-                        : "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.25)"
-                      : isLight
-                      ? "0 4px 14px rgba(20,22,26,0.08), inset 0 1px 0 rgba(255,255,255,0.5)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    cursor: "pointer",
-                    outline: "none",
-                    transition:
-                      "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: themeHovered ? "scale(1.08)" : "scale(1)",
-                  }}
-                >
-                  <svg
-                    width="16"
-                    height="16"
-                    viewBox="0 0 24 24"
-                    fill={isLight ? "#14161A" : "#FFFFFF"}
-                  >
-                    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
-                  </svg>
-                </button>
-              </div>
             </div>
 
             {/* 프로필: 기본 원형 이미지 + 닉네임 + 수정 버튼 */}
@@ -5693,6 +5537,98 @@ export default function Alloy() {
               >
                 일반
               </h2>
+
+              {/* 테마 선택 - 홈 탭 총자산 $/₩ 토글과 동일한 슬라이딩 인디케이터 애니메이션으로 라이트/다크 전환 */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  테마
+                </span>
+
+                <div
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    height: 32,
+                    padding: 3,
+                    borderRadius: 10,
+                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
+                    border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 3,
+                      left: themeIndicator.left,
+                      width: themeIndicator.width,
+                      height: "calc(100% - 6px)",
+                      borderRadius: 7,
+                      background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                      transition:
+                        "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  />
+                  {[
+                    { key: "light", label: "라이트" },
+                    { key: "dark", label: "다크" },
+                  ].map((t, i) => (
+                    <button
+                      key={t.key}
+                      ref={(el) => (themeBtnRefs.current[i] = el)}
+                      onClick={() => setTheme(t.key)}
+                      onMouseEnter={() => setThemeSelectHoverIdx(i)}
+                      onMouseLeave={() => setThemeSelectHoverIdx(null)}
+                      style={{
+                        position: "relative",
+                        zIndex: 1,
+                        padding: "0 12px",
+                        height: "100%",
+                        border: "none",
+                        background: "transparent",
+                        borderRadius: 7,
+                        color:
+                          theme === t.key
+                            ? isLight
+                              ? "#14161A"
+                              : "#FFFFFF"
+                            : isLight
+                            ? "rgba(20,22,26,0.5)"
+                            : "rgba(255,255,255,0.5)",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "color 0.3s ease, transform 0.2s ease",
+                        transform: themeSelectHoverIdx === i && theme !== t.key ? "scale(1.08)" : "scale(1)",
+                      }}
+                    >
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+
               <div
                 style={{
                   display: "flex",
