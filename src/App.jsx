@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.129";
+const APP_VERSION = "0.1.130";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -276,6 +276,30 @@ function heatmapCellColor(returnPct, isLight) {
   if (returnPct >= 0) return "#9BE3AA";
   if (returnPct > -3) return "#FFAFAF";
   return "#E23F3F";
+}
+
+// 스트레스 테스트용 베타(민감도) 계산 - 지수(독립변수)가 하루에 1% 움직일 때 내 포트폴리오
+// (종속변수)가 평균적으로 몇 % 움직였는지를 최근 1년 일간 수익률의 공통 날짜로 회귀(선형회귀
+// 기울기 = 공분산/지수 분산)해 구한다. 표본이 너무 적으면(5일 미만) 신뢰할 수 없어 null을 반환한다.
+function computeBeta(portfolioReturnMap, indexReturnMap) {
+  const commonDates = Object.keys(portfolioReturnMap).filter((d) =>
+    Object.prototype.hasOwnProperty.call(indexReturnMap, d)
+  );
+  if (commonDates.length < 5) return null;
+  const xs = commonDates.map((d) => indexReturnMap[d]);
+  const ys = commonDates.map((d) => portfolioReturnMap[d]);
+  const n = xs.length;
+  const meanX = xs.reduce((a, b) => a + b, 0) / n;
+  const meanY = ys.reduce((a, b) => a + b, 0) / n;
+  let cov = 0;
+  let varX = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xs[i] - meanX;
+    cov += dx * (ys[i] - meanY);
+    varX += dx * dx;
+  }
+  if (varX === 0) return null;
+  return cov / varX;
 }
 
 // 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
@@ -1371,6 +1395,79 @@ export default function Alloy() {
     { key: "kospi", label: "코스피", symbol: "^KS11" },
   ];
 
+  // 스트레스 테스트 - S&P500/나스닥/코스피의 최근 1년 일간 등락률을 미리 구해 베타(민감도) 계산에 쓴다.
+  // 보유 종목과 무관하게 항상 3개 지수를 조회하므로 holdings에 의존하지 않는 별도 이펙트로 둔다.
+  const [stressIndexReturnMaps, setStressIndexReturnMaps] = useState({}); // { sp500: {date:pct}, nasdaq: {...}, kospi: {...} }
+  useEffect(() => {
+    let cancelled = false;
+    const fetchOne = async (opt) => {
+      try {
+        const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+          body: { symbol: opt.symbol, name: opt.label, range: "1y", interval: "1d" },
+        });
+        if (!error && data && Array.isArray(data.history)) return data.history;
+      } catch (e) {
+        // 무시하고 빈 배열 처리
+      }
+      return [];
+    };
+    Promise.all(BENCHMARK_OPTIONS.map((opt) => fetchOne(opt).then((history) => [opt.key, history]))).then(
+      (results) => {
+        if (cancelled) return;
+        const todayKey = kstDateKey(Date.now() / 1000);
+        const maps = {};
+        for (const [key, history] of results) {
+          const map = {};
+          for (let i = 1; i < history.length; i++) {
+            const dateKey = kstDateKey(history[i].ts);
+            if (dateKey >= todayKey) continue;
+            const prevClose = history[i - 1].close;
+            if (!(prevClose > 0)) continue;
+            map[dateKey] = ((history[i].close - prevClose) / prevClose) * 100;
+          }
+          maps[key] = map;
+        }
+        setStressIndexReturnMaps(maps);
+      }
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 스트레스 테스트 모달 (홈 탭 "스트레스 테스트" 클릭 시 표시)
+  const [stressTestModalOpen, setStressTestModalOpen] = useState(false);
+  const [stressTestModalVisible, setStressTestModalVisible] = useState(false);
+  const openStressTestModal = () => {
+    setStressTestModalOpen(true);
+    requestAnimationFrame(() => setStressTestModalVisible(true));
+  };
+  const closeStressTestModal = () => {
+    setStressTestModalVisible(false);
+    setTimeout(() => setStressTestModalOpen(false), 300);
+  };
+  const closeStressTestModalRef = useRef(closeStressTestModal);
+  closeStressTestModalRef.current = closeStressTestModal;
+
+  // 스트레스 테스트에서 기준으로 삼을 지수 선택 토글(S&P500/나스닥/코스피) - 카드의 "스트레스 테스트"
+  // 제목 줄 오른쪽 끝에 위치(일간 수익률 종목 토글과 동일한 위치 규칙)
+  const [stressIndexKey, setStressIndexKey] = useState(BENCHMARK_OPTIONS[0].key);
+  const [stressIndexListOpen, setStressIndexListOpen] = useState(false);
+  const stressIndexListRef = useRef(null);
+  useEffect(() => {
+    if (!stressIndexListOpen) return;
+    const handleClickOutside = (e) => {
+      if (stressIndexListRef.current && !stressIndexListRef.current.contains(e.target)) {
+        setStressIndexListOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [stressIndexListOpen]);
+
+  // 스트레스 테스트에서 가정할 하락률(%) 선택 - 모달 안에서 5/10/20/30% 중 선택
+  const [stressDeclinePercent, setStressDeclinePercent] = useState(10);
+
   // 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시, 선택한 지수 대비 내 포트폴리오 수익률 비교 차트)
   const [benchmarkModalOpen, setBenchmarkModalOpen] = useState(false);
   const [benchmarkModalVisible, setBenchmarkModalVisible] = useState(false);
@@ -1492,6 +1589,7 @@ export default function Alloy() {
       infoModalOpen ||
       dividendModalOpen ||
       dailyReturnModalOpen ||
+      stressTestModalOpen ||
       assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1525,6 +1623,7 @@ export default function Alloy() {
     infoModalOpen,
     dividendModalOpen,
     dailyReturnModalOpen,
+    stressTestModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -2225,6 +2324,9 @@ export default function Alloy() {
         } else if (dailyReturnModalOpen) {
           e.preventDefault();
           closeDailyReturnModalRef.current();
+        } else if (stressTestModalOpen) {
+          e.preventDefault();
+          closeStressTestModalRef.current();
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
@@ -2303,6 +2405,7 @@ export default function Alloy() {
     infoModalOpen,
     dividendModalOpen,
     dailyReturnModalOpen,
+    stressTestModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -2347,6 +2450,24 @@ export default function Alloy() {
     const timer = setTimeout(() => setDeleteConfirming(false), 3000);
     return () => clearTimeout(timer);
   }, [deleteConfirming]);
+
+  // 설정 탭 "포트폴리오 초기화" - 보유 종목/현금을 모두 지우고 빈 값으로 저장한다(목표 설정은 유지).
+  // 삭제 버튼과 동일한 2단계 확인(첫 클릭은 확인 상태 전환만, 3초 안에 다시 누르면 실제 초기화) 패턴.
+  const [resetPortfolioConfirming, setResetPortfolioConfirming] = useState(false);
+  const handleResetPortfolioClick = () => {
+    if (!resetPortfolioConfirming) {
+      setResetPortfolioConfirming(true);
+      return;
+    }
+    setHoldings([]);
+    setCashHoldings([]);
+    setResetPortfolioConfirming(false);
+  };
+  useEffect(() => {
+    if (!resetPortfolioConfirming) return;
+    const timer = setTimeout(() => setResetPortfolioConfirming(false), 3000);
+    return () => clearTimeout(timer);
+  }, [resetPortfolioConfirming]);
 
   // 같은 카테고리 내 종목 순서 변경 (드래그 앤 드롭)
   const handleDragStart = (key, index) => (e) => {
@@ -2591,6 +2712,15 @@ export default function Alloy() {
   // 화면에 표기할 통화별(각각) 총자산: 자기 통화 원금액 + 다른 통화 자산의 환산액
   const displayTotalUSD = totalNativeUSD + convertedKRWtoUSD;
   const displayTotalKRW = totalNativeKRW + convertedUSDtoKRW;
+
+  // 스트레스 테스트 - 선택한 지수와 내 포트폴리오의 최근 1년 일간 수익률로 베타(민감도)를 구하고,
+  // 가정한 하락률(%)을 곱해 예상 변동률/금액을 계산한다.
+  const stressIndexOption = BENCHMARK_OPTIONS.find((o) => o.key === stressIndexKey) || BENCHMARK_OPTIONS[0];
+  const stressBeta = computeBeta(dailyReturnMaps.portfolio || {}, stressIndexReturnMaps[stressIndexKey] || {});
+  const stressEstimatedChangePercent = stressBeta == null ? null : -stressBeta * stressDeclinePercent;
+  const stressBaselineTotal = homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW;
+  const stressEstimatedChangeAmount =
+    stressEstimatedChangePercent == null ? null : (stressBaselineTotal * stressEstimatedChangePercent) / 100;
 
   // 총 자산 등락폭: 현재가가 있는 보유 종목의 평가손익(현재가 - 평균단가) × 수량을 합산 (현금은 손익이 없어 제외)
   let totalGainUSD = 0;
@@ -4679,6 +4809,149 @@ export default function Alloy() {
                   </div>
                 )}
               </div>
+
+              {/* 스트레스 테스트: 제목을 클릭하면 모달을 열어 선택한 지수가 급락할 때 내 포트폴리오가
+                  얼마나 흔들릴지 보여준다. 지수 선택 토글은 모달 밖, 이 줄의 오른쪽 끝에 두고
+                  애니메이션(펄스) 효과를 줘 시선을 끈다. */}
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={openStressTestModal}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault();
+                      openStressTestModal();
+                    }
+                  }}
+                  onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                  onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 4,
+                    width: "fit-content",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "opacity 0.2s ease",
+                  }}
+                >
+                  스트레스 테스트
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </div>
+
+                <div ref={stressIndexListRef} style={{ position: "relative" }}>
+                  <button
+                    onClick={() => setStressIndexListOpen((v) => !v)}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 4,
+                      padding: "5px 10px",
+                      borderRadius: 8,
+                      border: `1px solid rgba(255,107,107,0.4)`,
+                      background: isLight ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.12)",
+                      color: isLight ? "#B23B3B" : "#FF8A8A",
+                      fontSize: 12,
+                      fontWeight: 600,
+                      cursor: "pointer",
+                      outline: "none",
+                      animation: "stressPulse 2.2s ease-in-out infinite",
+                    }}
+                  >
+                    {stressIndexOption.label}
+                    <svg
+                      width="9"
+                      height="9"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2.5"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      style={{
+                        transform: stressIndexListOpen ? "rotate(180deg)" : "rotate(0deg)",
+                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      <path d="M6 9l6 6 6-6" />
+                    </svg>
+                  </button>
+
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: "calc(100% + 6px)",
+                      right: 0,
+                      minWidth: 110,
+                      borderRadius: 12,
+                      background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                      backdropFilter: "blur(20px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                      overflow: "hidden",
+                      zIndex: 5,
+                      opacity: stressIndexListOpen ? 1 : 0,
+                      transform: stressIndexListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                      pointerEvents: stressIndexListOpen ? "auto" : "none",
+                      transformOrigin: "top right",
+                      transition:
+                        "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  >
+                    {BENCHMARK_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.key}
+                        onClick={() => {
+                          setStressIndexKey(opt.key);
+                          setStressIndexListOpen(false);
+                        }}
+                        onMouseEnter={(e) => {
+                          if (opt.key !== stressIndexKey)
+                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
+                        }}
+                        onMouseLeave={(e) => {
+                          if (opt.key !== stressIndexKey) e.currentTarget.style.background = "transparent";
+                        }}
+                        style={{
+                          display: "block",
+                          width: "100%",
+                          textAlign: "left",
+                          padding: "9px 12px",
+                          border: "none",
+                          background:
+                            opt.key === stressIndexKey
+                              ? isLight
+                                ? "rgba(20,22,26,0.08)"
+                                : "rgba(255,255,255,0.1)"
+                              : "transparent",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 12,
+                          fontWeight: opt.key === stressIndexKey ? 700 : 500,
+                          cursor: "pointer",
+                          outline: "none",
+                          transition: "background 0.15s ease",
+                        }}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
             </div>
           </>
         )}
@@ -5397,6 +5670,97 @@ export default function Alloy() {
                   </button>
                 </div>
               )}
+            </div>
+
+            {/* 일반 카테고리: 포트폴리오 초기화 - 보유 종목/현금 데이터를 한 번에 삭제하고 빈 값으로 저장.
+                삭제 버튼과 동일한 2단계 확인(누르면 "정말요?" 문구+버튼이 경고색으로 바뀌고, 3초 안에
+                다시 누르면 실제 초기화)으로 실수 방지. */}
+            <div
+              style={{
+                padding: "20px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                marginBottom: 16,
+              }}
+            >
+              <h2
+                style={{
+                  margin: "0 0 14px 0",
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                일반
+              </h2>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  포트폴리오 초기화
+                </span>
+                <button
+                  onClick={handleResetPortfolioClick}
+                  style={{
+                    flexShrink: 0,
+                    height: 32,
+                    padding: "0 14px",
+                    borderRadius: 10,
+                    border: `1px solid ${
+                      resetPortfolioConfirming
+                        ? "rgba(255,107,107,0.5)"
+                        : isLight
+                        ? "rgba(20,22,26,0.14)"
+                        : "rgba(255,255,255,0.14)"
+                    }`,
+                    background: resetPortfolioConfirming ? "#FF6B6B" : "transparent",
+                    color: resetPortfolioConfirming ? "#FFFFFF" : isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                    fontSize: 12,
+                    fontWeight: 600,
+                    cursor: "pointer",
+                    outline: "none",
+                    transition: "background 0.2s ease, border-color 0.2s ease",
+                  }}
+                >
+                  {resetPortfolioConfirming ? "정말요?" : "초기화"}
+                </button>
+              </div>
+
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 10 }}>
+                <svg
+                  width="13"
+                  height="13"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke={isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)"}
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{ flexShrink: 0 }}
+                >
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+                <span
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  모든 데이터를 삭제합니다
+                </span>
+              </div>
             </div>
 
             {/* 계정 카테고리 (버전 빌드 포함, 테두리 레이아웃으로 묶음) */}
@@ -6844,6 +7208,175 @@ export default function Alloy() {
                       </span>
                     </div>
                   ))}
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 스트레스 테스트 모달 (홈 탭 "스트레스 테스트" 클릭 시 표시): 선택한 지수(카드에서 고른
+          S&P500/나스닥/코스피)가 가정한 하락률만큼 떨어지면 내 포트폴리오가 최근 1년 일간 수익률
+          기준 베타(민감도)로 얼마나 함께 흔들릴지 계산해 보여준다. */}
+      {stressTestModalOpen && (
+        <div
+          onClick={closeStressTestModal}
+          style={{
+            position: "fixed",
+            inset: 0,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10,
+            background: stressTestModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: stressTestModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: stressTestModalVisible ? "blur(6px)" : "blur(0px)",
+            transition: "background 0.35s ease, backdrop-filter 0.35s ease",
+          }}
+        >
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: "relative",
+              width: "min(320px, 84vw)",
+              padding: "22px 20px",
+              borderRadius: 20,
+              background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+              backdropFilter: "blur(28px) saturate(180%)",
+              WebkitBackdropFilter: "blur(28px) saturate(180%)",
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              opacity: stressTestModalVisible ? 1 : 0,
+              transform: stressTestModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              transition:
+                "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+              boxSizing: "border-box",
+            }}
+          >
+            <h2
+              style={{
+                margin: "0 0 2px 0",
+                fontSize: 17,
+                fontWeight: 600,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                letterSpacing: 0.2,
+              }}
+            >
+              스트레스 테스트
+            </h2>
+            <span
+              style={{
+                fontSize: 12,
+                fontWeight: 500,
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+              }}
+            >
+              {stressIndexOption.label} 급락 시 예상 손익
+            </span>
+
+            {holdings.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 150,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                아직 등록된 자산이 없어요
+              </div>
+            ) : stressBeta == null ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  height: 150,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  textAlign: "center",
+                  padding: "0 20px",
+                }}
+              >
+                데이터가 충분하지 않아요
+              </div>
+            ) : (
+              <>
+                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
+                  {[5, 10, 20, 30].map((pct) => (
+                    <button
+                      key={pct}
+                      onClick={() => setStressDeclinePercent(pct)}
+                      style={{
+                        flex: 1,
+                        height: 32,
+                        borderRadius: 10,
+                        border: `1px solid ${
+                          stressDeclinePercent === pct
+                            ? "rgba(255,107,107,0.5)"
+                            : isLight
+                            ? "rgba(20,22,26,0.14)"
+                            : "rgba(255,255,255,0.14)"
+                        }`,
+                        background: stressDeclinePercent === pct ? "#FF6B6B" : "transparent",
+                        color: stressDeclinePercent === pct ? "#FFFFFF" : isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                        fontSize: 12,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "background 0.15s ease, border-color 0.15s ease",
+                      }}
+                    >
+                      -{pct}%
+                    </button>
+                  ))}
+                </div>
+
+                <div style={{ marginTop: 20 }}>
+                  <div
+                    style={{
+                      fontSize: 12,
+                      fontWeight: 500,
+                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    }}
+                  >
+                    예상 포트폴리오 변동률
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 26,
+                      fontWeight: 700,
+                      marginTop: 4,
+                      color: stressEstimatedChangePercent >= 0 ? "#1E9E4C" : "#E23F3F",
+                    }}
+                  >
+                    {stressEstimatedChangePercent >= 0 ? "+" : "-"}
+                    {Math.abs(stressEstimatedChangePercent).toFixed(2)}%
+                  </div>
+                  <div
+                    style={{
+                      fontSize: 14,
+                      fontWeight: 600,
+                      marginTop: 2,
+                      color: stressEstimatedChangeAmount >= 0 ? "#1E9E4C" : "#E23F3F",
+                    }}
+                  >
+                    {stressEstimatedChangeAmount >= 0 ? "+" : "-"}
+                    {formatAmount(Math.abs(stressEstimatedChangeAmount), homeCurrency)}
+                  </div>
+                </div>
+
+                <div
+                  style={{
+                    marginTop: 16,
+                    fontSize: 11,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                  }}
+                >
+                  베타(민감도) {stressBeta.toFixed(2)} · 최근 1년 일간 수익률 기준
                 </div>
               </>
             )}
