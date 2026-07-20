@@ -14,6 +14,9 @@ create table if not exists public.portfolios (
 alter table public.portfolios add column if not exists goal_amount numeric;
 alter table public.portfolios add column if not exists goal_set_at timestamptz;
 
+-- "새로운 디자인" 포트폴리오 그리드 뷰(블록 배치) 저장용. { blocks: [...], order: [...] } 형태의 jsonb.
+alter table public.portfolios add column if not exists grid_layout jsonb not null default '{}'::jsonb;
+
 alter table public.portfolios enable row level security;
 
 drop policy if exists "Users can view own portfolio" on public.portfolios;
