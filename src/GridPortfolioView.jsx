@@ -18,17 +18,6 @@ function makeBlockId(type) {
   return `${type}-${Math.random().toString(36).slice(2, 9)}`;
 }
 
-// 배열의 특정 위치(idx)에 id를 끼워넣는다 - id가 이미 배열에 있으면 그 자리를 빼고 다시 끼워넣어
-// 결과적으로 "재배치"가 되고, 없으면 새로 "삽입"이 된다(트레이에서 새 블록을 드롭할 때와 동일하게 처리).
-function moveIdTo(order, id, idx) {
-  const from = order.indexOf(id);
-  const without = from === -1 ? order : order.filter((x) => x !== id);
-  let insertAt = idx;
-  if (from !== -1 && from < idx) insertAt -= 1;
-  insertAt = Math.max(0, Math.min(insertAt, without.length));
-  return [...without.slice(0, insertAt), id, ...without.slice(insertAt)];
-}
-
 function formatUSD(num) {
   const rounded = Math.round(num * 100) / 100;
   return "$" + rounded.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -62,10 +51,11 @@ export default function GridPortfolioView() {
     return () => sub.subscription.unsubscribe();
   }, []);
 
-  // 보유 종목 + 그리드 레이아웃(커스텀 블록 목록 + 전체 블록 배치 순서) 불러오기
+  // 보유 종목(세로로 쌓이는 고정 축) + 그리드 레이아웃(각 종목 행에 가로로 붙은 커스텀 블록) 불러오기.
+  // attachments: { [stockId]: [customBlockId, ...] } - 종목 행마다 가로로 이어붙은 커스텀 블록 순서.
   const [holdings, setHoldings] = useState([]);
   const [customBlocks, setCustomBlocks] = useState([]); // [{ id, type, text? }]
-  const [order, setOrder] = useState([]); // 전체 블록(종목+커스텀) id의 배치 순서
+  const [attachments, setAttachments] = useState({});
   const [dataLoaded, setDataLoaded] = useState(false);
 
   useEffect(() => {
@@ -82,7 +72,7 @@ export default function GridPortfolioView() {
           setHoldings(Array.isArray(data.holdings) ? data.holdings : []);
           const layout = data.grid_layout || {};
           setCustomBlocks(Array.isArray(layout.blocks) ? layout.blocks : []);
-          setOrder(Array.isArray(layout.order) ? layout.order : []);
+          setAttachments(layout.attachments && typeof layout.attachments === "object" ? layout.attachments : {});
           setDataLoaded(true);
           return;
         }
@@ -109,36 +99,42 @@ export default function GridPortfolioView() {
   }, [session]);
 
   const holdingsTickerKey = holdings.map((h) => h.ticker).join(",");
-
-  // 종목 블록(보유 종목마다 자동 생성) + 커스텀 블록을 합친 전체 블록 목록
-  const allBlocks = useMemo(() => {
-    const stockBlocks = holdings.map((h, i) => ({ id: `stock-${i}`, type: "stock", holding: h }));
-    return [...stockBlocks, ...customBlocks];
-  }, [holdings, customBlocks]);
-
   const blockById = useMemo(() => {
     const map = {};
-    allBlocks.forEach((b) => {
+    customBlocks.forEach((b) => {
       map[b.id] = b;
     });
     return map;
-  }, [allBlocks]);
+  }, [customBlocks]);
 
-  const customBlockIdKey = customBlocks.map((b) => b.id).join(",");
-
-  // order를 실제 존재하는 블록 목록에 맞춰 정리 - 삭제된 종목의 id는 빼고, 아직 order에 없는
-  // 새 블록(방금 추가된 종목/커스텀 블록)은 끝에 붙인다.
+  // attachments를 실제 보유 종목에 맞춰 정리 - 삭제된 종목의 행은 제거하고, 새로 추가된 종목에는
+  // 빈 행을 만들어준다.
   useEffect(() => {
     if (!dataLoaded) return;
-    setOrder((prev) => {
-      const idSet = new Set(allBlocks.map((b) => b.id));
-      const filtered = prev.filter((id) => idSet.has(id));
-      const missing = allBlocks.map((b) => b.id).filter((id) => !filtered.includes(id));
-      if (missing.length === 0 && filtered.length === prev.length) return prev;
-      return [...filtered, ...missing];
+    setAttachments((prev) => {
+      const stockIds = holdings.map((_, i) => `stock-${i}`);
+      const next = {};
+      let changed = false;
+      stockIds.forEach((id) => {
+        next[id] = prev[id] || [];
+        if (!prev[id]) changed = true;
+      });
+      Object.keys(prev).forEach((id) => {
+        if (!(id in next)) changed = true;
+      });
+      return changed ? next : prev;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [holdingsTickerKey, customBlockIdKey, dataLoaded]);
+  }, [holdingsTickerKey, dataLoaded]);
+
+  // attachments 어디에도 속하지 않게 된(종목이 삭제되어 고아가 된) 커스텀 블록은 함께 정리한다.
+  useEffect(() => {
+    if (!dataLoaded) return;
+    setCustomBlocks((prev) => {
+      const referenced = new Set(Object.values(attachments).flat());
+      const filtered = prev.filter((b) => referenced.has(b.id));
+      return filtered.length === prev.length ? prev : filtered;
+    });
+  }, [attachments, dataLoaded]);
 
   // 그리드 레이아웃 저장(디바운스) - holdings/cash_holdings는 손대지 않고 grid_layout 필드만 갱신
   useEffect(() => {
@@ -146,14 +142,14 @@ export default function GridPortfolioView() {
     const timer = setTimeout(() => {
       supabase
         .from("portfolios")
-        .update({ grid_layout: { blocks: customBlocks, order } })
+        .update({ grid_layout: { blocks: customBlocks, attachments } })
         .eq("user_id", session.user.id)
         .then(({ error }) => {
           if (error) console.error("그리드 레이아웃 저장 실패:", error.message);
         });
     }, 600);
     return () => clearTimeout(timer);
-  }, [customBlocks, order, dataLoaded, session]);
+  }, [customBlocks, attachments, dataLoaded, session]);
 
   // 원/달러 환율(KRW 자산을 USD로 환산해 배당/일간 수익률 비중 계산에 사용) - 조회 실패 시 대략값 유지
   const [todayRate, setTodayRate] = useState(1400);
@@ -300,19 +296,20 @@ export default function GridPortfolioView() {
     setCustomBlocks((prev) => prev.map((b) => (b.id === id ? { ...b, text } : b)));
   };
 
-  // 드래그 앤 드롭 - 포인터 이벤트 기반(마우스/터치 공용). 트레이의 블록 칩을 캔버스 슬롯에 놓으면
-  // 새 블록이 생성되고, 캔버스 위 블록을 다른 슬롯에 놓으면 그 자리로 재배치된다. 캔버스 블록을
-  // 트레이 위로 다시 끌어오면(종목 블록 제외) 삭제된다.
-  const [drag, setDrag] = useState(null); // { kind: 'tray'|'canvas', blockType?, blockId?, x, y, overSlot, overTray }
-  const slotRefs = useRef([]);
+  // 드래그 앤 드롭 - 포인터 이벤트 기반(마우스/터치 공용). 종목 블록은 보유 종목 순서대로 세로로
+  // 고정 배치되며 드래그할 수 없다. 트레이의 블록 칩을 특정 종목 행에 놓으면 그 행의 가로 사슬
+  // 끝에 새 블록이 붙고, 이미 붙어있는 커스텀 블록을 다른(또는 같은) 행에 놓으면 그 행 끝으로
+  // 옮겨진다. 커스텀 블록을 트레이 위로 다시 끌어오면 삭제된다.
+  const [drag, setDrag] = useState(null); // { kind: 'tray'|'canvas', blockType?, blockId?, x, y, overRow, overTray }
+  const rowRefs = useRef({});
   const trayRef = useRef(null);
 
-  const hitTestSlot = (x, y) => {
-    for (let i = 0; i < slotRefs.current.length; i++) {
-      const el = slotRefs.current[i];
+  const hitTestRow = (x, y) => {
+    for (const stockId of Object.keys(rowRefs.current)) {
+      const el = rowRefs.current[stockId];
       if (!el) continue;
       const r = el.getBoundingClientRect();
-      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return i;
+      if (y >= r.top && y <= r.bottom) return stockId;
     }
     return null;
   };
@@ -326,27 +323,44 @@ export default function GridPortfolioView() {
   const dragRef = useRef(null);
   dragRef.current = drag;
 
+  // 새로 붙은(=결합된) 블록의 이음새에 "합금 용접" 반짝임을 한 번 재생하기 위한 상태
+  const [fuseFlash, setFuseFlash] = useState(null); // { rowStockId, blockId, token }
+  const clearFuseFlash = () => setFuseFlash(null);
+
   const handlePointerMove = (e) => {
     const x = e.clientX;
     const y = e.clientY;
-    setDrag((d) => (d ? { ...d, x, y, overSlot: hitTestSlot(x, y), overTray: isPointInTray(x, y) } : d));
+    setDrag((d) => (d ? { ...d, x, y, overRow: hitTestRow(x, y), overTray: isPointInTray(x, y) } : d));
   };
 
   const commitDrag = (d) => {
     if (d.kind === "canvas" && d.overTray) {
-      if (!d.blockId.startsWith("stock-")) {
-        setCustomBlocks((prev) => prev.filter((b) => b.id !== d.blockId));
-        setOrder((prev) => prev.filter((id) => id !== d.blockId));
-      }
+      setAttachments((prev) => {
+        const next = {};
+        for (const [stockId, ids] of Object.entries(prev)) {
+          next[stockId] = ids.filter((id) => id !== d.blockId);
+        }
+        return next;
+      });
+      setCustomBlocks((prev) => prev.filter((b) => b.id !== d.blockId));
       return;
     }
-    if (d.overSlot == null) return;
+    if (!d.overRow) return;
     if (d.kind === "tray") {
       const newBlock = { id: makeBlockId(d.blockType), type: d.blockType, text: "" };
       setCustomBlocks((prev) => [...prev, newBlock]);
-      setOrder((prev) => moveIdTo(prev, newBlock.id, d.overSlot));
+      setAttachments((prev) => ({ ...prev, [d.overRow]: [...(prev[d.overRow] || []), newBlock.id] }));
+      setFuseFlash({ rowStockId: d.overRow, blockId: newBlock.id, token: Date.now() });
     } else {
-      setOrder((prev) => moveIdTo(prev, d.blockId, d.overSlot));
+      setAttachments((prev) => {
+        const next = {};
+        for (const [stockId, ids] of Object.entries(prev)) {
+          next[stockId] = ids.filter((id) => id !== d.blockId);
+        }
+        next[d.overRow] = [...(next[d.overRow] || []), d.blockId];
+        return next;
+      });
+      setFuseFlash({ rowStockId: d.overRow, blockId: d.blockId, token: Date.now() });
     }
   };
 
@@ -360,7 +374,7 @@ export default function GridPortfolioView() {
 
   const startDrag = (initial) => (e) => {
     e.preventDefault();
-    setDrag({ ...initial, x: e.clientX, y: e.clientY, overSlot: null, overTray: false });
+    setDrag({ ...initial, x: e.clientX, y: e.clientY, overRow: null, overTray: false });
     window.addEventListener("pointermove", handlePointerMove);
     window.addEventListener("pointerup", handlePointerUp);
   };
@@ -372,44 +386,6 @@ export default function GridPortfolioView() {
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const rowCount = Math.max(1, Math.ceil(order.length / 2) + 1);
-  const slotCount = rowCount * 2;
-
-  // 새로 인접(=결합)하게 된 행에 "합금 용접" 반짝임 애니메이션을 한 번 재생 - 이전 렌더의 행별
-  // 결합 여부를 기억해뒀다가 false→true로 바뀐 행만 새로 트리거한다.
-  const prevMergedRowsRef = useRef({});
-  const [fuseFlashes, setFuseFlashes] = useState({}); // { [row]: token }
-  useEffect(() => {
-    const nextMerged = {};
-    for (let row = 0; row < rowCount; row++) {
-      nextMerged[row] = !!(order[row * 2] && order[row * 2 + 1]);
-    }
-    // setFuseFlashes의 업데이터 함수는 React가 비동기로 호출할 수 있으므로, ref를 먼저 갱신해버리면
-    // 업데이터 안에서 "이전" 값 대신 이미 바뀐 값을 읽게 된다. 그래서 이전 값을 스냅샷으로 떠서
-    // 클로저에 담아 넘기고, ref 자체는 그 이후에 갱신한다.
-    const prevMerged = prevMergedRowsRef.current;
-    prevMergedRowsRef.current = nextMerged;
-    setFuseFlashes((prev) => {
-      let changed = false;
-      const next = { ...prev };
-      for (const row in nextMerged) {
-        if (nextMerged[row] && !prevMerged[row]) {
-          next[row] = Date.now();
-          changed = true;
-        }
-      }
-      return changed ? next : prev;
-    });
-  }, [order, rowCount]);
-  const clearFuseFlash = (row) => {
-    setFuseFlashes((prev) => {
-      if (!(row in prev)) return prev;
-      const next = { ...prev };
-      delete next[row];
-      return next;
-    });
-  };
 
   const textColor = isLight ? "#14161A" : "#FFFFFF";
   const mutedColor = isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)";
@@ -472,141 +448,146 @@ export default function GridPortfolioView() {
           아직 등록된 종목이 없어요. 기존 포트폴리오 탭에서 종목을 추가해주세요.
         </div>
       ) : (
-        <div
-          style={{
-            padding: "0 14px",
-            display: "grid",
-            gridTemplateColumns: "repeat(2, 1fr)",
-          }}
-        >
-          {Array.from({ length: slotCount }).map((_, slot) => {
-            const id = order[slot];
-            const block = id ? blockById[id] : null;
-            const isLeftCol = slot % 2 === 0;
-            const mateId = order[isLeftCol ? slot + 1 : slot - 1];
-            const mateBlock = mateId ? blockById[mateId] : null;
-            const merged = !!(block && mateBlock);
-            const row = Math.floor(slot / 2);
-            const isFusing = merged && fuseFlashes[row] != null;
-            const isDraggingThis = drag && drag.kind === "canvas" && drag.blockId === id;
-            const isOverThis = drag && drag.overSlot === slot && !drag.overTray;
+        <div style={{ padding: "0 14px", display: "flex", flexDirection: "column", gap: 12 }}>
+          {holdings.map((holding, i) => {
+            const stockId = `stock-${i}`;
+            const chainIds = [stockId, ...(attachments[stockId] || [])];
+            const isOverThisRow = drag && drag.overRow === stockId && !drag.overTray;
 
             return (
               <div
-                key={slot}
-                ref={(el) => (slotRefs.current[slot] = el)}
+                key={stockId}
+                ref={(el) => (rowRefs.current[stockId] = el)}
                 style={{
-                  boxSizing: "border-box",
-                  paddingLeft: 6,
-                  paddingRight: 6,
-                  paddingTop: 6,
-                  paddingBottom: 6,
-                  transition: "padding 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-                  ...(isLeftCol ? { paddingRight: merged ? 0 : 6 } : { paddingLeft: merged ? 0 : 6 }),
+                  display: "flex",
+                  overflowX: "auto",
+                  borderRadius: 22,
+                  outline: isOverThisRow ? `2px dashed ${isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"}` : "2px dashed transparent",
+                  outlineOffset: 3,
+                  transition: "outline-color 0.15s ease",
                 }}
               >
-                <div
-                  style={{
-                    position: "relative",
-                    minHeight: 148,
-                    height: "100%",
-                    boxSizing: "border-box",
-                    padding: "14px 14px 12px",
-                    borderRadius: isLeftCol
-                      ? `20px ${merged ? 6 : 20}px ${merged ? 6 : 20}px 20px`
-                      : `${merged ? 6 : 20}px 20px 20px ${merged ? 6 : 20}px`,
-                    border: `1px solid ${
-                      merged && !isLeftCol ? "transparent" : borderColor
-                    }`,
-                    borderLeft: merged && !isLeftCol ? `1px solid ${borderColor}` : undefined,
-                    background: isOverThis ? (isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.14)") : cardBg,
-                    opacity: isDraggingThis ? 0.35 : block ? 1 : 0.5,
-                    display: block ? "flex" : "block",
-                    flexDirection: "column",
-                    transition:
-                      "border-radius 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.15s ease, opacity 0.15s ease",
-                  }}
-                >
-                  {!block && (
+                {chainIds.map((id, idx) => {
+                  const isStock = id === stockId;
+                  const block = isStock ? null : blockById[id];
+                  if (!isStock && !block) return null;
+                  const leftRounded = idx === 0;
+                  const rightRounded = idx === chainIds.length - 1;
+                  const isDraggingThis = drag && drag.kind === "canvas" && drag.blockId === id;
+                  const isFusing = fuseFlash && fuseFlash.rowStockId === stockId && fuseFlash.blockId === id;
+
+                  return (
                     <div
+                      key={id}
                       style={{
-                        position: "absolute",
-                        inset: 0,
-                        borderRadius: "inherit",
-                        border: `1px dashed ${borderColor}`,
-                      }}
-                    />
-                  )}
-
-                  {/* 합금(alloy) 용접 이펙트: 두 블록이 새로 인접(결합)될 때 마주한 안쪽 모서리를 따라
-                      금빛 빛이 한 번 스치듯 지나가는 애니메이션(각 카드 내부에 있는 독립된 오버레이라
-                      두 카드가 여전히 완전히 분리 가능한 별개 요소임엔 변함이 없다). */}
-                  {isFusing && (
-                    <div
-                      onAnimationEnd={() => clearFuseFlash(row)}
-                      style={{
-                        position: "absolute",
-                        top: 0,
-                        bottom: 0,
-                        [isLeftCol ? "right" : "left"]: -1,
-                        width: 6,
-                        background:
-                          "linear-gradient(180deg, rgba(255,214,140,0) 0%, rgba(255,214,140,0.95) 50%, rgba(255,214,140,0) 100%)",
-                        animation: "alloyFuse 0.8s ease-out",
-                        pointerEvents: "none",
-                      }}
-                    />
-                  )}
-
-                  {block && block.type === "stock" && (
-                    <StockBlockCard holding={block.holding} textColor={textColor} mutedColor={mutedColor} />
-                  )}
-                  {block && block.type === "memo" && (
-                    <MemoBlockCard
-                      block={block}
-                      textColor={textColor}
-                      mutedColor={mutedColor}
-                      onChange={(text) => updateMemoText(block.id, text)}
-                    />
-                  )}
-                  {block && block.type === "dividend" && (
-                    <DividendBlockCard summary={dividendSummary} textColor={textColor} mutedColor={mutedColor} />
-                  )}
-                  {block && block.type === "dailyReturn" && (
-                    <DailyReturnBlockCard data={dailyReturnCells} isLight={isLight} mutedColor={mutedColor} />
-                  )}
-
-                  {block && (
-                    <button
-                      onPointerDown={startDrag({ kind: "canvas", blockId: block.id })}
-                      aria-label="블록 이동"
-                      style={{
-                        position: "absolute",
-                        top: 8,
-                        right: 8,
-                        width: 22,
-                        height: 22,
-                        border: "none",
-                        background: "transparent",
-                        color: mutedColor,
-                        cursor: "grab",
-                        touchAction: "none",
+                        position: "relative",
+                        flexShrink: 0,
+                        width: 168,
+                        minHeight: 148,
+                        boxSizing: "border-box",
+                        padding: "14px 14px 12px",
+                        marginRight: idx === chainIds.length - 1 ? 0 : 4,
+                        borderRadius: `${leftRounded ? 20 : 6}px ${rightRounded ? 20 : 6}px ${rightRounded ? 20 : 6}px ${leftRounded ? 20 : 6}px`,
+                        border: `1px solid ${borderColor}`,
+                        background: cardBg,
+                        opacity: isDraggingThis ? 0.35 : 1,
                         display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        padding: 0,
+                        flexDirection: "column",
+                        transition: "border-radius 0.3s cubic-bezier(0.22, 1, 0.36, 1), opacity 0.15s ease",
                       }}
                     >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
-                        <circle cx="7" cy="6" r="1.6" />
-                        <circle cx="7" cy="12" r="1.6" />
-                        <circle cx="7" cy="18" r="1.6" />
-                        <circle cx="15" cy="6" r="1.6" />
-                        <circle cx="15" cy="12" r="1.6" />
-                        <circle cx="15" cy="18" r="1.6" />
-                      </svg>
-                    </button>
-                  )}
+                      {/* 합금(alloy) 용접 이펙트: 새 블록이 행에 붙는 순간 마주한 안쪽 모서리를 따라
+                          금빛 빛이 한 번 스치듯 지나가는 애니메이션(카드는 여전히 완전히 독립적이며
+                          트레이로 다시 끌어 분리할 수 있다). */}
+                      {isFusing && (
+                        <div
+                          onAnimationEnd={clearFuseFlash}
+                          style={{
+                            position: "absolute",
+                            top: 0,
+                            bottom: 0,
+                            left: -1,
+                            width: 6,
+                            background:
+                              "linear-gradient(180deg, rgba(255,214,140,0) 0%, rgba(255,214,140,0.95) 50%, rgba(255,214,140,0) 100%)",
+                            animation: "alloyFuse 0.8s ease-out",
+                            pointerEvents: "none",
+                          }}
+                        />
+                      )}
+
+                      {isStock && (
+                        <StockBlockCard holding={holding} textColor={textColor} mutedColor={mutedColor} />
+                      )}
+                      {block && block.type === "memo" && (
+                        <MemoBlockCard
+                          block={block}
+                          textColor={textColor}
+                          mutedColor={mutedColor}
+                          onChange={(text) => updateMemoText(block.id, text)}
+                        />
+                      )}
+                      {block && block.type === "dividend" && (
+                        <DividendBlockCard summary={dividendSummary} textColor={textColor} mutedColor={mutedColor} />
+                      )}
+                      {block && block.type === "dailyReturn" && (
+                        <DailyReturnBlockCard data={dailyReturnCells} isLight={isLight} mutedColor={mutedColor} />
+                      )}
+
+                      {!isStock && (
+                        <button
+                          onPointerDown={startDrag({ kind: "canvas", blockId: id })}
+                          aria-label="블록 이동"
+                          style={{
+                            position: "absolute",
+                            top: 8,
+                            right: 8,
+                            width: 22,
+                            height: 22,
+                            border: "none",
+                            background: "transparent",
+                            color: mutedColor,
+                            cursor: "grab",
+                            touchAction: "none",
+                            display: "flex",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            padding: 0,
+                          }}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor">
+                            <circle cx="7" cy="6" r="1.6" />
+                            <circle cx="7" cy="12" r="1.6" />
+                            <circle cx="7" cy="18" r="1.6" />
+                            <circle cx="15" cy="6" r="1.6" />
+                            <circle cx="15" cy="12" r="1.6" />
+                            <circle cx="15" cy="18" r="1.6" />
+                          </svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* 행 끝에 항상 보이는 점선 "+" 칸 - 실제 드롭 판정은 행 전체(세로 범위) 기준이라
+                    이 칸 위가 아니어도 붙지만, 여기에 놓으라는 시각적 안내 역할을 한다. */}
+                <div
+                  style={{
+                    flexShrink: 0,
+                    width: 64,
+                    minHeight: 148,
+                    borderRadius: 20,
+                    border: `1px dashed ${borderColor}`,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: mutedColor,
+                    fontSize: 18,
+                    opacity: 0.5,
+                    boxSizing: "border-box",
+                  }}
+                >
+                  +
                 </div>
               </div>
             );
@@ -634,7 +615,7 @@ export default function GridPortfolioView() {
             color: textColor,
           }}
         >
-          {drag.kind === "tray" ? BLOCK_TYPE_LABELS[drag.blockType] : blockById[drag.blockId]?.type === "stock" ? blockById[drag.blockId]?.holding?.ticker : BLOCK_TYPE_LABELS[blockById[drag.blockId]?.type]}
+          {drag.kind === "tray" ? BLOCK_TYPE_LABELS[drag.blockType] : BLOCK_TYPE_LABELS[blockById[drag.blockId]?.type]}
         </div>
       )}
 
@@ -717,7 +698,7 @@ export default function GridPortfolioView() {
   );
 }
 
-// 종목 블록: 티커/종목명/수량·단가/통화
+// 종목 블록: 티커/종목명/수량·단가/통화 - 보유 종목 순서대로 세로로 고정 배치되며 드래그할 수 없다.
 function StockBlockCard({ holding, textColor, mutedColor }) {
   return (
     <>
