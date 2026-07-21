@@ -83,8 +83,25 @@ export default function GridPortfolioView() {
           const layout = data.grid_layout || {};
           setCustomBlocks(Array.isArray(layout.blocks) ? layout.blocks : []);
           setOrder(Array.isArray(layout.order) ? layout.order : []);
+          setDataLoaded(true);
+          return;
         }
-        setDataLoaded(true);
+        // grid_layout 컬럼이 아직 없는 환경(스키마 마이그레이션 미적용) 등으로 위 조회가 실패해도
+        // 종목 데이터만이라도 반드시 불러오도록 holdings만 다시 조회한다.
+        supabase
+          .from("portfolios")
+          .select("holdings")
+          .eq("user_id", session.user.id)
+          .maybeSingle()
+          .then(({ data: fallbackData, error: fallbackError }) => {
+            if (cancelled) return;
+            if (!fallbackError && fallbackData) {
+              setHoldings(Array.isArray(fallbackData.holdings) ? fallbackData.holdings : []);
+            } else if (fallbackError) {
+              console.error("포트폴리오 데이터를 불러오지 못했어요:", fallbackError.message);
+            }
+            setDataLoaded(true);
+          });
       });
     return () => {
       cancelled = true;
@@ -359,6 +376,41 @@ export default function GridPortfolioView() {
   const rowCount = Math.max(1, Math.ceil(order.length / 2) + 1);
   const slotCount = rowCount * 2;
 
+  // 새로 인접(=결합)하게 된 행에 "합금 용접" 반짝임 애니메이션을 한 번 재생 - 이전 렌더의 행별
+  // 결합 여부를 기억해뒀다가 false→true로 바뀐 행만 새로 트리거한다.
+  const prevMergedRowsRef = useRef({});
+  const [fuseFlashes, setFuseFlashes] = useState({}); // { [row]: token }
+  useEffect(() => {
+    const nextMerged = {};
+    for (let row = 0; row < rowCount; row++) {
+      nextMerged[row] = !!(order[row * 2] && order[row * 2 + 1]);
+    }
+    // setFuseFlashes의 업데이터 함수는 React가 비동기로 호출할 수 있으므로, ref를 먼저 갱신해버리면
+    // 업데이터 안에서 "이전" 값 대신 이미 바뀐 값을 읽게 된다. 그래서 이전 값을 스냅샷으로 떠서
+    // 클로저에 담아 넘기고, ref 자체는 그 이후에 갱신한다.
+    const prevMerged = prevMergedRowsRef.current;
+    prevMergedRowsRef.current = nextMerged;
+    setFuseFlashes((prev) => {
+      let changed = false;
+      const next = { ...prev };
+      for (const row in nextMerged) {
+        if (nextMerged[row] && !prevMerged[row]) {
+          next[row] = Date.now();
+          changed = true;
+        }
+      }
+      return changed ? next : prev;
+    });
+  }, [order, rowCount]);
+  const clearFuseFlash = (row) => {
+    setFuseFlashes((prev) => {
+      if (!(row in prev)) return prev;
+      const next = { ...prev };
+      delete next[row];
+      return next;
+    });
+  };
+
   const textColor = isLight ? "#14161A" : "#FFFFFF";
   const mutedColor = isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)";
   const borderColor = isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)";
@@ -434,6 +486,8 @@ export default function GridPortfolioView() {
             const mateId = order[isLeftCol ? slot + 1 : slot - 1];
             const mateBlock = mateId ? blockById[mateId] : null;
             const merged = !!(block && mateBlock);
+            const row = Math.floor(slot / 2);
+            const isFusing = merged && fuseFlashes[row] != null;
             const isDraggingThis = drag && drag.kind === "canvas" && drag.blockId === id;
             const isOverThis = drag && drag.overSlot === slot && !drag.overTray;
 
@@ -454,7 +508,7 @@ export default function GridPortfolioView() {
                 <div
                   style={{
                     position: "relative",
-                    minHeight: 132,
+                    minHeight: 148,
                     height: "100%",
                     boxSizing: "border-box",
                     padding: "14px 14px 12px",
@@ -480,6 +534,26 @@ export default function GridPortfolioView() {
                         inset: 0,
                         borderRadius: "inherit",
                         border: `1px dashed ${borderColor}`,
+                      }}
+                    />
+                  )}
+
+                  {/* 합금(alloy) 용접 이펙트: 두 블록이 새로 인접(결합)될 때 마주한 안쪽 모서리를 따라
+                      금빛 빛이 한 번 스치듯 지나가는 애니메이션(각 카드 내부에 있는 독립된 오버레이라
+                      두 카드가 여전히 완전히 분리 가능한 별개 요소임엔 변함이 없다). */}
+                  {isFusing && (
+                    <div
+                      onAnimationEnd={() => clearFuseFlash(row)}
+                      style={{
+                        position: "absolute",
+                        top: 0,
+                        bottom: 0,
+                        [isLeftCol ? "right" : "left"]: -1,
+                        width: 6,
+                        background:
+                          "linear-gradient(180deg, rgba(255,214,140,0) 0%, rgba(255,214,140,0.95) 50%, rgba(255,214,140,0) 100%)",
+                        animation: "alloyFuse 0.8s ease-out",
+                        pointerEvents: "none",
                       }}
                     />
                   )}

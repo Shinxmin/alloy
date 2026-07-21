@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.132";
+const APP_VERSION = "0.1.133";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -967,23 +967,31 @@ export default function Alloy() {
   const [snp500IndexModalVisible, setSnp500IndexModalVisible] = useState(false);
   const [snp500IndexHovered, setSnp500IndexHovered] = useState(false);
 
+  // 개장 중(미국장)에는 1분마다 자동으로 다시 조회해 최신 지수를 반영
   useEffect(() => {
     let cancelled = false;
-    supabase.functions
-      .invoke("nasdaq-index-proxy", { body: { symbol: "^GSPC", name: "S&P500" } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setSnp500Index(!error && data && data.price != null ? data : null);
-        setSnp500IndexLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setSnp500Index(null);
+    const fetchOnce = () => {
+      supabase.functions
+        .invoke("nasdaq-index-proxy", { body: { symbol: "^GSPC", name: "S&P500" } })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          setSnp500Index(!error && data && data.price != null ? data : null);
           setSnp500IndexLoading(false);
-        }
-      });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setSnp500Index(null);
+            setSnp500IndexLoading(false);
+          }
+        });
+    };
+    fetchOnce();
+    const interval = setInterval(() => {
+      if (getUsMarketStatus(new Date()).session !== "closed") fetchOnce();
+    }, 60000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -1035,23 +1043,31 @@ export default function Alloy() {
   const [nasdaqIndexModalVisible, setNasdaqIndexModalVisible] = useState(false);
   const [nasdaqIndexHovered, setNasdaqIndexHovered] = useState(false);
 
+  // 개장 중(미국장)에는 1분마다 자동으로 다시 조회해 최신 지수를 반영
   useEffect(() => {
     let cancelled = false;
-    supabase.functions
-      .invoke("nasdaq-index-proxy", { body: { symbol: "^IXIC", name: "나스닥" } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setNasdaqIndex(!error && data && data.price != null ? data : null);
-        setNasdaqIndexLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setNasdaqIndex(null);
+    const fetchOnce = () => {
+      supabase.functions
+        .invoke("nasdaq-index-proxy", { body: { symbol: "^IXIC", name: "나스닥" } })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          setNasdaqIndex(!error && data && data.price != null ? data : null);
           setNasdaqIndexLoading(false);
-        }
-      });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setNasdaqIndex(null);
+            setNasdaqIndexLoading(false);
+          }
+        });
+    };
+    fetchOnce();
+    const interval = setInterval(() => {
+      if (getUsMarketStatus(new Date()).session !== "closed") fetchOnce();
+    }, 60000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -1103,23 +1119,31 @@ export default function Alloy() {
   const [kospiIndexModalVisible, setKospiIndexModalVisible] = useState(false);
   const [kospiIndexHovered, setKospiIndexHovered] = useState(false);
 
+  // 개장 중(한국장)에는 1분마다 자동으로 다시 조회해 최신 지수를 반영
   useEffect(() => {
     let cancelled = false;
-    supabase.functions
-      .invoke("nasdaq-index-proxy", { body: { symbol: "^KS11", name: "코스피" } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setKospiIndex(!error && data && data.price != null ? data : null);
-        setKospiIndexLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setKospiIndex(null);
+    const fetchOnce = () => {
+      supabase.functions
+        .invoke("nasdaq-index-proxy", { body: { symbol: "^KS11", name: "코스피" } })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          setKospiIndex(!error && data && data.price != null ? data : null);
           setKospiIndexLoading(false);
-        }
-      });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setKospiIndex(null);
+            setKospiIndexLoading(false);
+          }
+        });
+    };
+    fetchOnce();
+    const interval = setInterval(() => {
+      if (getKrMarketStatus(new Date()).session !== "closed") fetchOnce();
+    }, 60000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -1171,23 +1195,31 @@ export default function Alloy() {
   const [kosdaqIndexModalVisible, setKosdaqIndexModalVisible] = useState(false);
   const [kosdaqIndexHovered, setKosdaqIndexHovered] = useState(false);
 
+  // 개장 중(한국장)에는 1분마다 자동으로 다시 조회해 최신 지수를 반영
   useEffect(() => {
     let cancelled = false;
-    supabase.functions
-      .invoke("nasdaq-index-proxy", { body: { symbol: "^KQ11", name: "코스닥" } })
-      .then(({ data, error }) => {
-        if (cancelled) return;
-        setKosdaqIndex(!error && data && data.price != null ? data : null);
-        setKosdaqIndexLoading(false);
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setKosdaqIndex(null);
+    const fetchOnce = () => {
+      supabase.functions
+        .invoke("nasdaq-index-proxy", { body: { symbol: "^KQ11", name: "코스닥" } })
+        .then(({ data, error }) => {
+          if (cancelled) return;
+          setKosdaqIndex(!error && data && data.price != null ? data : null);
           setKosdaqIndexLoading(false);
-        }
-      });
+        })
+        .catch(() => {
+          if (!cancelled) {
+            setKosdaqIndex(null);
+            setKosdaqIndexLoading(false);
+          }
+        });
+    };
+    fetchOnce();
+    const interval = setInterval(() => {
+      if (getKrMarketStatus(new Date()).session !== "closed") fetchOnce();
+    }, 60000);
     return () => {
       cancelled = true;
+      clearInterval(interval);
     };
   }, []);
 
@@ -3903,10 +3935,7 @@ export default function Alloy() {
                               letterSpacing: 0.2,
                             }}
                           >
-                            {w.index.price.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
+                            {w.index.price.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
                           {w.index.changeAmount != null && w.index.changePercent != null && (
                             <span
@@ -4012,10 +4041,7 @@ export default function Alloy() {
                               letterSpacing: 0.2,
                             }}
                           >
-                            {w.index.price.toLocaleString(undefined, {
-                              minimumFractionDigits: 2,
-                              maximumFractionDigits: 2,
-                            })}
+                            {w.index.price.toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </span>
                           {w.index.changeAmount != null && w.index.changePercent != null && (
                             <span
@@ -4124,10 +4150,12 @@ export default function Alloy() {
                                     color: isLight ? "#14161A" : "#FFFFFF",
                                   }}
                                 >
-                                  {w.index.price.toLocaleString(undefined, {
-                                    minimumFractionDigits: 2,
-                                    maximumFractionDigits: 2,
-                                  })}
+                                  {w.index.price.toLocaleString(
+                                    undefined,
+                                    w.key === "snp500Futures" || w.key === "nasdaq100Futures"
+                                      ? { maximumFractionDigits: 0 }
+                                      : { minimumFractionDigits: 2, maximumFractionDigits: 2 }
+                                  )}
                                 </span>
                               </div>
                               {w.index.changeAmount != null && w.index.changePercent != null && (
@@ -4809,20 +4837,22 @@ export default function Alloy() {
                 <div ref={stressIndexListRef} style={{ position: "relative" }}>
                   <button
                     onClick={() => setStressIndexListOpen((v) => !v)}
+                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                     style={{
                       display: "flex",
                       alignItems: "center",
                       gap: 4,
                       padding: "5px 10px",
                       borderRadius: 8,
-                      border: `1px solid rgba(255,107,107,0.4)`,
-                      background: isLight ? "rgba(255,107,107,0.08)" : "rgba(255,107,107,0.12)",
-                      color: isLight ? "#B23B3B" : "#FF8A8A",
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
                       fontSize: 12,
                       fontWeight: 600,
                       cursor: "pointer",
                       outline: "none",
-                      animation: "stressPulse 2.2s ease-in-out infinite",
+                      transition: "opacity 0.2s ease, background 0.2s ease",
                     }}
                   >
                     {stressIndexOption.label}
@@ -5372,32 +5402,25 @@ export default function Alloy() {
             )}
 
             {/* 포트폴리오 탭 최하단: 드래그 앤 드롭 블록 그리드로 재구성한 새 디자인 미리보기(베타)로
-                이동하는 링크. 같은 로그인 세션을 공유하는 새 브라우저 탭으로 연다. */}
+                이동하는 링크. 실제 <a target="_blank"> 태그를 사용해야 브라우저/웹뷰에서 팝업 차단
+                없이 안정적으로 새 탭이 열린다(스크립트로 여는 window.open은 환경에 따라 현재 탭을
+                덮어써버릴 수 있음). 같은 출처라 로그인 세션(localStorage)은 새 탭에서도 그대로 유지된다. */}
             <div style={{ display: "flex", justifyContent: "center", padding: "28px 0 8px" }}>
-              <span
-                role="link"
-                tabIndex={0}
-                onClick={() => {
-                  const url = `${window.location.origin}${window.location.pathname}?view=grid`;
-                  window.open(url, "_blank");
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    const url = `${window.location.origin}${window.location.pathname}?view=grid`;
-                    window.open(url, "_blank");
-                  }
-                }}
+              <a
+                href={`${window.location.pathname}?view=grid`}
+                target="_blank"
+                rel="noopener noreferrer"
                 style={{
                   fontSize: 12,
                   fontWeight: 500,
                   color: isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)",
                   cursor: "pointer",
                   outline: "none",
+                  textDecoration: "none",
                 }}
               >
                 새로운 디자인으로 보기
-              </span>
+              </a>
             </div>
           </>
         )}
@@ -5546,8 +5569,8 @@ export default function Alloy() {
             </div>
 
             {/* 일반 카테고리: 포트폴리오 초기화 - 보유 종목/현금 데이터를 한 번에 삭제하고 빈 값으로 저장.
-                삭제 버튼과 동일한 2단계 확인(누르면 "정말요?" 문구+버튼이 경고색으로 바뀌고, 3초 안에
-                다시 누르면 실제 초기화)으로 실수 방지. */}
+                삭제 버튼과 동일한 2단계 확인(누르면 버튼이 경고색으로 바뀌고, 3초 안에 다시 누르면
+                실제 초기화)으로 실수 방지, 별도 문구는 넣지 않는다. */}
             <div
               style={{
                 padding: "20px 16px",
@@ -5696,7 +5719,7 @@ export default function Alloy() {
                     transition: "background 0.2s ease, border-color 0.2s ease",
                   }}
                 >
-                  {resetPortfolioConfirming ? "정말요?" : "초기화"}
+                  초기화
                 </button>
               </div>
 
@@ -7229,15 +7252,6 @@ export default function Alloy() {
             >
               스트레스 테스트
             </h2>
-            <span
-              style={{
-                fontSize: 12,
-                fontWeight: 500,
-                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-              }}
-            >
-              {stressIndexOption.label} 급락 시 예상 손익
-            </span>
 
             {holdings.length === 0 ? (
               <div
@@ -7270,7 +7284,7 @@ export default function Alloy() {
             ) : (
               <>
                 <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                  {[5, 10, 20, 30].map((pct) => (
+                  {[10, 20, 30, 40].map((pct) => (
                     <button
                       key={pct}
                       onClick={() => setStressDeclinePercent(pct)}
@@ -7341,7 +7355,7 @@ export default function Alloy() {
                     color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
                   }}
                 >
-                  베타(민감도) {stressBeta.toFixed(2)} · 최근 1년 일간 수익률 기준
+                  민감도 {stressBeta.toFixed(2)} (최근 1년 일간 수익률 기준)
                 </div>
               </>
             )}
@@ -8029,21 +8043,10 @@ export default function Alloy() {
               </h2>
 
               {/* 수정 모드: 삭제 버튼 - 닫기(X)로 착각해 실수로 삭제하는 걸 막기 위해 휴지통 아이콘 +
-                  2단계 확인(한 번 더 누르면 진짜 삭제, 3초 안에 다시 누르지 않으면 자동 취소)으로 구성 */}
+                  2단계 확인(한 번 더 누르면 진짜 삭제, 3초 안에 다시 누르지 않으면 자동 취소)으로 구성.
+                  확인 상태는 버튼 색상 변화만으로 표기하고 별도 문구는 넣지 않는다. */}
               {editIndex !== null && (
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  {deleteConfirming && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        fontWeight: 600,
-                        color: "#FF8A8A",
-                        whiteSpace: "nowrap",
-                      }}
-                    >
-                      삭제할까요?
-                    </span>
-                  )}
                   <button
                     onClick={handleDeleteClick}
                     onMouseEnter={() => setDeleteHovered(true)}
