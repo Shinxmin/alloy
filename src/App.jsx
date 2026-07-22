@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.135";
+const APP_VERSION = "0.1.136";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -285,30 +285,6 @@ export function heatmapCellColor(returnPct, isLight) {
   if (returnPct >= 0) return "#9BE3AA";
   if (returnPct > -3) return "#FFAFAF";
   return "#E23F3F";
-}
-
-// 스트레스 테스트용 베타(민감도) 계산 - 지수(독립변수)가 하루에 1% 움직일 때 내 포트폴리오
-// (종속변수)가 평균적으로 몇 % 움직였는지를 최근 1년 일간 수익률의 공통 날짜로 회귀(선형회귀
-// 기울기 = 공분산/지수 분산)해 구한다. 표본이 너무 적으면(5일 미만) 신뢰할 수 없어 null을 반환한다.
-function computeBeta(portfolioReturnMap, indexReturnMap) {
-  const commonDates = Object.keys(portfolioReturnMap).filter((d) =>
-    Object.prototype.hasOwnProperty.call(indexReturnMap, d)
-  );
-  if (commonDates.length < 5) return null;
-  const xs = commonDates.map((d) => indexReturnMap[d]);
-  const ys = commonDates.map((d) => portfolioReturnMap[d]);
-  const n = xs.length;
-  const meanX = xs.reduce((a, b) => a + b, 0) / n;
-  const meanY = ys.reduce((a, b) => a + b, 0) / n;
-  let cov = 0;
-  let varX = 0;
-  for (let i = 0; i < n; i++) {
-    const dx = xs[i] - meanX;
-    cov += dx * (ys[i] - meanY);
-    varX += dx * dx;
-  }
-  if (varX === 0) return null;
-  return cov / varX;
 }
 
 // 캔들차트 툴팁: "07/16(목) 23:00 7,500"(1일·1주) 또는 "07/16(목) 7,500"(3달·1년) 한 줄로만 표기
@@ -1445,78 +1421,27 @@ export default function Alloy() {
     { key: "kospi", label: "코스피", symbol: "^KS11" },
   ];
 
-  // 스트레스 테스트 - S&P500/나스닥/코스피의 최근 1년 일간 등락률을 미리 구해 베타(민감도) 계산에 쓴다.
-  // 보유 종목과 무관하게 항상 3개 지수를 조회하므로 holdings에 의존하지 않는 별도 이펙트로 둔다.
-  const [stressIndexReturnMaps, setStressIndexReturnMaps] = useState({}); // { sp500: {date:pct}, nasdaq: {...}, kospi: {...} }
-  useEffect(() => {
-    let cancelled = false;
-    const fetchOne = async (opt) => {
-      try {
-        const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
-          body: { symbol: opt.symbol, name: opt.label, range: "1y", interval: "1d" },
-        });
-        if (!error && data && Array.isArray(data.history)) return data.history;
-      } catch (e) {
-        // 무시하고 빈 배열 처리
-      }
-      return [];
-    };
-    Promise.all(BENCHMARK_OPTIONS.map((opt) => fetchOne(opt).then((history) => [opt.key, history]))).then(
-      (results) => {
-        if (cancelled) return;
-        const todayKey = kstDateKey(Date.now() / 1000);
-        const maps = {};
-        for (const [key, history] of results) {
-          const map = {};
-          for (let i = 1; i < history.length; i++) {
-            const dateKey = kstDateKey(history[i].ts);
-            if (dateKey >= todayKey) continue;
-            const prevClose = history[i - 1].close;
-            if (!(prevClose > 0)) continue;
-            map[dateKey] = ((history[i].close - prevClose) / prevClose) * 100;
-          }
-          maps[key] = map;
-        }
-        setStressIndexReturnMaps(maps);
-      }
-    );
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 스트레스 테스트 모달 (홈 탭 "스트레스 테스트" 클릭 시 표시)
-  const [stressTestModalOpen, setStressTestModalOpen] = useState(false);
-  const [stressTestModalVisible, setStressTestModalVisible] = useState(false);
-  const openStressTestModal = () => {
-    setStressTestModalOpen(true);
-    requestAnimationFrame(() => setStressTestModalVisible(true));
+  // 백 테스트 모달 (홈 탭 "백 테스트" 클릭 시 표시, 현재 포트폴리오를 과거 특정 기간에 그대로
+  // 적용했다면 평가금액이 어떻게 움직였을지 보여준다)
+  const [backtestModalOpen, setBacktestModalOpen] = useState(false);
+  const [backtestModalVisible, setBacktestModalVisible] = useState(false);
+  const openBacktestModal = () => {
+    setBacktestModalOpen(true);
+    requestAnimationFrame(() => setBacktestModalVisible(true));
   };
-  const closeStressTestModal = () => {
-    setStressTestModalVisible(false);
-    setTimeout(() => setStressTestModalOpen(false), 300);
+  const closeBacktestModal = () => {
+    setBacktestModalVisible(false);
+    setTimeout(() => setBacktestModalOpen(false), 300);
   };
-  const closeStressTestModalRef = useRef(closeStressTestModal);
-  closeStressTestModalRef.current = closeStressTestModal;
+  const closeBacktestModalRef = useRef(closeBacktestModal);
+  closeBacktestModalRef.current = closeBacktestModal;
 
-  // 스트레스 테스트에서 기준으로 삼을 지수 선택 토글(S&P500/나스닥/코스피) - 카드의 "스트레스 테스트"
-  // 제목 줄 오른쪽 끝에 위치(일간 수익률 종목 토글과 동일한 위치 규칙)
-  const [stressIndexKey, setStressIndexKey] = useState(BENCHMARK_OPTIONS[0].key);
-  const [stressIndexListOpen, setStressIndexListOpen] = useState(false);
-  const stressIndexListRef = useRef(null);
-  useEffect(() => {
-    if (!stressIndexListOpen) return;
-    const handleClickOutside = (e) => {
-      if (stressIndexListRef.current && !stressIndexListRef.current.contains(e.target)) {
-        setStressIndexListOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [stressIndexListOpen]);
-
-  // 스트레스 테스트에서 가정할 하락률(%) 선택 - 모달 안에서 5/10/20/30% 중 선택
-  const [stressDeclinePercent, setStressDeclinePercent] = useState(10);
+  // 백 테스트 시작/종료 년월(YYYY-MM) - 카드의 "백 테스트" 제목 줄 오른쪽 끝의 작은 입력으로 고르며,
+  // 별도 확인 버튼 없이 값이 채워지는 즉시 아래 이펙트가 데이터를 다시 계산한다.
+  const [backtestStartMonth, setBacktestStartMonth] = useState("");
+  const [backtestEndMonth, setBacktestEndMonth] = useState("");
+  const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }]
+  const [backtestLoading, setBacktestLoading] = useState(false);
 
   // 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시, 선택한 지수 대비 내 포트폴리오 수익률 비교 차트)
   const [benchmarkModalOpen, setBenchmarkModalOpen] = useState(false);
@@ -1634,7 +1559,7 @@ export default function Alloy() {
       infoModalOpen ||
       dividendModalOpen ||
       dailyReturnModalOpen ||
-      stressTestModalOpen ||
+      backtestModalOpen ||
       assetTrendModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
@@ -1668,7 +1593,7 @@ export default function Alloy() {
     infoModalOpen,
     dividendModalOpen,
     dailyReturnModalOpen,
-    stressTestModalOpen,
+    backtestModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -2365,9 +2290,9 @@ export default function Alloy() {
         } else if (dailyReturnModalOpen) {
           e.preventDefault();
           closeDailyReturnModalRef.current();
-        } else if (stressTestModalOpen) {
+        } else if (backtestModalOpen) {
           e.preventDefault();
-          closeStressTestModalRef.current();
+          closeBacktestModalRef.current();
         } else if (assetTrendModalOpen) {
           e.preventDefault();
           closeAssetTrendModalRef.current();
@@ -2446,7 +2371,7 @@ export default function Alloy() {
     infoModalOpen,
     dividendModalOpen,
     dailyReturnModalOpen,
-    stressTestModalOpen,
+    backtestModalOpen,
     assetTrendModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
@@ -2721,6 +2646,104 @@ export default function Alloy() {
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
   const grandTotalUSD = totalStockValueUSD + totalCashValueUSD;
 
+  // 현재 보유 종목(수량 그대로)을 시작~종료 년월 구간에 적용했을 때의 평가금액 추이(백 테스트) -
+  // 자산 추이 모달과 동일한 방식(데이터가 가장 많은 종목의 타임스탬프를 기준으로 각 종목의 최근접
+  // 종가를 찾아 수량을 곱해 합산 + 현재 현금 평가액 가산)으로 복원한 뒤, 선택한 구간만 잘라낸다.
+  useEffect(() => {
+    if (!backtestStartMonth || !backtestEndMonth) {
+      setBacktestSeries([]);
+      return;
+    }
+    const [startY, startM] = backtestStartMonth.split("-").map(Number);
+    const [endY, endM] = backtestEndMonth.split("-").map(Number);
+    const startTs = Date.UTC(startY, startM - 1, 1) / 1000;
+    const endTs = Date.UTC(endM === 12 ? endY + 1 : endY, endM === 12 ? 0 : endM, 1) / 1000 - 1;
+    if (startTs > endTs) {
+      setBacktestSeries([]);
+      return;
+    }
+    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
+    if (uniqueTickers.length === 0) {
+      setBacktestSeries([]);
+      return;
+    }
+    let cancelled = false;
+    setBacktestLoading(true);
+
+    const fetchOne = async (ticker) => {
+      for (const symbol of yahooSymbolCandidates(ticker)) {
+        try {
+          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
+            body: { symbol, name: ticker, range: "max", interval: "1d" },
+          });
+          if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
+            return data.history;
+          }
+        } catch (e) {
+          // 다음 후보로 계속 시도
+        }
+      }
+      return [];
+    };
+
+    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
+      (results) => {
+        if (cancelled) return;
+        const historyByTicker = {};
+        for (const [ticker, history] of results) historyByTicker[ticker] = history;
+
+        let referenceTicker = null;
+        let maxLen = 0;
+        for (const ticker of uniqueTickers) {
+          const len = (historyByTicker[ticker] || []).filter((p) => p.ts >= startTs && p.ts <= endTs).length;
+          if (len > maxLen) {
+            maxLen = len;
+            referenceTicker = ticker;
+          }
+        }
+        if (!referenceTicker) {
+          setBacktestSeries([]);
+          setBacktestLoading(false);
+          return;
+        }
+
+        const closestClose = (history, ts) => {
+          if (!history || history.length === 0) return null;
+          let best = history[0];
+          let bestDiff = Math.abs(history[0].ts - ts);
+          for (const p of history) {
+            const diff = Math.abs(p.ts - ts);
+            if (diff < bestDiff) {
+              best = p;
+              bestDiff = diff;
+            }
+          }
+          return best.close;
+        };
+
+        const series = historyByTicker[referenceTicker]
+          .filter((refPoint) => refPoint.ts >= startTs && refPoint.ts <= endTs)
+          .map((refPoint) => {
+            let totalUSD = totalCashValueUSD;
+            holdings.forEach((h) => {
+              const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
+              if (close == null) return;
+              const nativeValue = close * h.quantity;
+              totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
+            });
+            return { ts: refPoint.ts, valueUSD: totalUSD };
+          });
+
+        setBacktestSeries(series);
+        setBacktestLoading(false);
+      }
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, [backtestStartMonth, backtestEndMonth, holdingsTickerKey]);
+
   // 통화별 원래 금액 그대로 합산 (환산 없이)
   const totalNativeUSD =
     holdings
@@ -2753,15 +2776,6 @@ export default function Alloy() {
   // 화면에 표기할 통화별(각각) 총자산: 자기 통화 원금액 + 다른 통화 자산의 환산액
   const displayTotalUSD = totalNativeUSD + convertedKRWtoUSD;
   const displayTotalKRW = totalNativeKRW + convertedUSDtoKRW;
-
-  // 스트레스 테스트 - 선택한 지수와 내 포트폴리오의 최근 1년 일간 수익률로 베타(민감도)를 구하고,
-  // 가정한 하락률(%)을 곱해 예상 변동률/금액을 계산한다.
-  const stressIndexOption = BENCHMARK_OPTIONS.find((o) => o.key === stressIndexKey) || BENCHMARK_OPTIONS[0];
-  const stressBeta = computeBeta(dailyReturnMaps.portfolio || {}, stressIndexReturnMaps[stressIndexKey] || {});
-  const stressEstimatedChangePercent = stressBeta == null ? null : -stressBeta * stressDeclinePercent;
-  const stressBaselineTotal = homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW;
-  const stressEstimatedChangeAmount =
-    stressEstimatedChangePercent == null ? null : (stressBaselineTotal * stressEstimatedChangePercent) / 100;
 
   // 총 자산 등락폭: 현재가가 있는 보유 종목의 평가손익(현재가 - 평균단가) × 수량을 합산 (현금은 손익이 없어 제외)
   let totalGainUSD = 0;
@@ -3377,6 +3391,35 @@ export default function Alloy() {
   const assetTrendColor =
     assetTrendSeries.length >= 2 &&
     assetTrendSeries[assetTrendSeries.length - 1].valueUSD < assetTrendSeries[0].valueUSD
+      ? "#4D9FFF"
+      : "#FF5C5C";
+
+  // 백 테스트 모달 툴팁 - 자산 추이 모달 툴팁과 동일한 디자인/포맷을 그대로 사용
+  const BacktestTooltip = ({ active, payload }) => {
+    if (!active || !payload || payload.length === 0) return null;
+    const d = payload[0].payload;
+    const displayValue = homeCurrency === "USD" ? d.valueUSD : d.valueUSD * todayRate;
+    return (
+      <div
+        style={{
+          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+          borderRadius: 10,
+          fontSize: 11,
+          fontWeight: 600,
+          padding: "6px 10px",
+          color: isLight ? "#14161A" : "#FFFFFF",
+          whiteSpace: "nowrap",
+        }}
+      >
+        {formatKstDatePart(d.ts)} {formatAmount(displayValue, homeCurrency)}
+      </div>
+    );
+  };
+
+  // 백 테스트 그래프 색상 - 자산 추이와 동일한 규칙(구간 시작 대비 마지막 값이 올랐으면 빨강, 내렸으면 파랑)
+  const backtestColor =
+    backtestSeries.length >= 2 && backtestSeries[backtestSeries.length - 1].valueUSD < backtestSeries[0].valueUSD
       ? "#4D9FFF"
       : "#FF5C5C";
 
@@ -4794,9 +4837,9 @@ export default function Alloy() {
                 )}
               </div>
 
-              {/* 스트레스 테스트: 제목을 클릭하면 모달을 열어 선택한 지수가 급락할 때 내 포트폴리오가
-                  얼마나 흔들릴지 보여준다. 지수 선택 토글은 모달 밖, 이 줄의 오른쪽 끝에 두고
-                  애니메이션(펄스) 효과를 줘 시선을 끈다. */}
+              {/* 백 테스트: 제목을 클릭하면 모달을 열어 차트를 보여준다. 시작/종료 년월 입력은
+                  모달 밖, 이 줄의 오른쪽 끝에 작게 두고 확인 버튼 없이 값이 채워지는 즉시
+                  계산해 모달의 차트로 반영한다. */}
               <div
                 style={{
                   height: 1,
@@ -4804,15 +4847,15 @@ export default function Alloy() {
                   margin: "16px 0",
                 }}
               />
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
                 <div
                   role="button"
                   tabIndex={0}
-                  onClick={openStressTestModal}
+                  onClick={openBacktestModal}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
-                      openStressTestModal();
+                      openBacktestModal();
                     }
                   }}
                   onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
@@ -4822,6 +4865,7 @@ export default function Alloy() {
                     alignItems: "center",
                     gap: 4,
                     width: "fit-content",
+                    flexShrink: 0,
                     fontSize: 13,
                     fontWeight: 600,
                     color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
@@ -4830,112 +4874,50 @@ export default function Alloy() {
                     transition: "opacity 0.2s ease",
                   }}
                 >
-                  스트레스 테스트
+                  백 테스트
                   <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                     <path d="M9 6l6 6-6 6" />
                   </svg>
                 </div>
 
-                <div ref={stressIndexListRef} style={{ position: "relative" }}>
-                  <button
-                    onClick={() => setStressIndexListOpen((v) => !v)}
-                    onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
-                    onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
+                  <input
+                    type="month"
+                    value={backtestStartMonth}
+                    onChange={(e) => setBacktestStartMonth(e.target.value)}
                     style={{
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 4,
-                      padding: "5px 10px",
-                      borderRadius: 8,
+                      width: 90,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "4px 5px",
+                      borderRadius: 7,
                       border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
                       background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
                       color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      cursor: "pointer",
                       outline: "none",
-                      transition: "opacity 0.2s ease, background 0.2s ease",
+                      colorScheme: isLight ? "light" : "dark",
                     }}
-                  >
-                    {stressIndexOption.label}
-                    <svg
-                      width="9"
-                      height="9"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      style={{
-                        transform: stressIndexListOpen ? "rotate(180deg)" : "rotate(0deg)",
-                        transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                    >
-                      <path d="M6 9l6 6 6-6" />
-                    </svg>
-                  </button>
-
-                  <div
+                  />
+                  <span style={{ fontSize: 10, color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>
+                    ~
+                  </span>
+                  <input
+                    type="month"
+                    value={backtestEndMonth}
+                    onChange={(e) => setBacktestEndMonth(e.target.value)}
                     style={{
-                      position: "absolute",
-                      top: "calc(100% + 6px)",
-                      right: 0,
-                      minWidth: 110,
-                      borderRadius: 12,
-                      background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-                      backdropFilter: "blur(20px) saturate(180%)",
-                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                      boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
-                      overflow: "hidden",
-                      zIndex: 5,
-                      opacity: stressIndexListOpen ? 1 : 0,
-                      transform: stressIndexListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                      pointerEvents: stressIndexListOpen ? "auto" : "none",
-                      transformOrigin: "top right",
-                      transition:
-                        "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                      width: 90,
+                      fontSize: 10,
+                      fontWeight: 600,
+                      padding: "4px 5px",
+                      borderRadius: 7,
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      outline: "none",
+                      colorScheme: isLight ? "light" : "dark",
                     }}
-                  >
-                    {BENCHMARK_OPTIONS.map((opt) => (
-                      <button
-                        key={opt.key}
-                        onClick={() => {
-                          setStressIndexKey(opt.key);
-                          setStressIndexListOpen(false);
-                        }}
-                        onMouseEnter={(e) => {
-                          if (opt.key !== stressIndexKey)
-                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
-                        }}
-                        onMouseLeave={(e) => {
-                          if (opt.key !== stressIndexKey) e.currentTarget.style.background = "transparent";
-                        }}
-                        style={{
-                          display: "block",
-                          width: "100%",
-                          textAlign: "left",
-                          padding: "9px 12px",
-                          border: "none",
-                          background:
-                            opt.key === stressIndexKey
-                              ? isLight
-                                ? "rgba(20,22,26,0.08)"
-                                : "rgba(255,255,255,0.1)"
-                              : "transparent",
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 12,
-                          fontWeight: opt.key === stressIndexKey ? 700 : 500,
-                          cursor: "pointer",
-                          outline: "none",
-                          transition: "background 0.15s ease",
-                        }}
-                      >
-                        {opt.label}
-                      </button>
-                    ))}
-                  </div>
+                  />
                 </div>
               </div>
             </div>
@@ -7205,12 +7187,12 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* 스트레스 테스트 모달 (홈 탭 "스트레스 테스트" 클릭 시 표시): 선택한 지수(카드에서 고른
-          S&P500/나스닥/코스피)가 가정한 하락률만큼 떨어지면 내 포트폴리오가 최근 1년 일간 수익률
-          기준 베타(민감도)로 얼마나 함께 흔들릴지 계산해 보여준다. */}
-      {stressTestModalOpen && (
+      {/* 백 테스트 모달 (홈 탭 "백 테스트" 클릭 시 표시): 카드에서 고른 시작~종료 년월 구간에
+          현재 보유 종목(수량 그대로)을 적용했다면 평가금액이 어떻게 움직였을지 보여준다.
+          차트 디자인/애니메이션은 자산 추이 모달과 동일한 컴포넌트 구성을 그대로 재사용한다. */}
+      {backtestModalOpen && (
         <div
-          onClick={closeStressTestModal}
+          onClick={closeBacktestModal}
           style={{
             position: "fixed",
             inset: 0,
@@ -7218,9 +7200,9 @@ export default function Alloy() {
             alignItems: "center",
             justifyContent: "center",
             zIndex: 10,
-            background: stressTestModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: stressTestModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: stressTestModalVisible ? "blur(6px)" : "blur(0px)",
+            background: backtestModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: backtestModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: backtestModalVisible ? "blur(6px)" : "blur(0px)",
             transition: "background 0.35s ease, backdrop-filter 0.35s ease",
           }}
         >
@@ -7228,7 +7210,7 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(320px, 84vw)",
+              width: "min(304px, 80vw)",
               padding: "22px 20px",
               borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
@@ -7236,8 +7218,8 @@ export default function Alloy() {
               WebkitBackdropFilter: "blur(28px) saturate(180%)",
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: stressTestModalVisible ? 1 : 0,
-              transform: stressTestModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              opacity: backtestModalVisible ? 1 : 0,
+              transform: backtestModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
               transition:
                 "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
               boxSizing: "border-box",
@@ -7245,122 +7227,114 @@ export default function Alloy() {
           >
             <h2
               style={{
-                margin: "0 0 2px 0",
+                margin: "0 0 14px 0",
                 fontSize: 17,
                 fontWeight: 600,
                 color: isLight ? "#14161A" : "#FFFFFF",
                 letterSpacing: 0.2,
               }}
             >
-              스트레스 테스트
+              백 테스트
             </h2>
 
-            {holdings.length === 0 ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: 150,
-                  fontSize: 12,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                }}
-              >
-                아직 등록된 자산이 없어요
-              </div>
-            ) : stressBeta == null ? (
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  height: 150,
-                  fontSize: 12,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  textAlign: "center",
-                  padding: "0 20px",
-                }}
-              >
-                데이터가 충분하지 않아요
-              </div>
-            ) : (
-              <>
-                <div style={{ display: "flex", gap: 8, marginTop: 16 }}>
-                  {[10, 20, 30, 40].map((pct) => (
-                    <button
-                      key={pct}
-                      onClick={() => setStressDeclinePercent(pct)}
-                      style={{
-                        flex: 1,
-                        height: 32,
-                        borderRadius: 10,
-                        border: `1px solid ${
-                          stressDeclinePercent === pct
-                            ? "rgba(255,107,107,0.5)"
-                            : isLight
-                            ? "rgba(20,22,26,0.14)"
-                            : "rgba(255,255,255,0.14)"
-                        }`,
-                        background: stressDeclinePercent === pct ? "#FF6B6B" : "transparent",
-                        color: stressDeclinePercent === pct ? "#FFFFFF" : isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
-                        fontSize: 12,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        outline: "none",
-                        transition: "background 0.15s ease, border-color 0.15s ease",
-                      }}
-                    >
-                      -{pct}%
-                    </button>
-                  ))}
-                </div>
-
-                <div style={{ marginTop: 20 }}>
-                  <div
-                    style={{
-                      fontSize: 12,
-                      fontWeight: 500,
-                      color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    }}
-                  >
-                    예상 포트폴리오 변동률
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 26,
-                      fontWeight: 700,
-                      marginTop: 4,
-                      color: stressEstimatedChangePercent >= 0 ? "#1E9E4C" : "#E23F3F",
-                    }}
-                  >
-                    {stressEstimatedChangePercent >= 0 ? "+" : "-"}
-                    {Math.abs(stressEstimatedChangePercent).toFixed(2)}%
-                  </div>
-                  <div
-                    style={{
-                      fontSize: 14,
-                      fontWeight: 600,
-                      marginTop: 2,
-                      color: stressEstimatedChangeAmount >= 0 ? "#1E9E4C" : "#E23F3F",
-                    }}
-                  >
-                    {stressEstimatedChangeAmount >= 0 ? "+" : "-"}
-                    {formatAmount(Math.abs(stressEstimatedChangeAmount), homeCurrency)}
-                  </div>
-                </div>
-
+            <div style={{ width: "100%", height: 190 }}>
+              {holdings.length === 0 ? (
                 <div
                   style={{
-                    marginTop: 16,
-                    fontSize: 11,
-                    fontWeight: 500,
-                    color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
                   }}
                 >
-                  민감도 {stressBeta.toFixed(2)} (최근 1년 일간 수익률 기준)
+                  아직 등록된 자산이 없어요
                 </div>
-              </>
-            )}
+              ) : !backtestStartMonth || !backtestEndMonth ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    textAlign: "center",
+                    padding: "0 20px",
+                  }}
+                >
+                  시작·종료 년월을 입력해주세요
+                </div>
+              ) : backtestLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : backtestSeries.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: "100%",
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                    textAlign: "center",
+                    padding: "0 20px",
+                  }}
+                >
+                  {backtestStartMonth > backtestEndMonth
+                    ? "종료 년월이 시작 년월보다 앞설 수 없어요"
+                    : "데이터가 없어요"}
+                </div>
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={backtestSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
+                    <defs>
+                      <linearGradient id="backtestGradient" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor={backtestColor} stopOpacity={0.28} />
+                        <stop offset="100%" stopColor={backtestColor} stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <XAxis
+                      dataKey="ts"
+                      tickFormatter={(ts) => formatKstAxisLabel(ts, "1y")}
+                      tick={{
+                        fontSize: 9,
+                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                      }}
+                      axisLine={false}
+                      tickLine={false}
+                      interval="preserveStartEnd"
+                      minTickGap={40}
+                    />
+                    <YAxis hide domain={["dataMin", "dataMax"]} />
+                    <Tooltip
+                      content={<BacktestTooltip />}
+                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
+                    />
+                    <Area
+                      type="monotone"
+                      dataKey="valueUSD"
+                      stroke={backtestColor}
+                      strokeWidth={2}
+                      fill="url(#backtestGradient)"
+                      dot={false}
+                      isAnimationActive={false}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              )}
+            </div>
           </div>
         </div>
       )}
