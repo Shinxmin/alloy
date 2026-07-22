@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.138";
+const APP_VERSION = "0.1.139";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1464,7 +1464,6 @@ export default function Alloy() {
   const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }] (세전, 배당 재투자만 반영)
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestDividendTooltipVisible, setBacktestDividendTooltipVisible] = useState(false);
-  const backtestDividendTooltipTimerRef = useRef(null);
 
   // 백 테스트 대상 - "포트폴리오"(보유 종목 전체) 또는 보유 종목 하나. 카드의 "백 테스트" 제목 줄
   // 오른쪽 끝에 두는 토글(일간 수익률 종목 토글과 동일한 위치 규칙)
@@ -7632,17 +7631,21 @@ export default function Alloy() {
                     {backtestCAGR.toFixed(1)}%
                   </div>
                   {backtestBestYearReturn !== null && backtestWorstYearReturn !== null && (
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
-                      최고 연간 수익률{" "}
-                      <span style={{ color: "#FF5C5C" }}>
-                        {backtestBestYearReturn >= 0 ? "+" : ""}
-                        {backtestBestYearReturn.toFixed(1)}%
-                      </span>{" "}
-                      최저 연간 수익률{" "}
-                      <span style={{ color: "#4D9FFF" }}>
-                        {backtestWorstYearReturn >= 0 ? "+" : ""}
-                        {backtestWorstYearReturn.toFixed(1)}%
-                      </span>
+                    <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
+                        최고 연간 수익률{" "}
+                        <span style={{ color: "#FF5C5C" }}>
+                          {backtestBestYearReturn >= 0 ? "+" : ""}
+                          {backtestBestYearReturn.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
+                        최저 연간 수익률{" "}
+                        <span style={{ color: "#4D9FFF" }}>
+                          {backtestWorstYearReturn >= 0 ? "+" : ""}
+                          {backtestWorstYearReturn.toFixed(1)}%
+                        </span>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -7663,33 +7666,34 @@ export default function Alloy() {
                         배당
                       </span>
                       <div
-                        onClick={() => {
+                        onMouseEnter={(e) => {
                           setBacktestDividendTooltipVisible(true);
-                          if (backtestDividendTooltipTimerRef.current) clearTimeout(backtestDividendTooltipTimerRef.current);
-                          backtestDividendTooltipTimerRef.current = setTimeout(() => setBacktestDividendTooltipVisible(false), 3000);
+                          e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)";
+                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)";
                         }}
+                        onMouseLeave={(e) => {
+                          setBacktestDividendTooltipVisible(false);
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)";
+                        }}
+                        onMouseDown={() => setBacktestDividendTooltipVisible(true)}
+                        onMouseUp={() => setBacktestDividendTooltipVisible(false)}
+                        onTouchStart={() => setBacktestDividendTooltipVisible(true)}
+                        onTouchEnd={() => setBacktestDividendTooltipVisible(false)}
                         style={{
                           position: "relative",
                           display: "inline-flex",
                           alignItems: "center",
                           justifyContent: "center",
-                          width: 16,
-                          height: 16,
+                          width: 12,
+                          height: 12,
                           borderRadius: "50%",
                           border: `1px solid ${isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"}`,
                           cursor: "pointer",
-                          fontSize: 11,
+                          fontSize: 8,
                           fontWeight: 600,
                           color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
                           transition: "background 0.2s ease, border-color 0.2s ease",
-                        }}
-                        onMouseEnter={(e) => {
-                          e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)";
-                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)";
-                        }}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = "transparent";
-                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)";
                         }}
                       >
                         ?
