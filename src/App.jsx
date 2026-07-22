@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.136";
+const APP_VERSION = "0.1.137";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1349,8 +1349,21 @@ export default function Alloy() {
   const closeDailyReturnModalRef = useRef(closeDailyReturnModal);
   closeDailyReturnModalRef.current = closeDailyReturnModal;
 
-  // 홈 탭 총자산/배당금 카드 표기 통화($/₩) 슬라이드 토글 - 총 자산, 배당금, 배당 캘린더 모달 표기 전부에 적용됨
-  const [homeCurrency, setHomeCurrency] = useState("USD");
+  // 기본 표기 통화($/₩) - 설정 탭 "일반"에서 고르며, 홈 탭의 총 자산/배당금/배당 캘린더/백 테스트 등
+  // 모든 통화 표기에 공통 적용된다. 테마와 동일하게 localStorage에 저장해 다음 접속에도 유지한다.
+  const [homeCurrency, setHomeCurrency] = useState(() => {
+    try {
+      return localStorage.getItem("alloy_home_currency") === "KRW" ? "KRW" : "USD";
+    } catch (e) {
+      return "USD";
+    }
+  });
+  useEffect(() => {
+    try {
+      localStorage.setItem("alloy_home_currency", homeCurrency);
+    } catch (e) {}
+  }, [homeCurrency]);
+
   const [homeCurrencyIndicator, setHomeCurrencyIndicator] = useState({ left: 0, width: 0 });
   const homeCurrencyBtnRefs = useRef([]);
   const [homeCurrencyHoverIdx, setHomeCurrencyHoverIdx] = useState(null);
@@ -1436,12 +1449,36 @@ export default function Alloy() {
   const closeBacktestModalRef = useRef(closeBacktestModal);
   closeBacktestModalRef.current = closeBacktestModal;
 
-  // 백 테스트 시작/종료 년월(YYYY-MM) - 카드의 "백 테스트" 제목 줄 오른쪽 끝의 작은 입력으로 고르며,
-  // 별도 확인 버튼 없이 값이 채워지는 즉시 아래 이펙트가 데이터를 다시 계산한다.
-  const [backtestStartMonth, setBacktestStartMonth] = useState("");
-  const [backtestEndMonth, setBacktestEndMonth] = useState("");
-  const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }]
+  // 백 테스트 시작/종료 년월(YYYY-MM) + 세금 옵션 - 모달 안에서 고르며, 별도 확인 버튼 없이 값이
+  // 바뀌는 즉시 아래 이펙트가 데이터를 다시 계산한다.
+  const [backtestStartMonth, setBacktestStartMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear() - 5}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [backtestEndMonth, setBacktestEndMonth] = useState(() => {
+    const now = new Date();
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const [backtestCapitalGainsTax, setBacktestCapitalGainsTax] = useState(false);
+  const [backtestDividendTax, setBacktestDividendTax] = useState(false);
+  const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }] (세전, 배당 재투자만 반영)
   const [backtestLoading, setBacktestLoading] = useState(false);
+
+  // 백 테스트 대상 - "포트폴리오"(보유 종목 전체) 또는 보유 종목 하나. 카드의 "백 테스트" 제목 줄
+  // 오른쪽 끝에 두는 토글(일간 수익률 종목 토글과 동일한 위치 규칙)
+  const [backtestTarget, setBacktestTarget] = useState("portfolio");
+  const [backtestTargetListOpen, setBacktestTargetListOpen] = useState(false);
+  const backtestTargetListRef = useRef(null);
+  useEffect(() => {
+    if (!backtestTargetListOpen) return;
+    const handleClickOutside = (e) => {
+      if (backtestTargetListRef.current && !backtestTargetListRef.current.contains(e.target)) {
+        setBacktestTargetListOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [backtestTargetListOpen]);
 
   // 벤치마크 모달 (홈 탭 "벤치마크" 클릭 시 표시, 선택한 지수 대비 내 포트폴리오 수익률 비교 차트)
   const [benchmarkModalOpen, setBenchmarkModalOpen] = useState(false);
@@ -1774,6 +1811,13 @@ export default function Alloy() {
       setDailyHeatmapTarget("portfolio");
     }
   }, [holdingsTickerKey]);
+  // 백 테스트 대상으로 선택한 종목이 삭제되면 자동으로 포트폴리오 표기로 복귀
+  useEffect(() => {
+    if (backtestTarget === "portfolio") return;
+    if (!holdings.some((h) => h.ticker === backtestTarget)) {
+      setBacktestTarget("portfolio");
+    }
+  }, [holdingsTickerKey]);
 
   // 일간 수익률 히트맵 가로 스크롤 - 스크롤바를 숨긴 대신 마우스로 좌우 드래그해 스크롤할 수 있게 함
   const dailyHeatmapScrollRef = useRef(null);
@@ -1916,6 +1960,15 @@ export default function Alloy() {
     })),
   ];
   const dailyReturnMap = dailyReturnMaps[dailyHeatmapTarget] || {};
+
+  // 백 테스트 대상 선택 목록 - 포트폴리오 전체 + 보유 종목(중복 티커 제거)
+  const backtestTargetOptions = [
+    { key: "portfolio", label: "포트폴리오" },
+    ...[...new Set(holdings.map((h) => h.ticker))].map((ticker) => ({
+      key: ticker,
+      label: holdings.find((h) => h.ticker === ticker)?.name || ticker,
+    })),
+  ];
 
   const {
     cells: dailyHeatmapCells,
@@ -2646,9 +2699,12 @@ export default function Alloy() {
   const totalCashValueUSD = cashHoldings.reduce((sum, c) => sum + cashToUSD(c), 0);
   const grandTotalUSD = totalStockValueUSD + totalCashValueUSD;
 
-  // 현재 보유 종목(수량 그대로)을 시작~종료 년월 구간에 적용했을 때의 평가금액 추이(백 테스트) -
-  // 자산 추이 모달과 동일한 방식(데이터가 가장 많은 종목의 타임스탬프를 기준으로 각 종목의 최근접
-  // 종가를 찾아 수량을 곱해 합산 + 현재 현금 평가액 가산)으로 복원한 뒤, 선택한 구간만 잘라낸다.
+  // 백 테스트 대상(포트폴리오 전체 또는 보유 종목 하나)을 시작~종료 년월 구간에 적용했을 때의
+  // 평가금액 추이 - 자산 추이 모달과 동일한 방식(데이터가 가장 많은 종목의 타임스탬프를 기준으로
+  // 각 종목의 최근접 종가를 찾아 수량을 곱해 합산)으로 복원하되, 배당소득세(재투자) 옵션이 켜져
+  // 있으면 종목별로 배당 지급 시점마다 세후 배당금을 그 시점 종가로 재매수해 수량이 늘어나는
+  // 것까지 반영한다(포트폴리오 대상일 때만 현재 현금 평가액을 더함). 양도소득세는 이 시계열이 아니라
+  // 최종 수익 요약(금액/연이율)에만 별도로 적용한다.
   useEffect(() => {
     if (!backtestStartMonth || !backtestEndMonth) {
       setBacktestSeries([]);
@@ -2662,8 +2718,9 @@ export default function Alloy() {
       setBacktestSeries([]);
       return;
     }
-    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
-    if (uniqueTickers.length === 0) {
+    const targetTickers =
+      backtestTarget === "portfolio" ? [...new Set(holdings.map((h) => h.ticker))] : [backtestTarget];
+    if (targetTickers.length === 0) {
       setBacktestSeries([]);
       return;
     }
@@ -2677,72 +2734,90 @@ export default function Alloy() {
             body: { symbol, name: ticker, range: "max", interval: "1d" },
           });
           if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
-            return data.history;
+            return { history: data.history, dividends: Array.isArray(data.dividends) ? data.dividends : [] };
           }
         } catch (e) {
           // 다음 후보로 계속 시도
         }
       }
-      return [];
+      return { history: [], dividends: [] };
     };
 
-    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
-      (results) => {
-        if (cancelled) return;
-        const historyByTicker = {};
-        for (const [ticker, history] of results) historyByTicker[ticker] = history;
+    Promise.all(targetTickers.map((ticker) => fetchOne(ticker).then((r) => [ticker, r]))).then((results) => {
+      if (cancelled) return;
 
-        let referenceTicker = null;
-        let maxLen = 0;
-        for (const ticker of uniqueTickers) {
-          const len = (historyByTicker[ticker] || []).filter((p) => p.ts >= startTs && p.ts <= endTs).length;
-          if (len > maxLen) {
-            maxLen = len;
-            referenceTicker = ticker;
+      // 종목별로 "시점별 보유 수량 × 종가" 시계열을 만든다 - 배당소득세(재투자) 옵션이 켜져 있으면
+      // 배당 지급일마다 세후 배당금(주당 배당금 × 그 시점 보유 수량 × (1-0.154))을 그 날 종가로
+      // 재매수해 이후 수량이 늘어난다.
+      const valueSeriesByTicker = {};
+      for (const [ticker, { history, dividends }] of results) {
+        const h = holdings.find((x) => x.ticker === ticker);
+        let qty = h ? h.quantity : 0;
+        const sortedHistory = [...history].sort((a, b) => a.ts - b.ts);
+        const sortedDividends = backtestDividendTax ? [...dividends].sort((a, b) => a.ts - b.ts) : [];
+        let divIdx = 0;
+        const points = [];
+        for (const p of sortedHistory) {
+          while (divIdx < sortedDividends.length && sortedDividends[divIdx].ts <= p.ts) {
+            const perShareAfterTax = (sortedDividends[divIdx].amount || 0) * (1 - 0.154);
+            if (p.close > 0) qty += (perShareAfterTax * qty) / p.close;
+            divIdx++;
           }
+          points.push({ ts: p.ts, close: p.close, value: qty * p.close });
         }
-        if (!referenceTicker) {
-          setBacktestSeries([]);
-          setBacktestLoading(false);
-          return;
-        }
-
-        const closestClose = (history, ts) => {
-          if (!history || history.length === 0) return null;
-          let best = history[0];
-          let bestDiff = Math.abs(history[0].ts - ts);
-          for (const p of history) {
-            const diff = Math.abs(p.ts - ts);
-            if (diff < bestDiff) {
-              best = p;
-              bestDiff = diff;
-            }
-          }
-          return best.close;
-        };
-
-        const series = historyByTicker[referenceTicker]
-          .filter((refPoint) => refPoint.ts >= startTs && refPoint.ts <= endTs)
-          .map((refPoint) => {
-            let totalUSD = totalCashValueUSD;
-            holdings.forEach((h) => {
-              const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
-              if (close == null) return;
-              const nativeValue = close * h.quantity;
-              totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
-            });
-            return { ts: refPoint.ts, valueUSD: totalUSD };
-          });
-
-        setBacktestSeries(series);
-        setBacktestLoading(false);
+        valueSeriesByTicker[ticker] = points;
       }
-    );
+
+      let referenceTicker = null;
+      let maxLen = 0;
+      for (const ticker of targetTickers) {
+        const len = (valueSeriesByTicker[ticker] || []).filter((p) => p.ts >= startTs && p.ts <= endTs).length;
+        if (len > maxLen) {
+          maxLen = len;
+          referenceTicker = ticker;
+        }
+      }
+      if (!referenceTicker) {
+        setBacktestSeries([]);
+        setBacktestLoading(false);
+        return;
+      }
+
+      const closestValue = (points, ts) => {
+        if (!points || points.length === 0) return null;
+        let best = points[0];
+        let bestDiff = Math.abs(points[0].ts - ts);
+        for (const p of points) {
+          const diff = Math.abs(p.ts - ts);
+          if (diff < bestDiff) {
+            best = p;
+            bestDiff = diff;
+          }
+        }
+        return best.value;
+      };
+
+      const series = valueSeriesByTicker[referenceTicker]
+        .filter((refPoint) => refPoint.ts >= startTs && refPoint.ts <= endTs)
+        .map((refPoint) => {
+          let totalUSD = backtestTarget === "portfolio" ? totalCashValueUSD : 0;
+          targetTickers.forEach((ticker) => {
+            const h = holdings.find((x) => x.ticker === ticker);
+            const value = closestValue(valueSeriesByTicker[ticker], refPoint.ts);
+            if (value == null || !h) return;
+            totalUSD += h.currency === "USD" ? value : value / todayRate;
+          });
+          return { ts: refPoint.ts, valueUSD: totalUSD };
+        });
+
+      setBacktestSeries(series);
+      setBacktestLoading(false);
+    });
 
     return () => {
       cancelled = true;
     };
-  }, [backtestStartMonth, backtestEndMonth, holdingsTickerKey]);
+  }, [backtestStartMonth, backtestEndMonth, backtestTarget, backtestDividendTax, holdingsTickerKey]);
 
   // 통화별 원래 금액 그대로 합산 (환산 없이)
   const totalNativeUSD =
@@ -3422,6 +3497,105 @@ export default function Alloy() {
     backtestSeries.length >= 2 && backtestSeries[backtestSeries.length - 1].valueUSD < backtestSeries[0].valueUSD
       ? "#4D9FFF"
       : "#FF5C5C";
+
+  // 백 테스트 결과 요약 - 배당소득세(재투자)는 이미 backtestSeries 자체에 반영되어 있고,
+  // 양도소득세는 차트가 아니라 이 최종 요약(금액/연이율)에만 한 번 적용한다(보유 기간 전체 수익에
+  // 250만원 공제 후 22% 과세하는 단순화된 규칙).
+  const backtestInitialUSD = backtestSeries.length > 0 ? backtestSeries[0].valueUSD : 0;
+  const backtestFinalPreTaxUSD = backtestSeries.length > 0 ? backtestSeries[backtestSeries.length - 1].valueUSD : 0;
+  const backtestGainPreTaxUSD = backtestFinalPreTaxUSD - backtestInitialUSD;
+  let backtestNetGainUSD = backtestGainPreTaxUSD;
+  if (backtestCapitalGainsTax && backtestGainPreTaxUSD > 0) {
+    const gainKRW = backtestGainPreTaxUSD * todayRate;
+    if (gainKRW > 2500000) {
+      const taxKRW = (gainKRW - 2500000) * 0.22;
+      backtestNetGainUSD = backtestGainPreTaxUSD - taxKRW / todayRate;
+    }
+  }
+  const backtestFinalUSD = backtestInitialUSD + backtestNetGainUSD;
+  const backtestGainPercent = backtestInitialUSD > 0 ? (backtestNetGainUSD / backtestInitialUSD) * 100 : 0;
+
+  // 연이율(CAGR) - 세전 시계열 그대로(차트가 보여주는 성장과 동일한 의미를 유지하기 위함)
+  const backtestYears =
+    backtestSeries.length >= 2 ? (backtestSeries[backtestSeries.length - 1].ts - backtestSeries[0].ts) / (365.25 * 86400) : 0;
+  const backtestCAGR =
+    backtestYears > 0 && backtestInitialUSD > 0
+      ? (Math.pow(backtestFinalPreTaxUSD / backtestInitialUSD, 1 / backtestYears) - 1) * 100
+      : 0;
+
+  // 최고/최저 연간 수익률 - 각 지점에서 약 365일 뒤(±15일 허용) 가장 가까운 지점을 찾아
+  // 그 사이의 수익률을 구하고, 전체 구간에서 최댓값/최솟값을 취한다(롤링 12개월 수익률).
+  let backtestBestYearReturn = null;
+  let backtestWorstYearReturn = null;
+  if (backtestSeries.length >= 2) {
+    const oneYearSec = 365 * 86400;
+    const toleranceSec = 15 * 86400;
+    for (let i = 0; i < backtestSeries.length; i++) {
+      const start = backtestSeries[i];
+      const targetTs = start.ts + oneYearSec;
+      let best = null;
+      let bestDiff = Infinity;
+      for (let j = i + 1; j < backtestSeries.length; j++) {
+        const diff = Math.abs(backtestSeries[j].ts - targetTs);
+        if (diff < bestDiff) {
+          bestDiff = diff;
+          best = backtestSeries[j];
+        }
+      }
+      if (best && bestDiff <= toleranceSec && start.valueUSD > 0) {
+        const yearReturn = ((best.valueUSD - start.valueUSD) / start.valueUSD) * 100;
+        if (backtestBestYearReturn === null || yearReturn > backtestBestYearReturn) backtestBestYearReturn = yearReturn;
+        if (backtestWorstYearReturn === null || yearReturn < backtestWorstYearReturn) backtestWorstYearReturn = yearReturn;
+      }
+    }
+  }
+
+  // "2020년 5월" 형식으로 표기하기 위한 헬퍼 (native input[type=month]의 "YYYY-MM" 값을 변환)
+  const formatBacktestMonthLabel = (ym) => {
+    if (!ym) return "";
+    const [y, m] = ym.split("-").map(Number);
+    return `${y}년 ${m}월`;
+  };
+
+  // 백 테스트 세금 옵션 토글 - 값이 바뀌는 즉시(별도 확인 버튼 없이) 위 이펙트/요약 계산에 반영된다.
+  const renderBacktestTaxToggle = (label, checked, onChange) => (
+    <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
+      <span style={{ fontSize: 12.5, fontWeight: 500, color: isLight ? "rgba(20,22,26,0.75)" : "rgba(255,255,255,0.75)" }}>
+        {label}
+      </span>
+      <button
+        type="button"
+        onClick={() => onChange(!checked)}
+        style={{
+          position: "relative",
+          width: 40,
+          height: 24,
+          borderRadius: 12,
+          border: "none",
+          padding: 0,
+          cursor: "pointer",
+          outline: "none",
+          flexShrink: 0,
+          background: checked ? "#4D9FFF" : isLight ? "rgba(20,22,26,0.15)" : "rgba(255,255,255,0.18)",
+          transition: "background 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+        }}
+      >
+        <div
+          style={{
+            position: "absolute",
+            top: 3,
+            left: checked ? 19 : 3,
+            width: 18,
+            height: 18,
+            borderRadius: "50%",
+            background: "#FFFFFF",
+            boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+            transition: "left 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        />
+      </button>
+    </div>
+  );
 
   // 목표 모달 툴팁: "07/17(금) 50.5%" 한 줄로 날짜(요일) + 달성률 표기 (분/시간봉 기간이면 시각도 추가)
   const GoalProgressTooltip = ({ active, payload }) => {
@@ -4285,99 +4459,33 @@ export default function Alloy() {
                 border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
               }}
             >
-              <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10, marginBottom: 8 }}>
-                <div
-                  role="button"
-                  tabIndex={0}
-                  onClick={openAssetTrendModal}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" || e.key === " ") {
-                      e.preventDefault();
-                      openAssetTrendModal();
-                    }
-                  }}
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    gap: 4,
-                    fontSize: 13,
-                    fontWeight: 600,
-                    color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                    cursor: "pointer",
-                    outline: "none",
-                  }}
-                >
-                  자산
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M9 6l6 6-6 6" />
-                  </svg>
-                </div>
-
-                {/* $ / ₩ 표기 통화 슬라이드 토글 - 총 자산, 배당금 표기 둘 다에 적용됨 */}
-                <div
-                  style={{
-                    position: "relative",
-                    display: "flex",
-                    height: 28,
-                    padding: 3,
-                    borderRadius: 9,
-                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
-                    border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
-                    flexShrink: 0,
-                  }}
-                >
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 3,
-                      left: homeCurrencyIndicator.left,
-                      width: homeCurrencyIndicator.width,
-                      height: "calc(100% - 6px)",
-                      borderRadius: 6,
-                      background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
-                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
-                      transition:
-                        "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
-                    }}
-                  />
-                  {[
-                    { key: "USD", label: "$" },
-                    { key: "KRW", label: "₩" },
-                  ].map((c, i) => (
-                    <button
-                      key={c.key}
-                      ref={(el) => (homeCurrencyBtnRefs.current[i] = el)}
-                      onClick={() => setHomeCurrency(c.key)}
-                      onMouseEnter={() => setHomeCurrencyHoverIdx(i)}
-                      onMouseLeave={() => setHomeCurrencyHoverIdx(null)}
-                      style={{
-                        position: "relative",
-                        zIndex: 1,
-                        width: 22,
-                        height: "100%",
-                        border: "none",
-                        background: "transparent",
-                        borderRadius: 6,
-                        color:
-                          homeCurrency === c.key
-                            ? isLight
-                              ? "#14161A"
-                              : "#FFFFFF"
-                            : isLight
-                            ? "rgba(20,22,26,0.5)"
-                            : "rgba(255,255,255,0.5)",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        cursor: "pointer",
-                        outline: "none",
-                        transition: "color 0.3s ease, transform 0.2s ease",
-                        transform: homeCurrencyHoverIdx === i && homeCurrency !== c.key ? "scale(1.12)" : "scale(1)",
-                      }}
-                    >
-                      {c.label}
-                    </button>
-                  ))}
-                </div>
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={openAssetTrendModal}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    openAssetTrendModal();
+                  }
+                }}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  cursor: "pointer",
+                  outline: "none",
+                  marginBottom: 8,
+                  width: "fit-content",
+                }}
+              >
+                자산
+                <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
               </div>
               <div
                 role="button"
@@ -4837,9 +4945,8 @@ export default function Alloy() {
                 )}
               </div>
 
-              {/* 백 테스트: 제목을 클릭하면 모달을 열어 차트를 보여준다. 시작/종료 년월 입력은
-                  모달 밖, 이 줄의 오른쪽 끝에 작게 두고 확인 버튼 없이 값이 채워지는 즉시
-                  계산해 모달의 차트로 반영한다. */}
+              {/* 백 테스트: 제목을 클릭하면 모달을 열어 차트를 보여준다. 시작/종료 년월은 모달
+                  안에서 고르고, 이 줄의 오른쪽 끝에는 대상(포트폴리오/보유 종목) 선택 버튼만 둔다. */}
               <div
                 style={{
                   height: 1,
@@ -4880,45 +4987,111 @@ export default function Alloy() {
                   </svg>
                 </div>
 
-                <div style={{ display: "flex", alignItems: "center", gap: 4, minWidth: 0 }}>
-                  <input
-                    type="month"
-                    value={backtestStartMonth}
-                    onChange={(e) => setBacktestStartMonth(e.target.value)}
-                    style={{
-                      width: 90,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: "4px 5px",
-                      borderRadius: 7,
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      outline: "none",
-                      colorScheme: isLight ? "light" : "dark",
-                    }}
-                  />
-                  <span style={{ fontSize: 10, color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)" }}>
-                    ~
-                  </span>
-                  <input
-                    type="month"
-                    value={backtestEndMonth}
-                    onChange={(e) => setBacktestEndMonth(e.target.value)}
-                    style={{
-                      width: 90,
-                      fontSize: 10,
-                      fontWeight: 600,
-                      padding: "4px 5px",
-                      borderRadius: 7,
-                      border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                      background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
-                      color: isLight ? "#14161A" : "#FFFFFF",
-                      outline: "none",
-                      colorScheme: isLight ? "light" : "dark",
-                    }}
-                  />
-                </div>
+                {holdings.length > 0 && (
+                  <div ref={backtestTargetListRef} style={{ position: "relative" }}>
+                    <button
+                      onClick={() => setBacktestTargetListOpen((v) => !v)}
+                      onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.8")}
+                      onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 4,
+                        padding: "5px 10px",
+                        borderRadius: 8,
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                        background: isLight ? "rgba(20,22,26,0.04)" : "rgba(255,255,255,0.06)",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "opacity 0.2s ease, background 0.2s ease",
+                      }}
+                    >
+                      {backtestTargetOptions.find((o) => o.key === backtestTarget)?.label || "포트폴리오"}
+                      <svg
+                        width="9"
+                        height="9"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        style={{
+                          transform: backtestTargetListOpen ? "rotate(180deg)" : "rotate(0deg)",
+                          transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      >
+                        <path d="M6 9l6 6 6-6" />
+                      </svg>
+                    </button>
+
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: "calc(100% + 6px)",
+                        right: 0,
+                        minWidth: 110,
+                        maxHeight: 220,
+                        overflowY: "auto",
+                        borderRadius: 12,
+                        background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
+                        backdropFilter: "blur(20px) saturate(180%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        boxShadow: "0 12px 32px rgba(0,0,0,0.28)",
+                        overflow: "hidden",
+                        zIndex: 5,
+                        opacity: backtestTargetListOpen ? 1 : 0,
+                        transform: backtestTargetListOpen ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                        pointerEvents: backtestTargetListOpen ? "auto" : "none",
+                        transformOrigin: "top right",
+                        transition:
+                          "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      {backtestTargetOptions.map((opt) => (
+                        <button
+                          key={opt.key}
+                          onClick={() => {
+                            setBacktestTarget(opt.key);
+                            setBacktestTargetListOpen(false);
+                          }}
+                          onMouseEnter={(e) => {
+                            if (opt.key !== backtestTarget)
+                              e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.06)";
+                          }}
+                          onMouseLeave={(e) => {
+                            if (opt.key !== backtestTarget) e.currentTarget.style.background = "transparent";
+                          }}
+                          style={{
+                            display: "block",
+                            width: "100%",
+                            textAlign: "left",
+                            padding: "9px 12px",
+                            border: "none",
+                            background:
+                              opt.key === backtestTarget
+                                ? isLight
+                                  ? "rgba(20,22,26,0.08)"
+                                  : "rgba(255,255,255,0.1)"
+                                : "transparent",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            fontSize: 12,
+                            fontWeight: opt.key === backtestTarget ? 700 : 500,
+                            cursor: "pointer",
+                            outline: "none",
+                            transition: "background 0.15s ease",
+                          }}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </>
@@ -5573,6 +5746,99 @@ export default function Alloy() {
               >
                 일반
               </h2>
+
+              {/* 기본 통화 선택 - 홈 탭의 총 자산/배당금/백 테스트 등 모든 통화 표기에 공통 적용되는
+                  homeCurrency를 여기서 바꾸고 localStorage에 저장한다. 테마 토글과 동일한 슬라이딩
+                  인디케이터 애니메이션. */}
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                }}
+              >
+                <span
+                  style={{
+                    fontSize: 13,
+                    color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)",
+                  }}
+                >
+                  기본 통화
+                </span>
+
+                <div
+                  style={{
+                    position: "relative",
+                    display: "flex",
+                    height: 32,
+                    padding: 3,
+                    borderRadius: 10,
+                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)",
+                    border: isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)",
+                    flexShrink: 0,
+                  }}
+                >
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 3,
+                      left: homeCurrencyIndicator.left,
+                      width: homeCurrencyIndicator.width,
+                      height: "calc(100% - 6px)",
+                      borderRadius: 7,
+                      background: isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)",
+                      boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
+                      transition:
+                        "left 0.35s cubic-bezier(0.22, 1, 0.36, 1), width 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                  />
+                  {[
+                    { key: "USD", label: "$" },
+                    { key: "KRW", label: "₩" },
+                  ].map((c, i) => (
+                    <button
+                      key={c.key}
+                      ref={(el) => (homeCurrencyBtnRefs.current[i] = el)}
+                      onClick={() => setHomeCurrency(c.key)}
+                      onMouseEnter={() => setHomeCurrencyHoverIdx(i)}
+                      onMouseLeave={() => setHomeCurrencyHoverIdx(null)}
+                      style={{
+                        position: "relative",
+                        zIndex: 1,
+                        width: 26,
+                        height: "100%",
+                        border: "none",
+                        background: "transparent",
+                        borderRadius: 7,
+                        color:
+                          homeCurrency === c.key
+                            ? isLight
+                              ? "#14161A"
+                              : "#FFFFFF"
+                            : isLight
+                            ? "rgba(20,22,26,0.5)"
+                            : "rgba(255,255,255,0.5)",
+                        fontSize: 12,
+                        fontWeight: 600,
+                        cursor: "pointer",
+                        outline: "none",
+                        transition: "color 0.3s ease, transform 0.2s ease",
+                        transform: homeCurrencyHoverIdx === i && homeCurrency !== c.key ? "scale(1.12)" : "scale(1)",
+                      }}
+                    >
+                      {c.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div
+                style={{
+                  height: 1,
+                  background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                  margin: "16px 0",
+                }}
+              />
 
               {/* 테마 선택 - 홈 탭 총자산 $/₩ 토글과 동일한 슬라이딩 인디케이터 애니메이션으로 라이트/다크 전환 */}
               <div
@@ -7227,7 +7493,7 @@ export default function Alloy() {
           >
             <h2
               style={{
-                margin: "0 0 14px 0",
+                margin: "0 0 12px 0",
                 fontSize: 17,
                 fontWeight: 600,
                 color: isLight ? "#14161A" : "#FFFFFF",
@@ -7237,7 +7503,69 @@ export default function Alloy() {
               백 테스트
             </h2>
 
-            <div style={{ width: "100%", height: 190 }}>
+            <div
+              style={{
+                fontSize: 12.5,
+                fontWeight: 500,
+                color: isLight ? "rgba(20,22,26,0.7)" : "rgba(255,255,255,0.7)",
+                marginBottom: 14,
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 5,
+              }}
+            >
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <span
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 7,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
+                    fontWeight: 700,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
+                  }}
+                >
+                  {formatBacktestMonthLabel(backtestStartMonth)}
+                </span>
+                <input
+                  type="month"
+                  value={backtestStartMonth}
+                  onChange={(e) => setBacktestStartMonth(e.target.value)}
+                  onMouseEnter={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1.08)")}
+                  onMouseLeave={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1)")}
+                  style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", border: "none", width: "100%", height: "100%" }}
+                />
+              </span>
+              부터
+              <span style={{ position: "relative", display: "inline-flex" }}>
+                <span
+                  style={{
+                    padding: "3px 8px",
+                    borderRadius: 7,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
+                    fontWeight: 700,
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
+                  }}
+                >
+                  {formatBacktestMonthLabel(backtestEndMonth)}
+                </span>
+                <input
+                  type="month"
+                  value={backtestEndMonth}
+                  onChange={(e) => setBacktestEndMonth(e.target.value)}
+                  onMouseEnter={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1.08)")}
+                  onMouseLeave={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1)")}
+                  style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", border: "none", width: "100%", height: "100%" }}
+                />
+              </span>
+              까지
+            </div>
+
+            <div style={{ width: "100%", height: 150 }}>
               {holdings.length === 0 ? (
                 <div
                   style={{
@@ -7250,21 +7578,6 @@ export default function Alloy() {
                   }}
                 >
                   아직 등록된 자산이 없어요
-                </div>
-              ) : !backtestStartMonth || !backtestEndMonth ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    textAlign: "center",
-                    padding: "0 20px",
-                  }}
-                >
-                  시작·종료 년월을 입력해주세요
                 </div>
               ) : backtestLoading ? (
                 <div
@@ -7335,6 +7648,65 @@ export default function Alloy() {
                 </ResponsiveContainer>
               )}
             </div>
+
+            <div
+              style={{
+                height: 1,
+                background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                margin: "14px 0",
+              }}
+            />
+
+            {renderBacktestTaxToggle("양도소득세(22%)", backtestCapitalGainsTax, setBacktestCapitalGainsTax)}
+            {renderBacktestTaxToggle("배당소득세(15.4%)", backtestDividendTax, setBacktestDividendTax)}
+
+            {backtestSeries.length >= 2 && (
+              <>
+                <div
+                  style={{
+                    height: 1,
+                    background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                    margin: "14px 0",
+                  }}
+                />
+                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                    금액{" "}
+                    {formatAmount(
+                      homeCurrency === "USD" ? backtestFinalUSD : backtestFinalUSD * todayRate,
+                      homeCurrency
+                    )}{" "}
+                    <span style={{ fontWeight: 600, color: backtestNetGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF" }}>
+                      ({backtestNetGainUSD >= 0 ? "+" : ""}
+                      {formatAmount(
+                        homeCurrency === "USD" ? backtestNetGainUSD : backtestNetGainUSD * todayRate,
+                        homeCurrency
+                      )}{" "}
+                      {backtestGainPercent >= 0 ? "+" : ""}
+                      {backtestGainPercent.toFixed(1)}%)
+                    </span>
+                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)" }}>
+                    연이율 {backtestCAGR >= 0 ? "+" : ""}
+                    {backtestCAGR.toFixed(1)}%
+                  </div>
+                  {backtestBestYearReturn !== null && backtestWorstYearReturn !== null && (
+                    <div style={{ fontSize: 12.5, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)" }}>
+                      최고 연간 수익률{" "}
+                      <span style={{ color: "#FF5C5C" }}>
+                        {backtestBestYearReturn >= 0 ? "+" : ""}
+                        {backtestBestYearReturn.toFixed(1)}%
+                      </span>
+                      {"   "}최저 연간 수익률{" "}
+                      <span style={{ color: "#4D9FFF" }}>
+                        {backtestWorstYearReturn >= 0 ? "+" : ""}
+                        {backtestWorstYearReturn.toFixed(1)}%
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
