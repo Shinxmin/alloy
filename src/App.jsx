@@ -1463,6 +1463,8 @@ export default function Alloy() {
   const [backtestDividendTax, setBacktestDividendTax] = useState(false);
   const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }] (세전, 배당 재투자만 반영)
   const [backtestLoading, setBacktestLoading] = useState(false);
+  const [backtestDividendTooltipVisible, setBacktestDividendTooltipVisible] = useState(false);
+  const backtestDividendTooltipTimerRef = useRef(null);
 
   // 백 테스트 대상 - "포트폴리오"(보유 종목 전체) 또는 보유 종목 하나. 카드의 "백 테스트" 제목 줄
   // 오른쪽 끝에 두는 토글(일간 수익률 종목 토글과 동일한 위치 규칙)
@@ -7565,145 +7567,187 @@ export default function Alloy() {
               까지
             </div>
 
-            <div style={{ width: "100%", height: 150 }}>
-              {holdings.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  아직 등록된 자산이 없어요
-                </div>
-              ) : backtestLoading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  불러오는 중...
-                </div>
-              ) : backtestSeries.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                    textAlign: "center",
-                    padding: "0 20px",
-                  }}
-                >
-                  {backtestStartMonth > backtestEndMonth
-                    ? "종료 년월이 시작 년월보다 앞설 수 없어요"
-                    : "데이터가 없어요"}
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={backtestSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="backtestGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={backtestColor} stopOpacity={0.28} />
-                        <stop offset="100%" stopColor={backtestColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="ts"
-                      tickFormatter={(ts) => formatKstAxisLabel(ts, "1y")}
-                      tick={{
-                        fontSize: 9,
-                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
-                      }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis hide domain={["dataMin", "dataMax"]} />
-                    <Tooltip
-                      content={<BacktestTooltip />}
-                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="valueUSD"
-                      stroke={backtestColor}
-                      strokeWidth={2}
-                      fill="url(#backtestGradient)"
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </div>
-
-            <div
-              style={{
-                height: 1,
-                background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
-                margin: "14px 0",
-              }}
-            />
-
-            {renderBacktestTaxToggle("양도소득세(22%)", backtestCapitalGainsTax, setBacktestCapitalGainsTax)}
-            {renderBacktestTaxToggle("배당소득세(15.4%)", backtestDividendTax, setBacktestDividendTax)}
-
-            {backtestSeries.length >= 2 && (
+            {holdings.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginTop: 20,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                아직 등록된 자산이 없어요
+              </div>
+            ) : backtestLoading ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginTop: 20,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                }}
+              >
+                불러오는 중...
+              </div>
+            ) : backtestSeries.length === 0 ? (
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  marginTop: 20,
+                  fontSize: 12,
+                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  textAlign: "center",
+                }}
+              >
+                {backtestStartMonth > backtestEndMonth
+                  ? "종료 년월이 시작 년월보다 앞설 수 없어요"
+                  : "데이터가 없어요"}
+              </div>
+            ) : (
               <>
-                <div
-                  style={{
-                    height: 1,
-                    background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
-                    margin: "14px 0",
-                  }}
-                />
-                <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
-                    금액{" "}
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12, marginBottom: 16 }}>
+                  <div style={{ fontSize: 20, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF", letterSpacing: -0.3 }}>
                     {formatAmount(
                       homeCurrency === "USD" ? backtestFinalUSD : backtestFinalUSD * todayRate,
                       homeCurrency
-                    )}{" "}
-                    <span style={{ fontWeight: 600, color: backtestNetGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF" }}>
-                      ({backtestNetGainUSD >= 0 ? "+" : ""}
-                      {formatAmount(
-                        homeCurrency === "USD" ? backtestNetGainUSD : backtestNetGainUSD * todayRate,
-                        homeCurrency
-                      )}{" "}
-                      {backtestGainPercent >= 0 ? "+" : ""}
-                      {backtestGainPercent.toFixed(1)}%)
-                    </span>
+                    )}
                   </div>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)" }}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: backtestNetGainUSD >= 0 ? "#FF5C5C" : "#4D9FFF" }}>
+                    {backtestNetGainUSD >= 0 ? "+" : ""}
+                    {formatAmount(
+                      homeCurrency === "USD" ? backtestNetGainUSD : backtestNetGainUSD * todayRate,
+                      homeCurrency
+                    )}{" "}
+                    ({backtestNetGainUSD >= 0 ? "+" : ""}
+                    {backtestGainPercent.toFixed(1)}%)
+                  </div>
+                  <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)", marginTop: 2 }}>
                     연이율 {backtestCAGR >= 0 ? "+" : ""}
                     {backtestCAGR.toFixed(1)}%
                   </div>
                   {backtestBestYearReturn !== null && backtestWorstYearReturn !== null && (
-                    <div style={{ fontSize: 12.5, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.65)" : "rgba(255,255,255,0.65)" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
                       최고 연간 수익률{" "}
                       <span style={{ color: "#FF5C5C" }}>
                         {backtestBestYearReturn >= 0 ? "+" : ""}
                         {backtestBestYearReturn.toFixed(1)}%
-                      </span>
-                      {"   "}최저 연간 수익률{" "}
+                      </span>{" "}
+                      최저 연간 수익률{" "}
                       <span style={{ color: "#4D9FFF" }}>
                         {backtestWorstYearReturn >= 0 ? "+" : ""}
                         {backtestWorstYearReturn.toFixed(1)}%
                       </span>
                     </div>
                   )}
+                </div>
+
+                <div
+                  style={{
+                    height: 1,
+                    background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                    margin: "8px 0",
+                  }}
+                />
+
+                <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 12 }}>
+                  {renderBacktestTaxToggle("양도소득세(22%)", backtestCapitalGainsTax, setBacktestCapitalGainsTax)}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 500, color: isLight ? "rgba(20,22,26,0.75)" : "rgba(255,255,255,0.75)" }}>
+                        배당
+                      </span>
+                      <div
+                        onClick={() => {
+                          setBacktestDividendTooltipVisible(true);
+                          if (backtestDividendTooltipTimerRef.current) clearTimeout(backtestDividendTooltipTimerRef.current);
+                          backtestDividendTooltipTimerRef.current = setTimeout(() => setBacktestDividendTooltipVisible(false), 3000);
+                        }}
+                        style={{
+                          position: "relative",
+                          display: "inline-flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          width: 16,
+                          height: 16,
+                          borderRadius: "50%",
+                          border: `1px solid ${isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)"}`,
+                          cursor: "pointer",
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                          transition: "background 0.2s ease, border-color 0.2s ease",
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)";
+                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)";
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.borderColor = isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)";
+                        }}
+                      >
+                        ?
+                        {backtestDividendTooltipVisible && (
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: "100%",
+                              left: 0,
+                              marginTop: 6,
+                              background: isLight ? "#14161A" : "#FFFFFF",
+                              color: isLight ? "#FFFFFF" : "#14161A",
+                              fontSize: 10,
+                              fontWeight: 500,
+                              padding: "6px 8px",
+                              borderRadius: 6,
+                              whiteSpace: "nowrap",
+                              boxShadow: "0 4px 12px rgba(0,0,0,0.3)",
+                              zIndex: 1,
+                            }}
+                          >
+                            배당금을 재투자 했을 때 결과값을 도출합니다
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setBacktestDividendTax(!backtestDividendTax)}
+                      style={{
+                        position: "relative",
+                        width: 40,
+                        height: 24,
+                        borderRadius: 12,
+                        border: "none",
+                        padding: 0,
+                        cursor: "pointer",
+                        outline: "none",
+                        flexShrink: 0,
+                        background: backtestDividendTax ? "#4D9FFF" : isLight ? "rgba(20,22,26,0.15)" : "rgba(255,255,255,0.18)",
+                        transition: "background 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                      }}
+                    >
+                      <div
+                        style={{
+                          position: "absolute",
+                          top: 3,
+                          left: backtestDividendTax ? 19 : 3,
+                          width: 18,
+                          height: 18,
+                          borderRadius: "50%",
+                          background: "#FFFFFF",
+                          boxShadow: "0 1px 3px rgba(0,0,0,0.3)",
+                          transition: "left 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                        }}
+                      />
+                    </button>
+                  </div>
                 </div>
               </>
             )}
