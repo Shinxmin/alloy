@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.139";
+const APP_VERSION = "0.1.140";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1310,12 +1310,86 @@ export default function Alloy() {
     requestAnimationFrame(() => setInfoModalVisible(true));
   };
 
+  // 섹터 히트맵 타일 클릭 등, 보유 종목이 아닐 수도 있는 임의의 티커로 정보 모달을 여는 진입점.
+  // 실제로 보유 중인 종목이면 기존 openInfoModal과 동일하게(평균단가 포함) 열고, 보유하지 않은
+  // 종목이면 평균단가 없이(색상 점도 없이) 시세/차트만 보여주는 합성 holding을 만들어 연다.
+  const openStockInfoModal = (ticker, name) => {
+    const originalIndex = holdings.findIndex((h) => h.ticker === ticker);
+    if (originalIndex !== -1) {
+      openInfoModal(originalIndex);
+      return;
+    }
+    setInfoHolding({ ticker, name, avgPrice: null, currency: "USD", color: null });
+    setInfoModalOpen(true);
+    requestAnimationFrame(() => setInfoModalVisible(true));
+  };
+
   const closeInfoModal = () => {
     setInfoModalVisible(false);
     setTimeout(() => setInfoModalOpen(false), 300);
   };
   const closeInfoModalRef = useRef(closeInfoModal);
   closeInfoModalRef.current = closeInfoModal;
+
+  // 홈 탭 "백 테스트" 카드 아래 섹터 히트맵 - S&P500 11개 GICS 섹터 대표 종목의 현재(마감 후에는
+  // 전일 대비) 등락률/시가총액을 한 번에 가져온다. 앱을 켤 때 한 번만 조회한다(다른 지수 위젯들과 동일).
+  const [sectorHeatmapStocks, setSectorHeatmapStocks] = useState([]);
+  const [sectorHeatmapLoading, setSectorHeatmapLoading] = useState(true);
+
+  useEffect(() => {
+    let cancelled = false;
+    supabase.functions
+      .invoke("sector-heatmap-proxy", { body: {} })
+      .then(({ data, error }) => {
+        if (cancelled) return;
+        setSectorHeatmapStocks(!error && data && Array.isArray(data.stocks) ? data.stocks : []);
+        setSectorHeatmapLoading(false);
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setSectorHeatmapStocks([]);
+          setSectorHeatmapLoading(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // 위 결과(이미 섹터별로 묶여서 옴)를 섹터 등장 순서를 유지한 채 { sectorLabel, stocks[] } 목록으로 재구성
+  const sectorHeatmapGroups = (() => {
+    const order = [];
+    const map = new Map();
+    for (const s of sectorHeatmapStocks) {
+      if (!map.has(s.sector)) {
+        map.set(s.sector, { sectorLabel: s.sectorLabel, stocks: [] });
+        order.push(s.sector);
+      }
+      map.get(s.sector).stocks.push(s);
+    }
+    return order.map((key) => map.get(key));
+  })();
+
+  // 시가총액을 "3.4T" / "550.0B" 형태의 짧은 문자열로 표기
+  const formatMarketCap = (cap) => {
+    if (cap == null) return "-";
+    if (cap >= 1e12) return `${(cap / 1e12).toFixed(1)}T`;
+    if (cap >= 1e9) return `${(cap / 1e9).toFixed(1)}B`;
+    if (cap >= 1e6) return `${(cap / 1e6).toFixed(1)}M`;
+    return cap.toLocaleString();
+  };
+
+  // 등락률(%)에 따른 히트맵 타일 배경색 - 양전이면 빨강, 음전이면 파랑 계열이며, 등락폭이 클수록
+  // (±3% 이상이면 최대치로 클램프) 더 진하게 칠한다. 테마와 무관하게 항상 대비가 확보되도록
+  // 불투명한 단색(연한 톤 ~ 진한 톤)을 보간해서 사용하고, 타일 안 텍스트는 항상 흰색을 쓴다.
+  const heatmapTileColor = (changePercent) => {
+    const pct = changePercent ?? 0;
+    const t = Math.min(Math.abs(pct) / 3, 1); // 0(변동 없음) ~ 1(±3% 이상)
+    const lerp = (a, b) => Math.round(a + (b - a) * t);
+    return pct >= 0
+      ? `rgb(${lerp(96, 214)}, ${lerp(48, 48)}, ${lerp(50, 49)})`
+      : `rgb(${lerp(40, 56)}, ${lerp(52, 110)}, ${lerp(74, 214)})`;
+  };
 
   // 배당 캘린더 모달 (홈 탭 "연 배당" 카드 클릭 시 표시, 월별 배당금 막대그래프)
   const [dividendModalOpen, setDividendModalOpen] = useState(false);
@@ -1464,6 +1538,12 @@ export default function Alloy() {
   const [backtestSeries, setBacktestSeries] = useState([]); // [{ ts, valueUSD }] (세전, 배당 재투자만 반영)
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [backtestDividendTooltipVisible, setBacktestDividendTooltipVisible] = useState(false);
+  // 기간 인풋을 키보드로 직접 타이핑할 수 있도록 포커스 중에만 편집용 원본 텍스트("YYYY-MM")를 보여주고,
+  // 포커스가 빠지면 formatBacktestMonthLabel로 포맷된 라벨을 다시 보여준다.
+  const [backtestStartMonthFocused, setBacktestStartMonthFocused] = useState(false);
+  const [backtestStartMonthDraft, setBacktestStartMonthDraft] = useState("");
+  const [backtestEndMonthFocused, setBacktestEndMonthFocused] = useState(false);
+  const [backtestEndMonthDraft, setBacktestEndMonthDraft] = useState("");
 
   // 백 테스트 대상 - "포트폴리오"(보유 종목 전체) 또는 보유 종목 하나. 카드의 "백 테스트" 제목 줄
   // 오른쪽 끝에 두는 토글(일간 수익률 종목 토글과 동일한 위치 규칙)
@@ -3558,6 +3638,20 @@ export default function Alloy() {
     return `${y}년 ${m}월`;
   };
 
+  // 백 테스트 기간 인풋 - 타이핑 도중에는 숫자/하이픈만 허용해 커서 위치가 튀지 않게 하고
+  // (자동 하이픈 삽입은 커밋 시점에만 적용), blur/Enter 시 commitBacktestMonthDraft가 최종 포맷한다.
+  const sanitizeBacktestMonthInput = (raw) => (raw || "").replace(/[^\d-]/g, "").slice(0, 7);
+  // 위 draft 텍스트를 blur 시점에 "YYYY-MM" 값으로 확정(월은 1~12로 보정). 6자리 숫자가 아니면 무시.
+  const commitBacktestMonthDraft = (draft, setMonth) => {
+    const digits = (draft || "").replace(/\D/g, "");
+    if (digits.length !== 6) return;
+    const year = digits.slice(0, 4);
+    let month = parseInt(digits.slice(4, 6), 10);
+    if (Number.isNaN(month) || month < 1) month = 1;
+    if (month > 12) month = 12;
+    setMonth(`${year}-${String(month).padStart(2, "0")}`);
+  };
+
   // 백 테스트 세금 옵션 토글 - 값이 바뀌는 즉시(별도 확인 버튼 없이) 위 이펙트/요약 계산에 반영된다.
   const renderBacktestTaxToggle = (label, checked, onChange) => (
     <div key={label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "6px 0" }}>
@@ -5095,6 +5189,142 @@ export default function Alloy() {
                 )}
               </div>
             </div>
+
+            {/* 섹터 히트맵: S&P500 11개 GICS 섹터 대표 종목의 등락률을 색상 타일로 보여준다. 가로 스크롤이
+                생기지 않도록 3열 고정 그리드로 감싸고(모바일 최적화), 타일을 누르면 종목 정보 모달이 뜬다. */}
+            <div
+              style={{
+                marginTop: 16,
+                padding: "20px 16px",
+                borderRadius: 24,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 13,
+                  fontWeight: 600,
+                  color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
+                  marginBottom: 14,
+                }}
+              >
+                섹터 히트맵
+              </div>
+
+              {sectorHeatmapLoading ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: 120,
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  불러오는 중...
+                </div>
+              ) : sectorHeatmapGroups.length === 0 ? (
+                <div
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    height: 120,
+                    fontSize: 12,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  데이터를 불러올 수 없어요
+                </div>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 16, width: "100%", overflow: "hidden" }}>
+                  {sectorHeatmapGroups.map((group) => (
+                    <div key={group.sectorLabel}>
+                      <div
+                        style={{
+                          fontSize: 11,
+                          fontWeight: 600,
+                          color: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                          marginBottom: 6,
+                        }}
+                      >
+                        {group.sectorLabel}
+                      </div>
+                      <div
+                        style={{
+                          display: "grid",
+                          gridTemplateColumns: "repeat(3, 1fr)",
+                          gap: 6,
+                          width: "100%",
+                        }}
+                      >
+                        {group.stocks.map((s) => (
+                          <div
+                            key={s.ticker}
+                            role="button"
+                            tabIndex={0}
+                            onClick={() => openStockInfoModal(s.ticker, s.name)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" || e.key === " ") {
+                                e.preventDefault();
+                                openStockInfoModal(s.ticker, s.name);
+                              }
+                            }}
+                            style={{
+                              minWidth: 0,
+                              padding: "8px 6px",
+                              borderRadius: 10,
+                              background: heatmapTileColor(s.changePercent),
+                              cursor: "pointer",
+                              outline: "none",
+                              display: "flex",
+                              flexDirection: "column",
+                              gap: 2,
+                              transition: "transform 0.15s ease",
+                            }}
+                            onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.04)")}
+                            onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                          >
+                            <div
+                              style={{
+                                fontSize: 12,
+                                fontWeight: 500,
+                                color: "#FFFFFF",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                                whiteSpace: "nowrap",
+                              }}
+                            >
+                              {s.ticker}
+                            </div>
+                            <div style={{ fontSize: 9, fontWeight: 500, color: "rgba(255,255,255,0.8)" }}>
+                              {formatMarketCap(s.marketCap)}
+                            </div>
+                            {s.changeAmount != null && s.changePercent != null && (
+                              <div
+                                style={{
+                                  fontSize: 9,
+                                  fontWeight: 600,
+                                  color: "rgba(255,255,255,0.9)",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                  whiteSpace: "nowrap",
+                                }}
+                              >
+                                {s.changeAmount >= 0 ? "▲ " : "▼ "}
+                                {Math.abs(s.changeAmount).toFixed(2)} ({s.changePercent >= 0 ? "+" : ""}
+                                {s.changePercent.toFixed(2)}%)
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </>
         )}
 
@@ -5234,7 +5464,7 @@ export default function Alloy() {
                           background: "transparent",
                           padding: 0,
                           fontSize: 16,
-                          fontWeight: 700,
+                          fontWeight: 400,
                           lineHeight: 1,
                           cursor: "pointer",
                           outline: "none",
@@ -5559,27 +5789,6 @@ export default function Alloy() {
               </div>
             )}
 
-            {/* 포트폴리오 탭 최하단: 드래그 앤 드롭 블록 그리드로 재구성한 새 디자인 미리보기(베타)로
-                이동하는 링크. 실제 <a target="_blank"> 태그를 사용해야 브라우저/웹뷰에서 팝업 차단
-                없이 안정적으로 새 탭이 열린다(스크립트로 여는 window.open은 환경에 따라 현재 탭을
-                덮어써버릴 수 있음). 같은 출처라 로그인 세션(localStorage)은 새 탭에서도 그대로 유지된다. */}
-            <div style={{ display: "flex", justifyContent: "center", padding: "28px 0 8px" }}>
-              <a
-                href={`${window.location.pathname}?view=grid`}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: isLight ? "rgba(20,22,26,0.3)" : "rgba(255,255,255,0.3)",
-                  cursor: "pointer",
-                  outline: "none",
-                  textDecoration: "none",
-                }}
-              >
-                새로운 디자인으로 보기
-              </a>
-            </div>
           </>
         )}
 
@@ -7033,15 +7242,17 @@ export default function Alloy() {
             }}
           >
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
-              <span
-                style={{
-                  width: 9,
-                  height: 9,
-                  borderRadius: "50%",
-                  background: infoHolding.color,
-                  flexShrink: 0,
-                }}
-              />
+              {infoHolding.color && (
+                <span
+                  style={{
+                    width: 9,
+                    height: 9,
+                    borderRadius: "50%",
+                    background: infoHolding.color,
+                    flexShrink: 0,
+                  }}
+                />
+              )}
               <h2
                 style={{
                   margin: 0,
@@ -7118,34 +7329,38 @@ export default function Alloy() {
               </div>
             )}
 
-            <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 16 }}>
-              <span
-                style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
-                }}
-              >
-                {formatStockPrice(infoHolding.avgPrice, infoHolding.ticker, infoHolding.currency)}
-              </span>
-              <span
-                style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                }}
-              >
-                평균단가
-              </span>
-            </div>
+            {infoHolding.avgPrice != null && (
+              <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 16 }}>
+                <span
+                  style={{
+                    fontSize: 15,
+                    fontWeight: 700,
+                    color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                  }}
+                >
+                  {formatStockPrice(infoHolding.avgPrice, infoHolding.ticker, infoHolding.currency)}
+                </span>
+                <span
+                  style={{
+                    fontSize: 12,
+                    fontWeight: 500,
+                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                  }}
+                >
+                  평균단가
+                </span>
+              </div>
+            )}
 
-            <IndexCandleChart
-              isLight={isLight}
-              period={infoPeriod}
-              onPeriodChange={setInfoPeriod}
-              candles={infoCandles}
-              candlesLoading={infoCandlesLoading}
-            />
+            <div style={{ marginTop: infoHolding.avgPrice != null ? 0 : 16 }}>
+              <IndexCandleChart
+                isLight={isLight}
+                period={infoPeriod}
+                onPeriodChange={setInfoPeriod}
+                candles={infoCandles}
+                candlesLoading={infoCandlesLoading}
+              />
+            </div>
           </div>
         </div>
       )}
@@ -7516,53 +7731,83 @@ export default function Alloy() {
                 gap: 5,
               }}
             >
-              <span style={{ position: "relative", display: "inline-flex" }}>
-                <span
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 7,
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
-                    fontWeight: 700,
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
-                  }}
-                >
-                  {formatBacktestMonthLabel(backtestStartMonth)}
-                </span>
-                <input
-                  type="month"
-                  value={backtestStartMonth}
-                  onChange={(e) => setBacktestStartMonth(e.target.value)}
-                  onMouseEnter={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1.08)")}
-                  onMouseLeave={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1)")}
-                  style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", border: "none", width: "100%", height: "100%" }}
-                />
-              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY-MM"
+                value={backtestStartMonthFocused ? backtestStartMonthDraft : formatBacktestMonthLabel(backtestStartMonth)}
+                onFocus={(e) => {
+                  setBacktestStartMonthFocused(true);
+                  setBacktestStartMonthDraft(backtestStartMonth);
+                  const el = e.currentTarget;
+                  setTimeout(() => el.select(), 0);
+                }}
+                onChange={(e) => setBacktestStartMonthDraft(sanitizeBacktestMonthInput(e.target.value))}
+                onBlur={() => {
+                  setBacktestStartMonthFocused(false);
+                  commitBacktestMonthDraft(backtestStartMonthDraft, setBacktestStartMonth);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.08)")}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                style={{
+                  width: 92,
+                  padding: "3px 8px",
+                  borderRadius: 7,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  fontFamily: "inherit",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  textAlign: "center",
+                  outline: "none",
+                  cursor: "text",
+                  boxSizing: "border-box",
+                  transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
+                }}
+              />
               부터
-              <span style={{ position: "relative", display: "inline-flex" }}>
-                <span
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 7,
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
-                    fontWeight: 700,
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
-                  }}
-                >
-                  {formatBacktestMonthLabel(backtestEndMonth)}
-                </span>
-                <input
-                  type="month"
-                  value={backtestEndMonth}
-                  onChange={(e) => setBacktestEndMonth(e.target.value)}
-                  onMouseEnter={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1.08)")}
-                  onMouseLeave={(e) => (e.currentTarget.previousSibling.style.transform = "scale(1)")}
-                  style={{ position: "absolute", inset: 0, opacity: 0, cursor: "pointer", border: "none", width: "100%", height: "100%" }}
-                />
-              </span>
+              <input
+                type="text"
+                inputMode="numeric"
+                placeholder="YYYY-MM"
+                value={backtestEndMonthFocused ? backtestEndMonthDraft : formatBacktestMonthLabel(backtestEndMonth)}
+                onFocus={(e) => {
+                  setBacktestEndMonthFocused(true);
+                  setBacktestEndMonthDraft(backtestEndMonth);
+                  const el = e.currentTarget;
+                  setTimeout(() => el.select(), 0);
+                }}
+                onChange={(e) => setBacktestEndMonthDraft(sanitizeBacktestMonthInput(e.target.value))}
+                onBlur={() => {
+                  setBacktestEndMonthFocused(false);
+                  commitBacktestMonthDraft(backtestEndMonthDraft, setBacktestEndMonth);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") e.currentTarget.blur();
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.transform = "scale(1.08)")}
+                onMouseLeave={(e) => (e.currentTarget.style.transform = "scale(1)")}
+                style={{
+                  width: 92,
+                  padding: "3px 8px",
+                  borderRadius: 7,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  background: isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.07)",
+                  fontWeight: 700,
+                  fontSize: 12.5,
+                  fontFamily: "inherit",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  textAlign: "center",
+                  outline: "none",
+                  cursor: "text",
+                  boxSizing: "border-box",
+                  transition: "transform 0.2s cubic-bezier(0.22, 1, 0.36, 1), background 0.2s ease",
+                }}
+              />
               까지
             </div>
 
@@ -7634,14 +7879,14 @@ export default function Alloy() {
                     <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                       <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
                         최고 연간 수익률{" "}
-                        <span style={{ color: "#FF5C5C" }}>
+                        <span style={{ color: backtestBestYearReturn >= 0 ? "#FF5C5C" : "#4D9FFF" }}>
                           {backtestBestYearReturn >= 0 ? "+" : ""}
                           {backtestBestYearReturn.toFixed(1)}%
                         </span>
                       </div>
                       <div style={{ fontSize: 10, fontWeight: 600, color: isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)" }}>
                         최저 연간 수익률{" "}
-                        <span style={{ color: "#4D9FFF" }}>
+                        <span style={{ color: backtestWorstYearReturn >= 0 ? "#FF5C5C" : "#4D9FFF" }}>
                           {backtestWorstYearReturn >= 0 ? "+" : ""}
                           {backtestWorstYearReturn.toFixed(1)}%
                         </span>
@@ -8435,7 +8680,7 @@ export default function Alloy() {
                   letterSpacing: 0.2,
                 }}
               >
-                {editIndex !== null ? "수정하기" : "추가하기"}
+                {editIndex !== null ? "수정" : "추가"}
               </h2>
 
               {/* 수정 모드: 삭제 버튼 - 닫기(X)로 착각해 실수로 삭제하는 걸 막기 위해 휴지통 아이콘 +
@@ -8449,8 +8694,8 @@ export default function Alloy() {
                     onMouseLeave={() => setDeleteHovered(false)}
                     aria-label={deleteConfirming ? "삭제 확인" : "삭제"}
                     style={{
-                      width: 26,
-                      height: 26,
+                      width: 24,
+                      height: 24,
                       flexShrink: 0,
                       borderRadius: "50%",
                       border: `1px solid ${isLight ? "rgba(255,107,107,0.3)" : "rgba(255,107,107,0.35)"}`,
@@ -8547,9 +8792,9 @@ export default function Alloy() {
                       style={{
                         position: "relative",
                         display: "flex",
-                        height: 42,
+                        height: 38,
                         padding: 3,
-                        borderRadius: 12,
+                        borderRadius: 11,
                         background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
                         border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
                         flexShrink: 0,
@@ -8580,16 +8825,16 @@ export default function Alloy() {
                           style={{
                             position: "relative",
                             zIndex: 1,
-                            width: 26,
+                            width: 24,
                             height: "100%",
                             border: "none",
                             background: "transparent",
-                            borderRadius: 9,
+                            borderRadius: 8,
                             color:
                               currency === c.key
                                 ? (isLight ? "#14161A" : "#FFFFFF")
                                 : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
-                            fontSize: 13,
+                            fontSize: 12,
                             fontWeight: 600,
                             cursor: "pointer",
                             outline: "none",
@@ -8652,9 +8897,9 @@ export default function Alloy() {
                   style={{
                     position: "relative",
                     display: "flex",
-                    height: 42,
-                    padding: 4,
-                    borderRadius: 12,
+                    height: 38,
+                    padding: 3,
+                    borderRadius: 11,
                     background: (isLight ? "rgba(20,22,26,0.05)" : "rgba(255,255,255,0.05)"),
                     border: (isLight ? "1px solid rgba(20,22,26,0.1)" : "1px solid rgba(255,255,255,0.1)"),
                     marginBottom: 20,
@@ -8664,11 +8909,11 @@ export default function Alloy() {
                   <div
                     style={{
                       position: "absolute",
-                      top: 4,
+                      top: 3,
                       left: cashCurrencyIndicator.left,
                       width: cashCurrencyIndicator.width,
-                      height: "calc(100% - 8px)",
-                      borderRadius: 9,
+                      height: "calc(100% - 6px)",
+                      borderRadius: 8,
                       background: (isLight ? "rgba(20,22,26,0.16)" : "rgba(255,255,255,0.16)"),
                       boxShadow: "inset 0 1px 0 rgba(255,255,255,0.25)",
                       transition:
@@ -8690,12 +8935,12 @@ export default function Alloy() {
                         height: "100%",
                         border: "none",
                         background: "transparent",
-                        borderRadius: 9,
+                        borderRadius: 8,
                         color:
                           cashCurrency === c.key
                             ? (isLight ? "#14161A" : "#FFFFFF")
                             : (isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)"),
-                        fontSize: 13,
+                        fontSize: 12,
                         fontWeight: 600,
                         cursor: "pointer",
                         outline: "none",
@@ -8769,8 +9014,8 @@ export default function Alloy() {
                 onMouseLeave={() => setCancelHovered(false)}
                 style={{
                   flex: 1,
-                  height: 42,
-                  borderRadius: 12,
+                  height: 38,
+                  borderRadius: 11,
                   border: (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"),
                   background: cancelHovered
                     ? (isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.1)")
@@ -8778,7 +9023,7 @@ export default function Alloy() {
                   color: cancelHovered
                     ? (isLight ? "rgba(20,22,26,0.9)" : "rgba(255,255,255,0.9)")
                     : (isLight ? "rgba(20,22,26,0.6)" : "rgba(255,255,255,0.6)"),
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: 500,
                   cursor: "pointer",
                   outline: "none",
@@ -8797,14 +9042,14 @@ export default function Alloy() {
                 onMouseLeave={() => setConfirmHovered(false)}
                 style={{
                   flex: 1,
-                  height: 42,
-                  borderRadius: 12,
+                  height: 38,
+                  borderRadius: 11,
                   border: (isLight ? "1px solid rgba(20,22,26,0.2)" : "1px solid rgba(255,255,255,0.2)"),
                   background: confirmHovered
                     ? (isLight ? "rgba(20,22,26,0.28)" : "rgba(255,255,255,0.28)")
                     : (isLight ? "rgba(20,22,26,0.18)" : "rgba(255,255,255,0.18)"),
                   color: (isLight ? "#14161A" : "#FFFFFF"),
-                  fontSize: 14,
+                  fontSize: 13,
                   fontWeight: 600,
                   cursor: "pointer",
                   outline: "none",
