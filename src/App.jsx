@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.140";
+const APP_VERSION = "0.1.141";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -1335,6 +1335,8 @@ export default function Alloy() {
   // 전일 대비) 등락률/시가총액을 한 번에 가져온다. 앱을 켤 때 한 번만 조회한다(다른 지수 위젯들과 동일).
   const [sectorHeatmapStocks, setSectorHeatmapStocks] = useState([]);
   const [sectorHeatmapLoading, setSectorHeatmapLoading] = useState(true);
+  // 평소에는 접어 두고 ">" 버튼을 눌러야만 전체 타일이 펼쳐지도록(다시 누르면 접힘)
+  const [sectorHeatmapExpanded, setSectorHeatmapExpanded] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1379,16 +1381,13 @@ export default function Alloy() {
     return cap.toLocaleString();
   };
 
-  // 등락률(%)에 따른 히트맵 타일 배경색 - 양전이면 빨강, 음전이면 파랑 계열이며, 등락폭이 클수록
-  // (±3% 이상이면 최대치로 클램프) 더 진하게 칠한다. 테마와 무관하게 항상 대비가 확보되도록
-  // 불투명한 단색(연한 톤 ~ 진한 톤)을 보간해서 사용하고, 타일 안 텍스트는 항상 흰색을 쓴다.
+  // 등락률(%)에 따른 히트맵 타일 배경색 - 양전이면 빨강, 음전이면 파랑 계열의 2단계 톤만 사용한다.
+  // 0~3%(또는 0~-3%)는 연한 톤, 3% 이상(또는 -3% 이하)은 약간 더 진한 톤. 테마와 무관하게 항상
+  // 대비가 확보되도록 불투명한 단색을 쓰고, 타일 안 텍스트는 항상 흰색을 쓴다.
   const heatmapTileColor = (changePercent) => {
     const pct = changePercent ?? 0;
-    const t = Math.min(Math.abs(pct) / 3, 1); // 0(변동 없음) ~ 1(±3% 이상)
-    const lerp = (a, b) => Math.round(a + (b - a) * t);
-    return pct >= 0
-      ? `rgb(${lerp(96, 214)}, ${lerp(48, 48)}, ${lerp(50, 49)})`
-      : `rgb(${lerp(40, 56)}, ${lerp(52, 110)}, ${lerp(74, 214)})`;
+    if (pct >= 0) return pct >= 3 ? "rgb(199, 46, 48)" : "rgb(130, 58, 60)";
+    return pct <= -3 ? "rgb(48, 100, 204)" : "rgb(45, 68, 112)";
   };
 
   // 배당 캘린더 모달 (홈 탭 "연 배당" 카드 클릭 시 표시, 월별 배당금 막대그래프)
@@ -5201,17 +5200,51 @@ export default function Alloy() {
               }}
             >
               <div
+                role="button"
+                tabIndex={0}
+                onClick={() => setSectorHeatmapExpanded((v) => !v)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    setSectorHeatmapExpanded((v) => !v);
+                  }
+                }}
+                onMouseEnter={(e) => (e.currentTarget.style.opacity = "0.85")}
+                onMouseLeave={(e) => (e.currentTarget.style.opacity = "1")}
                 style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 4,
+                  width: "fit-content",
                   fontSize: 13,
                   fontWeight: 600,
                   color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)",
-                  marginBottom: 14,
+                  marginBottom: sectorHeatmapExpanded ? 14 : 0,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "opacity 0.2s ease, margin-bottom 0.2s ease",
                 }}
               >
                 섹터 히트맵
+                <svg
+                  width="10"
+                  height="10"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  style={{
+                    transform: sectorHeatmapExpanded ? "rotate(90deg)" : "rotate(0deg)",
+                    transition: "transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                  }}
+                >
+                  <path d="M9 6l6 6-6 6" />
+                </svg>
               </div>
 
-              {sectorHeatmapLoading ? (
+              {!sectorHeatmapExpanded ? null : sectorHeatmapLoading ? (
                 <div
                   style={{
                     display: "flex",
