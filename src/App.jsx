@@ -35,7 +35,7 @@ function useTypedText(text) {
 }
 
 // 앱 버전 표기(설정 탭, 계정 섹션 아래). 소수점 마지막 자리는 PR이 업데이트될 때마다 해당 PR 번호로 갱신한다.
-const APP_VERSION = "0.1.141";
+const APP_VERSION = "0.1.142";
 
 // 배당소득세 원천징수세율(15%). 야후 파이낸스에서 받아오는 배당 금액은 세전 금액이므로,
 // 실수령 기준으로 표기하는 모든 배당 관련 계산(연 배당 %, 연 배당금 예상치, 배당 캘린더)에 공통 적용한다.
@@ -677,7 +677,7 @@ export default function Alloy() {
   const usMarketStatus = getUsMarketStatus(marketClockNow);
   const krMarketStatus = getKrMarketStatus(marketClockNow);
   const US_MARKET_SESSION_LABEL = { pre: "프리마켓", regular: "정규장", after: "애프터마켓", closed: "마감" };
-  const KR_MARKET_SESSION_LABEL = { regular: "정규장", after: "애프터마켓(NXT)", closed: "마감" };
+  const KR_MARKET_SESSION_LABEL = { regular: "정규장", after: "애프터마켓", closed: "마감" };
 
   // Supabase 로그인 세션
   const [session, setSession] = useState(null);
@@ -1449,24 +1449,31 @@ export default function Alloy() {
     }
   }, [homeCurrency, active]);
 
-  // 자산 추이 모달 (홈 탭 "자산" 클릭 시 표시, 1일/1주/3달/1년 기간별 꺾은선 그래프)
-  const [assetTrendModalOpen, setAssetTrendModalOpen] = useState(false);
-  const [assetTrendModalVisible, setAssetTrendModalVisible] = useState(false);
-  const [assetTrendPeriod, setAssetTrendPeriod] = useState("1d");
-  const [assetTrendSeries, setAssetTrendSeries] = useState([]); // [{ ts, valueUSD }]
-  const [assetTrendLoading, setAssetTrendLoading] = useState(false);
+  // 계좌 관리 모달 (홈 탭 "자산" 클릭 시 표시): 증권사/계좌명을 등록하고, 보유 종목(기본은 "미분류")을
+  // 드래그해서 원하는 계좌 아래로 옮겨 분류할 수 있다.
+  const [brokerModalOpen, setBrokerModalOpen] = useState(false);
+  const [brokerModalVisible, setBrokerModalVisible] = useState(false);
 
-  const openAssetTrendModal = () => {
-    setAssetTrendModalOpen(true);
-    requestAnimationFrame(() => setAssetTrendModalVisible(true));
+  const openBrokerModal = () => {
+    setBrokerModalOpen(true);
+    requestAnimationFrame(() => setBrokerModalVisible(true));
   };
 
-  const closeAssetTrendModal = () => {
-    setAssetTrendModalVisible(false);
-    setTimeout(() => setAssetTrendModalOpen(false), 300);
+  const closeBrokerModal = () => {
+    setBrokerModalVisible(false);
+    setTimeout(() => setBrokerModalOpen(false), 300);
   };
-  const closeAssetTrendModalRef = useRef(closeAssetTrendModal);
-  closeAssetTrendModalRef.current = closeAssetTrendModal;
+  const closeBrokerModalRef = useRef(closeBrokerModal);
+  closeBrokerModalRef.current = closeBrokerModal;
+
+  // 증권사/계좌 목록 - { id, broker, accountName }. 각 보유 종목(holdings 항목)의 brokerAccountId가
+  // 이 목록의 id와 일치하면 해당 계좌 아래로, 없거나 일치하는 계좌가 없으면 "미분류"로 표시된다.
+  const [brokerAccounts, setBrokerAccounts] = useState([]);
+  const [brokerNameDraft, setBrokerNameDraft] = useState("");
+  const [accountNameDraft, setAccountNameDraft] = useState("");
+  // 종목 행의 4점 아이콘을 드래그하는 동안의 상태 - 대상 holdings 배열의 인덱스만 들고 있는다.
+  const [draggedHoldingIndex, setDraggedHoldingIndex] = useState(null);
+  const [dragOverAccountId, setDragOverAccountId] = useState(null); // 계좌 id 또는 "unassigned"
 
   // 목표 모달 (홈 탭 "목표" 클릭 시 표시, 목표 설정일로부터 지금까지의 달성률(%) 추이 그래프)
   // goalTargetUSD/goalSetAt은 Supabase portfolios 테이블에 저장되어 기기 간 동기화된다.
@@ -1677,7 +1684,7 @@ export default function Alloy() {
       dividendModalOpen ||
       dailyReturnModalOpen ||
       backtestModalOpen ||
-      assetTrendModalOpen ||
+      brokerModalOpen ||
       snp500IndexModalOpen ||
       nasdaqIndexModalOpen ||
       kospiIndexModalOpen ||
@@ -1711,7 +1718,7 @@ export default function Alloy() {
     dividendModalOpen,
     dailyReturnModalOpen,
     backtestModalOpen,
-    assetTrendModalOpen,
+    brokerModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -2073,6 +2080,7 @@ export default function Alloy() {
       setDataLoaded(false);
       setGoalTargetUSD(0);
       setGoalSetAt(null);
+      setBrokerAccounts([]);
       return;
     }
     let cancelled = false;
@@ -2088,7 +2096,7 @@ export default function Alloy() {
     const attemptLoad = (attempt) => {
       supabase
         .from("portfolios")
-        .select("holdings, cash_holdings, goal_amount, goal_set_at")
+        .select("holdings, cash_holdings, goal_amount, goal_set_at, broker_accounts")
         .eq("user_id", session.user.id)
         .maybeSingle()
         .then(({ data, error }) => {
@@ -2110,6 +2118,7 @@ export default function Alloy() {
             if (Array.isArray(data.cash_holdings)) setCashHoldings(data.cash_holdings);
             setGoalTargetUSD(typeof data.goal_amount === "number" ? data.goal_amount : 0);
             setGoalSetAt(data.goal_set_at || null);
+            if (Array.isArray(data.broker_accounts)) setBrokerAccounts(data.broker_accounts);
           }
           loadedForUserIdRef.current = session.user.id;
           setDataLoaded(true);
@@ -2135,6 +2144,7 @@ export default function Alloy() {
           user_id: session.user.id,
           holdings,
           cash_holdings: cashHoldings,
+          broker_accounts: brokerAccounts,
           updated_at: new Date().toISOString(),
         },
         { onConflict: "user_id" }
@@ -2142,7 +2152,7 @@ export default function Alloy() {
       .then(({ error }) => {
         if (error) console.error("포트폴리오 저장 실패:", error.message);
       });
-  }, [holdings, cashHoldings, dataLoaded, session]);
+  }, [holdings, cashHoldings, brokerAccounts, dataLoaded, session]);
 
   // 서브 액션바 알림 (리퀴드 글래스, 탭바 바로 위) - 닉네임 저장/프로모션 코드 등 공용
   const [subActionNotice, setSubActionNotice] = useState(false);
@@ -2426,9 +2436,9 @@ export default function Alloy() {
         } else if (backtestModalOpen) {
           e.preventDefault();
           closeBacktestModalRef.current();
-        } else if (assetTrendModalOpen) {
+        } else if (brokerModalOpen) {
           e.preventDefault();
-          closeAssetTrendModalRef.current();
+          closeBrokerModalRef.current();
         } else if (goalModalOpen) {
           e.preventDefault();
           closeGoalModalRef.current();
@@ -2505,7 +2515,7 @@ export default function Alloy() {
     dividendModalOpen,
     dailyReturnModalOpen,
     backtestModalOpen,
-    assetTrendModalOpen,
+    brokerModalOpen,
     snp500IndexModalOpen,
     nasdaqIndexModalOpen,
     kospiIndexModalOpen,
@@ -2609,6 +2619,55 @@ export default function Alloy() {
   const handleDragEnd = () => {
     setDraggedInfo(null);
     setDragOverIndex(null);
+  };
+
+  // 계좌 관리 모달: 종목 행의 4점 아이콘을 눌러 드래그를 시작하고, 계좌 섹션(또는 "미분류") 위에서
+  // 놓으면 그 종목의 brokerAccountId를 갱신한다. accountId가 null이면 미분류로 되돌린다.
+  const handleHoldingDragStart = (originalIndex) => (e) => {
+    setDraggedHoldingIndex(originalIndex);
+    e.dataTransfer.effectAllowed = "move";
+    try {
+      e.dataTransfer.setData("text/plain", String(originalIndex));
+    } catch (err) {}
+  };
+  const handleHoldingDragEnd = () => {
+    setDraggedHoldingIndex(null);
+    setDragOverAccountId(null);
+  };
+  const handleAccountDragOver = (accountId) => (e) => {
+    if (draggedHoldingIndex == null) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    if (dragOverAccountId !== accountId) setDragOverAccountId(accountId);
+  };
+  const handleAccountDrop = (accountId) => (e) => {
+    e.preventDefault();
+    if (draggedHoldingIndex == null) return;
+    const idx = draggedHoldingIndex;
+    const resolvedAccountId = accountId === "unassigned" ? null : accountId;
+    setHoldings((prev) => {
+      if (!prev[idx]) return prev;
+      const copy = [...prev];
+      copy[idx] = { ...copy[idx], brokerAccountId: resolvedAccountId };
+      return copy;
+    });
+    setDraggedHoldingIndex(null);
+    setDragOverAccountId(null);
+  };
+
+  // 증권사/계좌명을 입력해 새 계좌를 추가 - 둘 중 하나만 입력해도 등록 가능(빈 값은 공란으로 표시)
+  const addBrokerAccount = () => {
+    const broker = brokerNameDraft.trim();
+    const accountName = accountNameDraft.trim();
+    if (!broker && !accountName) return;
+    const id = typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `acc_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    setBrokerAccounts((prev) => [...prev, { id, broker, accountName }]);
+    setBrokerNameDraft("");
+    setAccountNameDraft("");
+  };
+
+  const removeBrokerAccount = (id) => {
+    setBrokerAccounts((prev) => prev.filter((a) => a.id !== id));
   };
 
   // 원 단위/센트를 상황에 맞게 표시
@@ -2966,94 +3025,7 @@ export default function Alloy() {
   // 목표 달성률(%): 총 자산(USD) ÷ 목표 금액(USD) × 100. 목표 미설정 시 0.
   const goalProgressPercent = goalTargetUSD > 0 ? (grandTotalUSD / goalTargetUSD) * 100 : 0;
 
-  // 자산 추이: 보유 종목별 과거 시세(야후 파이낸스 캔들 히스토리)에 수량을 곱해 시점별 평가금액을 복원하고,
-  // 현금(시점에 따라 변하지 않는다고 가정한 현재 평가액)을 더해 전체 자산의 시간별 추이를 근사한다.
-  // 여러 종목의 타임스탬프가 정확히 일치하지 않을 수 있어, 데이터가 가장 많은 종목의 타임스탬프를 기준으로
-  // 각 종목에서 가장 가까운 시각의 종가를 찾아 합산한다. 환율은 현재 기준환율을 모든 시점에 동일하게 적용한다.
-  useEffect(() => {
-    if (!assetTrendModalOpen) return;
-    const uniqueTickers = [...new Set(holdings.map((h) => h.ticker))];
-    if (uniqueTickers.length === 0) {
-      setAssetTrendSeries([]);
-      return;
-    }
-    let cancelled = false;
-    setAssetTrendLoading(true);
-    const cfg = INDEX_CANDLE_PERIODS.find((p) => p.key === assetTrendPeriod) || INDEX_CANDLE_PERIODS[0];
-
-    const fetchOne = async (ticker) => {
-      for (const symbol of yahooSymbolCandidates(ticker)) {
-        try {
-          const { data, error } = await supabase.functions.invoke("nasdaq-index-proxy", {
-            body: { symbol, name: ticker, range: cfg.range, interval: cfg.interval },
-          });
-          if (!error && data && Array.isArray(data.history) && data.history.length > 0) {
-            return data.history;
-          }
-        } catch (e) {
-          // 다음 후보로 계속 시도
-        }
-      }
-      return [];
-    };
-
-    Promise.all(uniqueTickers.map((ticker) => fetchOne(ticker).then((history) => [ticker, history]))).then(
-      (results) => {
-        if (cancelled) return;
-        const historyByTicker = {};
-        for (const [ticker, history] of results) historyByTicker[ticker] = history;
-
-        let referenceTicker = null;
-        let maxLen = 0;
-        for (const ticker of uniqueTickers) {
-          const len = (historyByTicker[ticker] || []).length;
-          if (len > maxLen) {
-            maxLen = len;
-            referenceTicker = ticker;
-          }
-        }
-        if (!referenceTicker) {
-          setAssetTrendSeries([]);
-          setAssetTrendLoading(false);
-          return;
-        }
-
-        const closestClose = (history, ts) => {
-          if (!history || history.length === 0) return null;
-          let best = history[0];
-          let bestDiff = Math.abs(history[0].ts - ts);
-          for (const p of history) {
-            const diff = Math.abs(p.ts - ts);
-            if (diff < bestDiff) {
-              best = p;
-              bestDiff = diff;
-            }
-          }
-          return best.close;
-        };
-
-        const series = historyByTicker[referenceTicker].map((refPoint) => {
-          let totalUSD = totalCashValueUSD;
-          holdings.forEach((h) => {
-            const close = closestClose(historyByTicker[h.ticker], refPoint.ts);
-            if (close == null) return;
-            const nativeValue = close * h.quantity;
-            totalUSD += h.currency === "USD" ? nativeValue : nativeValue / todayRate;
-          });
-          return { ts: refPoint.ts, valueUSD: totalUSD };
-        });
-
-        setAssetTrendSeries(series);
-        setAssetTrendLoading(false);
-      }
-    );
-
-    return () => {
-      cancelled = true;
-    };
-  }, [assetTrendModalOpen, assetTrendPeriod, holdingsTickerKey]);
-
-  // 목표 달성률 추이: 자산 추이와 동일한 방식(보유 종목별 과거 시세 복원 + 현재 현금 평가액 가산)으로
+  // 목표 달성률 추이: 이전 자산 추이 모달과 동일한 방식(보유 종목별 과거 시세 복원 + 현재 현금 평가액 가산)으로
   // 선택한 기간(1일/1주/3달/1년) 동안의 총 자산 평가금액을 구한 뒤, 목표 금액 대비 퍼센트로 환산한다.
   useEffect(() => {
     if (!goalModalOpen || !(goalTargetUSD > 0)) {
@@ -3387,6 +3359,7 @@ export default function Alloy() {
       shares: `${h.quantity.toLocaleString()}주`,
       color: stockColorByTicker[h.ticker],
       originalIndex: i,
+      brokerAccountId: h.brokerAccountId ?? null,
     };
   });
 
@@ -3519,37 +3492,7 @@ export default function Alloy() {
     );
   };
 
-  // 자산 추이 모달 툴팁: "07/17(금) $2,500" 한 줄로 날짜(요일) + 평가금액 표기
-  const AssetTrendTooltip = ({ active, payload }) => {
-    if (!active || !payload || payload.length === 0) return null;
-    const d = payload[0].payload;
-    const displayValue = homeCurrency === "USD" ? d.valueUSD : d.valueUSD * todayRate;
-    return (
-      <div
-        style={{
-          background: isLight ? "rgba(255,255,255,0.92)" : "rgba(30,32,36,0.92)",
-          border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-          borderRadius: 10,
-          fontSize: 11,
-          fontWeight: 600,
-          padding: "6px 10px",
-          color: isLight ? "#14161A" : "#FFFFFF",
-          whiteSpace: "nowrap",
-        }}
-      >
-        {formatKstDatePart(d.ts)} {formatAmount(displayValue, homeCurrency)}
-      </div>
-    );
-  };
-
-  // 자산 추이 그래프 색상: 기간 시작 대비 마지막 값이 올랐으면 빨강(상승), 내렸으면 파랑(하락)
-  const assetTrendColor =
-    assetTrendSeries.length >= 2 &&
-    assetTrendSeries[assetTrendSeries.length - 1].valueUSD < assetTrendSeries[0].valueUSD
-      ? "#4D9FFF"
-      : "#FF5C5C";
-
-  // 백 테스트 모달 툴팁 - 자산 추이 모달 툴팁과 동일한 디자인/포맷을 그대로 사용
+  // 백 테스트 모달 툴팁 - 이전 자산 추이 모달 툴팁과 동일한 디자인/포맷을 그대로 사용
   const BacktestTooltip = ({ active, payload }) => {
     if (!active || !payload || payload.length === 0) return null;
     const d = payload[0].payload;
@@ -4556,11 +4499,11 @@ export default function Alloy() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={openAssetTrendModal}
+                onClick={openBrokerModal}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    openAssetTrendModal();
+                    openBrokerModal();
                   }
                 }}
                 style={{
@@ -4584,11 +4527,11 @@ export default function Alloy() {
               <div
                 role="button"
                 tabIndex={0}
-                onClick={openAssetTrendModal}
+                onClick={openBrokerModal}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    openAssetTrendModal();
+                    openBrokerModal();
                   }
                 }}
                 style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap", cursor: "pointer", outline: "none" }}
@@ -8037,11 +7980,12 @@ export default function Alloy() {
         </div>
       )}
 
-      {/* 자산 추이 모달 (홈 탭 "자산" 클릭 시 표시): 1일/1주/3달/1년 기간별 자산 평가금액 꺾은선 그래프.
-          표기 통화는 홈 카드의 $/₩ 스위치(homeCurrency)를 그대로 따른다. */}
-      {assetTrendModalOpen && (
+      {/* 계좌 관리 모달 (홈 탭 "자산" 클릭 시 표시): 증권사/계좌를 등록하고, 보유 종목(기본은 "미분류")의
+          4점 아이콘을 드래그해서 원하는 계좌 아래로 분류할 수 있다. 다른 모달보다 세로로 긴 레이아웃이라
+          내용이 넘치면 안쪽에서 스크롤된다. */}
+      {brokerModalOpen && (
         <div
-          onClick={closeAssetTrendModal}
+          onClick={closeBrokerModal}
           style={{
             position: "fixed",
             inset: 0,
@@ -8049,9 +7993,9 @@ export default function Alloy() {
             alignItems: "center",
             justifyContent: "center",
             zIndex: 10,
-            background: assetTrendModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
-            backdropFilter: assetTrendModalVisible ? "blur(6px)" : "blur(0px)",
-            WebkitBackdropFilter: assetTrendModalVisible ? "blur(6px)" : "blur(0px)",
+            background: brokerModalVisible ? "rgba(0, 0, 0, 0.45)" : "rgba(0, 0, 0, 0)",
+            backdropFilter: brokerModalVisible ? "blur(6px)" : "blur(0px)",
+            WebkitBackdropFilter: brokerModalVisible ? "blur(6px)" : "blur(0px)",
             transition: "background 0.35s ease, backdrop-filter 0.35s ease",
           }}
         >
@@ -8059,7 +8003,10 @@ export default function Alloy() {
             onClick={(e) => e.stopPropagation()}
             style={{
               position: "relative",
-              width: "min(304px, 80vw)",
+              width: "min(320px, 84vw)",
+              maxHeight: "min(720px, 82vh)",
+              display: "flex",
+              flexDirection: "column",
               padding: "22px 20px",
               borderRadius: 20,
               background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
@@ -8067,8 +8014,8 @@ export default function Alloy() {
               WebkitBackdropFilter: "blur(28px) saturate(180%)",
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               boxShadow: "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
-              opacity: assetTrendModalVisible ? 1 : 0,
-              transform: assetTrendModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
+              opacity: brokerModalVisible ? 1 : 0,
+              transform: brokerModalVisible ? "scale(1) translateY(0)" : "scale(0.9) translateY(16px)",
               transition:
                 "opacity 0.35s cubic-bezier(0.22, 1, 0.36, 1), transform 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
               boxSizing: "border-box",
@@ -8076,129 +8023,241 @@ export default function Alloy() {
           >
             <h2
               style={{
-                margin: "0 0 4px 0",
+                margin: "0 0 16px 0",
                 fontSize: 17,
                 fontWeight: 600,
                 color: isLight ? "#14161A" : "#FFFFFF",
                 letterSpacing: 0.2,
+                flexShrink: 0,
               }}
             >
-              자산 추이
+              계좌 관리
             </h2>
 
-            <div style={{ marginBottom: 14 }}>
-              <span
+            {/* 증권사/계좌명 입력 - 하나라도 채워져 있으면 "계좌 추가"로 새 섹션이 생긴다 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 8, flexShrink: 0 }}>
+              <input
+                type="text"
+                placeholder="증권사"
+                value={brokerNameDraft}
+                onChange={(e) => setBrokerNameDraft(e.target.value)}
+                style={{ ...inputStyle, marginBottom: 0 }}
+                onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+              />
+              <input
+                type="text"
+                placeholder="계좌명"
+                value={accountNameDraft}
+                onChange={(e) => setAccountNameDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") addBrokerAccount();
+                }}
+                style={{ ...inputStyle, marginBottom: 0 }}
+                onFocus={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.35)" : "1px solid rgba(255,255,255,0.35)"))}
+                onBlur={(e) => (e.target.style.border = (isLight ? "1px solid rgba(20,22,26,0.12)" : "1px solid rgba(255,255,255,0.12)"))}
+              />
+              <button
+                onClick={addBrokerAccount}
+                disabled={!brokerNameDraft.trim() && !accountNameDraft.trim()}
                 style={{
-                  fontSize: 22,
-                  fontWeight: 700,
+                  height: 38,
+                  borderRadius: 11,
+                  border: (isLight ? "1px solid rgba(20,22,26,0.2)" : "1px solid rgba(255,255,255,0.2)"),
+                  background: isLight ? "rgba(20,22,26,0.18)" : "rgba(255,255,255,0.18)",
                   color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 13,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                  opacity: !brokerNameDraft.trim() && !accountNameDraft.trim() ? 0.5 : 1,
+                  transition: "opacity 0.2s ease",
                 }}
               >
-                {formatAmount(homeCurrency === "USD" ? displayTotalUSD : displayTotalKRW, homeCurrency)}
-              </span>
+                계좌 추가
+              </button>
             </div>
 
-            {/* 1일/1주/3달/1년 기간 탭 - 지수 모달(IndexCandleChart)과 동일한 크기/레이아웃/위치 */}
-            <div style={{ display: "flex", justifyContent: "flex-end", gap: 6, marginBottom: 8 }}>
-              {INDEX_CANDLE_PERIODS.map((p) => (
-                <button
-                  key={p.key}
-                  onClick={() => setAssetTrendPeriod(p.key)}
-                  style={{
-                    padding: "3px 8px",
-                    borderRadius: 8,
-                    border: "none",
-                    background:
-                      assetTrendPeriod === p.key
-                        ? isLight
-                          ? "rgba(20,22,26,0.14)"
-                          : "rgba(255,255,255,0.14)"
-                        : "transparent",
-                    color:
-                      assetTrendPeriod === p.key
-                        ? isLight
-                          ? "#14161A"
-                          : "#FFFFFF"
-                        : isLight
-                        ? "rgba(20,22,26,0.4)"
-                        : "rgba(255,255,255,0.4)",
-                    fontSize: 11,
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    outline: "none",
-                    transition: "background 0.2s ease, color 0.2s ease",
-                  }}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            <div
+              style={{
+                height: 1,
+                background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.08)",
+                margin: "16px 0",
+                flexShrink: 0,
+              }}
+            />
 
-            <div style={{ width: "100%", height: 190 }}>
-              {assetTrendLoading ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  불러오는 중...
+            <div style={{ flex: 1, overflowY: "auto", display: "flex", flexDirection: "column", gap: 14 }}>
+              {brokerAccounts.map((acc) => {
+                const items = stockHoldings.filter((h) => h.brokerAccountId === acc.id);
+                const isDragOver = dragOverAccountId === acc.id;
+                return (
+                  <div
+                    key={acc.id}
+                    onDragOver={handleAccountDragOver(acc.id)}
+                    onDrop={handleAccountDrop(acc.id)}
+                    style={{
+                      padding: 10,
+                      borderRadius: 14,
+                      border: `1.5px ${isDragOver ? "dashed #8FA7FF" : `solid ${isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.1)"}`}`,
+                      background: isDragOver ? "rgba(143,167,255,0.08)" : "transparent",
+                      transition: "border 0.15s ease, background 0.15s ease",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                        {acc.broker}
+                        {acc.accountName ? ` · ${acc.accountName}` : ""}
+                      </span>
+                      <button
+                        onClick={() => removeBrokerAccount(acc.id)}
+                        aria-label="계좌 삭제"
+                        style={{
+                          border: "none",
+                          background: "transparent",
+                          padding: 0,
+                          fontSize: 14,
+                          lineHeight: 1,
+                          cursor: "pointer",
+                          outline: "none",
+                          color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                    {items.length === 0 ? (
+                      <div style={{ fontSize: 11, color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)" }}>
+                        종목을 여기로 드래그하세요
+                      </div>
+                    ) : (
+                      items.map((h) => (
+                        <div
+                          key={h.originalIndex}
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "6px 0",
+                            opacity: draggedHoldingIndex === h.originalIndex ? 0.4 : 1,
+                            transition: "opacity 0.15s ease",
+                          }}
+                        >
+                          <span
+                            draggable
+                            onDragStart={handleHoldingDragStart(h.originalIndex)}
+                            onDragEnd={handleHoldingDragEnd}
+                            style={{ display: "flex", flexDirection: "column", gap: 2, cursor: "grab", padding: "4px 2px" }}
+                          >
+                            <span style={{ display: "flex", gap: 2 }}>
+                              <i style={dotStyle} />
+                              <i style={dotStyle} />
+                            </span>
+                            <span style={{ display: "flex", gap: 2 }}>
+                              <i style={dotStyle} />
+                              <i style={dotStyle} />
+                            </span>
+                          </span>
+                          <span style={{ fontSize: 13, fontWeight: 500, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                            {h.ticker}
+                          </span>
+                          <span style={{ fontSize: 12, color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)" }}>
+                            {h.shares}
+                          </span>
+                          <span
+                            style={{
+                              marginLeft: "auto",
+                              fontSize: 13,
+                              fontWeight: 600,
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                            }}
+                          >
+                            {h.value}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* 미분류: 어떤 계좌 id와도 일치하지 않는 보유 종목(기본값, 또는 삭제된 계좌를 참조하던 종목) */}
+              <div
+                onDragOver={handleAccountDragOver("unassigned")}
+                onDrop={handleAccountDrop("unassigned")}
+                style={{
+                  padding: 10,
+                  borderRadius: 14,
+                  border: `1.5px ${
+                    dragOverAccountId === "unassigned"
+                      ? "dashed #8FA7FF"
+                      : `solid ${isLight ? "rgba(20,22,26,0.1)" : "rgba(255,255,255,0.1)"}`
+                  }`,
+                  background: dragOverAccountId === "unassigned" ? "rgba(143,167,255,0.08)" : "transparent",
+                  transition: "border 0.15s ease, background 0.15s ease",
+                }}
+              >
+                <div style={{ fontSize: 13, fontWeight: 700, color: isLight ? "#14161A" : "#FFFFFF", marginBottom: 8 }}>
+                  미분류
                 </div>
-              ) : assetTrendSeries.length === 0 ? (
-                <div
-                  style={{
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    height: "100%",
-                    fontSize: 12,
-                    color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                  }}
-                >
-                  아직 등록된 자산이 없어요
-                </div>
-              ) : (
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={assetTrendSeries} margin={{ top: 6, right: 4, bottom: 0, left: 4 }}>
-                    <defs>
-                      <linearGradient id="assetTrendGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={assetTrendColor} stopOpacity={0.28} />
-                        <stop offset="100%" stopColor={assetTrendColor} stopOpacity={0} />
-                      </linearGradient>
-                    </defs>
-                    <XAxis
-                      dataKey="ts"
-                      tickFormatter={(ts) => formatKstAxisLabel(ts, assetTrendPeriod)}
-                      tick={{
-                        fontSize: 9,
-                        fill: isLight ? "rgba(20,22,26,0.4)" : "rgba(255,255,255,0.4)",
+                {(() => {
+                  const unassigned = stockHoldings.filter(
+                    (h) => !brokerAccounts.some((acc) => acc.id === h.brokerAccountId)
+                  );
+                  if (unassigned.length === 0) {
+                    return (
+                      <div style={{ fontSize: 11, color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)" }}>
+                        등록된 종목이 없어요
+                      </div>
+                    );
+                  }
+                  return unassigned.map((h) => (
+                    <div
+                      key={h.originalIndex}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 0",
+                        opacity: draggedHoldingIndex === h.originalIndex ? 0.4 : 1,
+                        transition: "opacity 0.15s ease",
                       }}
-                      axisLine={false}
-                      tickLine={false}
-                      interval="preserveStartEnd"
-                      minTickGap={40}
-                    />
-                    <YAxis hide domain={["dataMin", "dataMax"]} />
-                    <Tooltip
-                      content={<AssetTrendTooltip />}
-                      cursor={{ stroke: isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)", strokeWidth: 1 }}
-                    />
-                    <Area
-                      type="monotone"
-                      dataKey="valueUSD"
-                      stroke={assetTrendColor}
-                      strokeWidth={2}
-                      fill="url(#assetTrendGradient)"
-                      dot={false}
-                      isAnimationActive={false}
-                    />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
+                    >
+                      <span
+                        draggable
+                        onDragStart={handleHoldingDragStart(h.originalIndex)}
+                        onDragEnd={handleHoldingDragEnd}
+                        style={{ display: "flex", flexDirection: "column", gap: 2, cursor: "grab", padding: "4px 2px" }}
+                      >
+                        <span style={{ display: "flex", gap: 2 }}>
+                          <i style={dotStyle} />
+                          <i style={dotStyle} />
+                        </span>
+                        <span style={{ display: "flex", gap: 2 }}>
+                          <i style={dotStyle} />
+                          <i style={dotStyle} />
+                        </span>
+                      </span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: isLight ? "#14161A" : "#FFFFFF" }}>
+                        {h.ticker}
+                      </span>
+                      <span style={{ fontSize: 12, color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)" }}>
+                        {h.shares}
+                      </span>
+                      <span
+                        style={{
+                          marginLeft: "auto",
+                          fontSize: 13,
+                          fontWeight: 600,
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                        }}
+                      >
+                        {h.value}
+                      </span>
+                    </div>
+                  ));
+                })()}
+              </div>
             </div>
           </div>
         </div>
