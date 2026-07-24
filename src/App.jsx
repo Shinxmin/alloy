@@ -84,10 +84,31 @@ export default function Alloy() {
   const [searchVisible, setSearchVisible] = useState(false);
   const searchInputRef = useRef(null);
 
-  // 홈 탭 기능: 경로, 폴더, 파일, 업로드 메뉴
-  const [currentPath, setCurrentPath] = useState([]);
+  // Vaulty 데이터 모델: Vault(프로젝트) > Folder(폴더) > Data(이미지/문서)
+  //  - vaults: 홈 화면에 카드로 보이는 최상위 프로젝트 [{id, name}]
+  //  - folders: path[0]가 소속 Vault 이름이며 path 는 자기 이름까지 포함
+  //  - files: path 는 소속 디렉터리(= Vault 이름 포함). kind 는 'image' | 'doc'
+  //    · 이미지/움짤(JPG/JPEG/PNG/GIF/APNG)과 텍스트(TXT)만 업로드 가능
+  //    · 문서(doc)는 Vault 바로 아래(path.length === 1)에서만 생성/보관 가능
+  const [currentPath, setCurrentPath] = useState([]); // [] = 홈(Vault 목록)
+  const [vaults, setVaults] = useState([]);
   const [folders, setFolders] = useState([]);
   const [files, setFiles] = useState([]);
+
+  // Vault 생성 모달
+  const [vaultModalOpen, setVaultModalOpen] = useState(false);
+  const [vaultModalVisible, setVaultModalVisible] = useState(false);
+  const [vaultNameInput, setVaultNameInput] = useState("");
+  const docInputRef = useRef(null);
+
+  const IMAGE_EXTS = ["jpg", "jpeg", "png", "gif", "apng"];
+  const getKindFromName = (name) => {
+    const ext = (name.split(".").pop() || "").toLowerCase();
+    if (IMAGE_EXTS.includes(ext)) return "image";
+    if (ext === "txt") return "doc";
+    return null;
+  };
+
   const [uploadButtonHovered, setUploadButtonHovered] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [uploadMenuVisible, setUploadMenuVisible] = useState(false);
@@ -173,6 +194,40 @@ export default function Alloy() {
     }, 200);
   };
 
+  // Vault 생성 모달 - 홈에서 + 버튼을 누르면 열린다.
+  const openVaultModal = () => {
+    setVaultModalOpen(true);
+    requestAnimationFrame(() => setVaultModalVisible(true));
+  };
+  const closeVaultModal = () => {
+    setVaultModalVisible(false);
+    setTimeout(() => {
+      setVaultModalOpen(false);
+      setVaultNameInput("");
+    }, 200);
+  };
+  const createVault = () => {
+    if (vaultNameInput.trim()) {
+      setVaults((prev) => [...prev, { id: Date.now(), name: vaultNameInput.trim() }]);
+    }
+    closeVaultModal();
+  };
+  const deleteVault = (vaultId) => {
+    const vault = vaults.find((v) => v.id === vaultId);
+    if (vault) {
+      setFolders((prev) => prev.filter((f) => f.path[0] !== vault.name));
+      setFiles((prev) => prev.filter((f) => f.path[0] !== vault.name));
+    }
+    setVaults((prev) => prev.filter((v) => v.id !== vaultId));
+    closeItemMenu();
+  };
+
+  // 홈에서는 + 가 Vault 생성 모달을, Vault/폴더 안에서는 업로드 메뉴를 연다.
+  const handleAddButton = () => {
+    if (currentPath.length === 0) openVaultModal();
+    else toggleUploadMenu();
+  };
+
   const openItemMenu = (type, id, anchorEl) => {
     if (anchorEl) {
       const rect = anchorEl.getBoundingClientRect();
@@ -239,9 +294,6 @@ export default function Alloy() {
     }
     return sorted;
   };
-
-  // 보기 방식 - 리스트형 / 3x3 갤러리형
-  const [viewMode, setViewMode] = useState("list");
 
   // 폴더/문서 꾹 눌러서 드래그로 섹션 내 순서 변경(사용자 지정 정렬)
   const [draggingItem, setDraggingItem] = useState(null); // { type: 'folder' | 'file', id }
@@ -345,10 +397,20 @@ export default function Alloy() {
   };
   const confirmRename = () => {
     if (renameTarget && renameValue.trim()) {
-      if (renameTarget.type === "folder") {
-        setFolders((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: renameValue } : f)));
+      const newName = renameValue.trim();
+      if (renameTarget.type === "vault") {
+        const vault = vaults.find((v) => v.id === renameTarget.id);
+        const oldName = vault ? vault.name : null;
+        setVaults((prev) => prev.map((v) => (v.id === renameTarget.id ? { ...v, name: newName } : v)));
+        // Vault 이름이 바뀌면 그 하위 폴더/파일들의 path[0]도 함께 갱신한다.
+        if (oldName && oldName !== newName) {
+          setFolders((prev) => prev.map((f) => (f.path[0] === oldName ? { ...f, path: [newName, ...f.path.slice(1)] } : f)));
+          setFiles((prev) => prev.map((f) => (f.path[0] === oldName ? { ...f, path: [newName, ...f.path.slice(1)] } : f)));
+        }
+      } else if (renameTarget.type === "folder") {
+        setFolders((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: newName } : f)));
       } else {
-        setFiles((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: renameValue } : f)));
+        setFiles((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: newName } : f)));
       }
     }
     closeRenameModal();
@@ -377,6 +439,8 @@ export default function Alloy() {
   };
 
   const movingFolder = moveTarget && moveTarget.type === "folder" ? folders.find((f) => f.id === moveTarget.id) : null;
+  const movingFile = moveTarget && moveTarget.type === "file" ? files.find((f) => f.id === moveTarget.id) : null;
+  const movingIsDoc = movingFile && movingFile.kind === "doc";
   const isBlockedMoveFolder = (folder) => {
     if (!movingFolder) return false;
     if (folder.id === movingFolder.id) return true;
@@ -385,17 +449,27 @@ export default function Alloy() {
       movingFolder.path.every((seg, i) => folder.path[i] === seg)
     );
   };
-  const moveModalFolders = moveModalOpen
-    ? folders.filter(
-        (f) =>
-          f.path.length === moveBrowsePath.length + 1 &&
-          f.path.slice(0, moveBrowsePath.length).every((p, i) => p === moveBrowsePath[i]) &&
-          !isBlockedMoveFolder(f)
-      )
-    : [];
+  // 이동 모달의 탐색 목록: 홈(길이 0)에서는 Vault 를, 그 안에서는 폴더를 보여준다.
+  // 문서(doc)는 Vault 바로 아래에만 둘 수 있으므로 Vault 안에서는 하위 폴더를 노출하지 않는다.
+  const moveModalEntries = !moveModalOpen
+    ? []
+    : moveBrowsePath.length === 0
+    ? vaults.map((v) => ({ id: v.id, name: v.name, isVault: true }))
+    : movingIsDoc
+    ? []
+    : folders
+        .filter(
+          (f) =>
+            f.path.length === moveBrowsePath.length + 1 &&
+            f.path.slice(0, moveBrowsePath.length).every((p, i) => p === moveBrowsePath[i]) &&
+            !isBlockedMoveFolder(f)
+        )
+        .map((f) => ({ id: f.id, name: f.name, isVault: false }));
+  // "여기로 이동" 활성화 조건: 폴더/이미지는 Vault 안(길이>=1) 어디든, 문서는 Vault 루트(길이===1)만.
+  const canDropHere = movingIsDoc ? moveBrowsePath.length === 1 : moveBrowsePath.length >= 1;
 
   const confirmMove = () => {
-    if (!moveTarget) {
+    if (!moveTarget || !canDropHere) {
       closeMoveModal();
       return;
     }
@@ -429,19 +503,25 @@ export default function Alloy() {
   };
 
   // 실제 갤러리/파일 선택 다이얼로그(input[type=file])를 통해 고른 항목을
-  // 현재 위치(currentPath)에 저장 - 아직 Cloudflare R2 연동 전이라 로컬 상태로만 보관
+  // 현재 위치(currentPath)에 저장 - 아직 Cloudflare R2 연동 전이라 로컬 상태로만 보관.
+  // 지원 형식(JPG/JPEG/PNG/GIF/APNG/TXT)만 받아들이고, 이미지는 미리보기용 object URL 을 만든다.
   const handleFilesPicked = (e) => {
     const selected = Array.from(e.target.files || []);
-    if (selected.length) {
-      const newFiles = selected.map((f) => ({
+    const accepted = [];
+    for (const f of selected) {
+      const kind = getKindFromName(f.name);
+      if (!kind) continue; // 미지원 형식은 건너뛴다
+      accepted.push({
         id: Date.now() + Math.random(),
         name: f.name,
         size: f.size,
         mimeType: f.type,
+        kind,
+        url: kind === "image" ? URL.createObjectURL(f) : null,
         path: currentPath,
-      }));
-      setFiles((prev) => [...prev, ...newFiles]);
+      });
     }
+    if (accepted.length) setFiles((prev) => [...prev, ...accepted]);
     e.target.value = "";
   };
 
@@ -453,7 +533,17 @@ export default function Alloy() {
   const formatFileSize = (bytes) => {
     if (bytes < 1024) return `${bytes}B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`;
-    return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+    if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
+    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB`;
+  };
+
+  // Vault 카드 하단에 보여줄 '35개 폴더, 140개 이미지 (35.5GB)' 형식의 통계 문구.
+  const vaultStatsText = (vaultName) => {
+    const folderCount = folders.filter((f) => f.path[0] === vaultName).length;
+    const vaultFiles = files.filter((f) => f.path[0] === vaultName);
+    const imageCount = vaultFiles.filter((f) => f.kind === "image").length;
+    const totalBytes = vaultFiles.reduce((s, f) => s + (f.size || 0), 0);
+    return `${folderCount}개 폴더, ${imageCount}개 이미지 (${formatFileSize(totalBytes)})`;
   };
 
   const getFileIcon = (mimeType) => {
@@ -574,7 +664,7 @@ export default function Alloy() {
             <div style={{ position: "relative" }}>
               <button
                 ref={uploadButtonRef}
-                onClick={toggleUploadMenu}
+                onClick={handleAddButton}
                 onMouseEnter={() => setUploadButtonHovered(true)}
                 onMouseLeave={(e) => {
                   setUploadButtonHovered(false);
@@ -626,11 +716,11 @@ export default function Alloy() {
                 </svg>
               </button>
 
-              {/* 숨겨진 파일 입력 - 갤러리(이미지/동영상)와 일반 파일을 각각 실제로 선택할 수 있다 */}
+              {/* 숨겨진 파일 입력 - 갤러리/파일은 이미지·움짤만, 문서는 텍스트(TXT)만 받는다 */}
               <input
                 ref={galleryInputRef}
                 type="file"
-                accept="image/*,video/*"
+                accept="image/jpeg,image/png,image/gif,image/apng,.jpg,.jpeg,.png,.gif,.apng"
                 multiple
                 onChange={handleFilesPicked}
                 style={{ display: "none" }}
@@ -638,6 +728,15 @@ export default function Alloy() {
               <input
                 ref={fileInputRef}
                 type="file"
+                accept="image/jpeg,image/png,image/gif,image/apng,.jpg,.jpeg,.png,.gif,.apng"
+                multiple
+                onChange={handleFilesPicked}
+                style={{ display: "none" }}
+              />
+              <input
+                ref={docInputRef}
+                type="file"
+                accept="text/plain,.txt"
                 multiple
                 onChange={handleFilesPicked}
                 style={{ display: "none" }}
@@ -746,6 +845,34 @@ export default function Alloy() {
                     >
                       폴더
                     </button>
+                    {/* 문서는 Vault 바로 아래(currentPath.length === 1)에서만 생성 가능 */}
+                    {currentPath.length === 1 && (
+                      <button
+                        onClick={() => {
+                          closeUploadMenu();
+                          docInputRef.current && docInputRef.current.click();
+                        }}
+                        onMouseDown={pressDown("scale(0.97)")}
+                        onMouseUp={pressUp("scale(1)")}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          border: "none",
+                          background: "transparent",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 14,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                          outline: "none",
+                          textAlign: "left",
+                          transition: "background 0.2s, transform 0.15s ease",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+                      >
+                        문서
+                      </button>
+                    )}
                   </div>
                 </>,
                 document.body
@@ -861,90 +988,20 @@ export default function Alloy() {
                 >
                   ABC
                 </button>
-
-                <button
-                  onClick={() => setViewMode(viewMode === "list" ? "gallery" : "list")}
-                  onMouseDown={pressDown("scale(0.9)")}
-                  onMouseUp={pressUp("scale(1)")}
-                  aria-label="보기 방식"
-                  title="보기 방식"
-                  style={{
-                    width: 30,
-                    height: 30,
-                    borderRadius: 8,
-                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    cursor: "pointer",
-                    outline: "none",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    transition: "background 0.2s ease, transform 0.15s ease",
-                  }}
-                  onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.12)"}
-                  onMouseLeave={(e) => {
-                    e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)";
-                    e.currentTarget.style.transform = "scale(1)";
-                  }}
-                >
-                  {viewMode === "list" ? (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                      <line x1="4" y1="6" x2="20" y2="6" />
-                      <line x1="4" y1="12" x2="20" y2="12" />
-                      <line x1="4" y1="18" x2="20" y2="18" />
-                    </svg>
-                  ) : (
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                      <rect x="3" y="3" width="7" height="7" rx="1.5" />
-                      <rect x="14" y="3" width="7" height="7" rx="1.5" />
-                      <rect x="3" y="14" width="7" height="7" rx="1.5" />
-                      <rect x="14" y="14" width="7" height="7" rx="1.5" />
-                    </svg>
-                  )}
-                </button>
               </div>
             </div>
 
-            {/* 구분선 아래는 전부 드라이브 리스트 공간 - 현재 위치의 폴더와 파일을 함께 보여준다 */}
+            {/* 구분선 아래 드라이브 공간 - 홈에서는 Vault 카드, Vault/폴더 안에서는
+                폴더(행) + 문서(행) + 이미지(비율 콜라주)를 함께 보여준다. */}
             {(() => {
-              const visibleFolders = sortItems(
-                folders.filter(
-                  (f) =>
-                    f.path.length === currentPath.length + 1 &&
-                    f.path.slice(0, currentPath.length).every((p, i) => p === currentPath[i])
-                )
-              );
-              const visibleFiles = sortItems(
-                files.filter(
-                  (f) =>
-                    f.path.length === currentPath.length &&
-                    f.path.every((p, i) => p === currentPath[i])
-                )
-              );
-
-              if (visibleFolders.length === 0 && visibleFiles.length === 0) {
-                return (
-                  <div
-                    style={{
-                      padding: "48px 0",
-                      textAlign: "center",
-                      color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-                      fontSize: 13,
-                    }}
-                  >
-                    비어 있습니다
-                  </div>
-                );
-              }
-
-              // 삼점 메뉴(이름 수정/이동/삭제) - 리스트/갤러리 뷰에서 공통으로 쓰는 드롭다운.
-              // 버튼과 바깥 래퍼 양쪽에서 stopPropagation을 걸어 행 자체의 클릭(폴더 이동)이
-              // 함께 트리거되는 버그를 막고, 래퍼에 5px 안쪽 패딩(+ 상쇄용 음수 마진)을 둬서
-              // 삼점 버튼 주변 5px 이내는 항상 메뉴 토글만 반응하도록 안전 여백을 넓힌다.
+              // 삼점 메뉴(이름 수정/이동/삭제) - Vault/폴더/파일 공용. Vault 에는 '이동'이 없다.
+              // 버튼/래퍼 양쪽에서 stopPropagation 하고 5px 안전 여백을 둬서 근처를 눌러도
+              // 항목이 열리지 않고 메뉴만 토글되도록 하며, backdropFilter 컨테이닝 블록 문제를
+              // 피하기 위해 드롭다운은 document.body 로 포탈해 화면 좌표로 띄운다.
               const renderItemMenu = (type, item) => {
                 const isOpen = itemMenuOpen && itemMenuOpen.type === type && itemMenuOpen.id === item.id;
                 const isVisible = itemMenuVisibleKey === `${type}-${item.id}`;
+                const onDelete = type === "vault" ? deleteVault : type === "folder" ? deleteFolder : deleteFile;
                 return (
                   <div
                     style={{ position: "relative", margin: -5, padding: 5 }}
@@ -1042,35 +1099,37 @@ export default function Alloy() {
                           >
                             이름 수정
                           </button>
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeItemMenu();
-                              openMoveModal(type, item.id, item.name);
-                            }}
-                            style={{
-                              width: "100%",
-                              padding: "10px 12px",
-                              border: "none",
-                              background: "transparent",
-                              color: isLight ? "#14161A" : "#FFFFFF",
-                              fontSize: 14,
-                              fontWeight: 500,
-                              cursor: "pointer",
-                              outline: "none",
-                              textAlign: "left",
-                              transition: "background 0.2s",
-                            }}
-                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                          >
-                            이동
-                          </button>
+                          {type !== "vault" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeItemMenu();
+                                openMoveModal(type, item.id, item.name);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "10px 12px",
+                                border: "none",
+                                background: "transparent",
+                                color: isLight ? "#14161A" : "#FFFFFF",
+                                fontSize: 14,
+                                fontWeight: 500,
+                                cursor: "pointer",
+                                outline: "none",
+                                textAlign: "left",
+                                transition: "background 0.2s",
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                            >
+                              이동
+                            </button>
+                          )}
                           <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              (type === "folder" ? deleteFolder : deleteFile)(item.id);
+                              onDelete(item.id);
                             }}
                             style={{
                               width: "100%",
@@ -1098,28 +1157,33 @@ export default function Alloy() {
                 );
               };
 
-              if (viewMode === "gallery") {
+              // ── 홈: Vault(프로젝트) 카드 목록 (2열, 세로 여백 넉넉히) ──
+              if (currentPath.length === 0) {
+                const visibleVaults = sortItems(vaults);
+                if (visibleVaults.length === 0) {
+                  return (
+                    <div
+                      style={{
+                        padding: "56px 0",
+                        textAlign: "center",
+                        color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                        fontSize: 13,
+                        lineHeight: 1.7,
+                      }}
+                    >
+                      아직 프로젝트가 없습니다
+                      <br />
+                      우측 상단 + 버튼으로 Vault를 만들어 보세요
+                    </div>
+                  );
+                }
                 return (
-                  <div
-                    style={{
-                      display: "grid",
-                      gridTemplateColumns: "repeat(3, 1fr)",
-                      gap: 10,
-                    }}
-                  >
-                    {visibleFolders.map((folder) => (
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                    {visibleVaults.map((vault) => (
                       <div
-                        key={folder.id}
-                        data-drag-type="folder"
-                        data-drag-id={folder.id}
-                        onClick={() => {
-                          if (justDraggedRef.current) return;
-                          setCurrentPath([...currentPath, folder.name]);
-                        }}
-                        onPointerDown={rowPointerDown("folder", folder.id)}
-                        onPointerMove={rowPointerMove}
-                        onPointerUp={rowPointerUp}
-                        onMouseDown={pressDown("scale(0.96)")}
+                        key={vault.id}
+                        onClick={() => setCurrentPath([vault.name])}
+                        onMouseDown={pressDown("scale(0.97)")}
                         onMouseUp={pressUp("none")}
                         onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                         onMouseLeave={(e) => {
@@ -1130,98 +1194,53 @@ export default function Alloy() {
                           position: "relative",
                           display: "flex",
                           flexDirection: "column",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "18px 12px 10px",
-                          borderRadius: 12,
+                          padding: "30px 14px 22px",
+                          borderRadius: 14,
                           background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           backdropFilter: "blur(20px) saturate(180%)",
                           WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                          border: `1px solid ${
-                            dragOverKey === `folder-${folder.id}` || (draggingItem && draggingItem.type === "folder" && draggingItem.id === folder.id)
-                              ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
-                              : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
-                          }`,
+                          border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
                           cursor: "pointer",
                           touchAction: "manipulation",
-                          transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
+                          transition: "background 0.2s ease, transform 0.15s ease",
                         }}
                       >
-                        <div style={{ position: "absolute", top: 4, right: 4 }}>
-                          {renderItemMenu("folder", folder)}
-                        </div>
-                        <svg width="32" height="32" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
+                        {/* 중앙 정렬된 큰 폴더 아이콘 */}
+                        <svg width="48" height="48" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ alignSelf: "center", marginBottom: 16 }}>
                           <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                         </svg>
-                        <div
-                          style={{
-                            width: "100%",
-                            textAlign: "center",
-                            color: isLight ? "#14161A" : "#FFFFFF",
-                            fontSize: 12,
-                            fontWeight: 500,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {folder.name}
-                        </div>
-                      </div>
-                    ))}
 
-                    {visibleFiles.map((file) => (
-                      <div
-                        key={file.id}
-                        data-drag-type="file"
-                        data-drag-id={file.id}
-                        onPointerDown={rowPointerDown("file", file.id)}
-                        onPointerMove={rowPointerMove}
-                        onPointerUp={rowPointerUp}
-                        onMouseDown={pressDown("scale(0.96)")}
-                        onMouseUp={pressUp("none")}
-                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
-                        onMouseLeave={(e) => {
-                          e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                          e.currentTarget.style.transform = "none";
-                        }}
-                        style={{
-                          position: "relative",
-                          display: "flex",
-                          flexDirection: "column",
-                          alignItems: "center",
-                          gap: 8,
-                          padding: "18px 12px 10px",
-                          borderRadius: 12,
-                          background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
-                          backdropFilter: "blur(20px) saturate(180%)",
-                          WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                          border: `1px solid ${
-                            dragOverKey === `file-${file.id}` || (draggingItem && draggingItem.type === "file" && draggingItem.id === file.id)
-                              ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
-                              : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
-                          }`,
-                          touchAction: "manipulation",
-                          transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
-                        }}
-                      >
-                        <div style={{ position: "absolute", top: 4, right: 4 }}>
-                          {renderItemMenu("file", file)}
+                        {/* 좌측 제목 + 우측 끝 삼점 메뉴 */}
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <div
+                            style={{
+                              flex: 1,
+                              minWidth: 0,
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              fontSize: 15,
+                              fontWeight: 600,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {vault.name}
+                          </div>
+                          {renderItemMenu("vault", vault)}
                         </div>
-                        {getFileIcon(file.mimeType)}
+
+                        {/* 제목 밑 통계 문구 */}
                         <div
                           style={{
-                            width: "100%",
-                            textAlign: "center",
-                            color: isLight ? "#14161A" : "#FFFFFF",
-                            fontSize: 12,
-                            fontWeight: 500,
+                            marginTop: 4,
+                            color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                            fontSize: 11,
                             overflow: "hidden",
                             textOverflow: "ellipsis",
                             whiteSpace: "nowrap",
                           }}
                         >
-                          {file.name}
+                          {vaultStatsText(vault.name)}
                         </div>
                       </div>
                     ))}
@@ -1229,128 +1248,168 @@ export default function Alloy() {
                 );
               }
 
+              // ── Vault/폴더 안: 폴더(행) + 문서(행) + 이미지(콜라주) ──
+              const visibleFolders = sortItems(
+                folders.filter(
+                  (f) =>
+                    f.path.length === currentPath.length + 1 &&
+                    f.path.slice(0, currentPath.length).every((p, i) => p === currentPath[i])
+                )
+              );
+              const filesHere = files.filter(
+                (f) =>
+                  f.path.length === currentPath.length &&
+                  f.path.every((p, i) => p === currentPath[i])
+              );
+              const visibleDocs = sortItems(filesHere.filter((f) => f.kind === "doc"));
+              const visibleImages = sortItems(filesHere.filter((f) => f.kind === "image"));
+
+              if (visibleFolders.length === 0 && visibleDocs.length === 0 && visibleImages.length === 0) {
+                return (
+                  <div
+                    style={{
+                      padding: "48px 0",
+                      textAlign: "center",
+                      color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                      fontSize: 13,
+                    }}
+                  >
+                    비어 있습니다
+                  </div>
+                );
+              }
+
+              // 폴더/문서 공용 행 렌더러
+              const renderRow = (type, item, iconNode, subText) => (
+                <div
+                  key={`${type}-${item.id}`}
+                  data-drag-type={type === "folder" ? "folder" : "file"}
+                  data-drag-id={item.id}
+                  onClick={() => {
+                    if (justDraggedRef.current) return;
+                    if (type === "folder") setCurrentPath([...currentPath, item.name]);
+                  }}
+                  onPointerDown={rowPointerDown(type === "folder" ? "folder" : "file", item.id)}
+                  onPointerMove={rowPointerMove}
+                  onPointerUp={rowPointerUp}
+                  onMouseDown={pressDown("scale(0.98)")}
+                  onMouseUp={pressUp("none")}
+                  onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
+                    e.currentTarget.style.transform = "none";
+                  }}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 18px",
+                    marginBottom: 8,
+                    borderRadius: 10,
+                    background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    border: `1px solid ${
+                      dragOverKey === `${type === "folder" ? "folder" : "file"}-${item.id}` ||
+                      (draggingItem && draggingItem.id === item.id)
+                        ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                        : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
+                    }`,
+                    cursor: type === "folder" ? "pointer" : "default",
+                    touchAction: "manipulation",
+                    transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
+                  }}
+                >
+                  <div style={{ flexShrink: 0 }}>{iconNode}</div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {item.name}
+                    </div>
+                    {subText && (
+                      <div style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 2 }}>
+                        {subText}
+                      </div>
+                    )}
+                  </div>
+                  {renderItemMenu(type === "folder" ? "folder" : "file", item)}
+                </div>
+              );
+
               return (
                 <>
-                  {visibleFolders.map((folder) => (
-                    <div
-                      key={folder.id}
-                      data-drag-type="folder"
-                      data-drag-id={folder.id}
-                      onClick={() => {
-                        if (justDraggedRef.current) return;
-                        setCurrentPath([...currentPath, folder.name]);
-                      }}
-                      onPointerDown={rowPointerDown("folder", folder.id)}
-                      onPointerMove={rowPointerMove}
-                      onPointerUp={rowPointerUp}
-                      onMouseDown={pressDown("scale(0.98)")}
-                      onMouseUp={pressUp("none")}
-                      onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                        e.currentTarget.style.transform = "none";
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "12px 18px",
-                        marginBottom: 8,
-                        borderRadius: 10,
-                        background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
-                        backdropFilter: "blur(20px) saturate(180%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        border: `1px solid ${
-                          dragOverKey === `folder-${folder.id}` || (draggingItem && draggingItem.type === "folder" && draggingItem.id === folder.id)
-                            ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
-                            : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
-                        }`,
-                        cursor: "pointer",
-                        touchAction: "manipulation",
-                        transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
-                      }}
-                    >
-                      {/* 폴더 아이콘 */}
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ flexShrink: 0 }}>
+                  {/* 폴더 행 */}
+                  {visibleFolders.map((folder) =>
+                    renderRow(
+                      "folder",
+                      folder,
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
-                      </svg>
+                      </svg>,
+                      null
+                    )
+                  )}
 
-                      {/* 폴더 이름 */}
-                      <div
-                        style={{
-                          flex: 1,
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 14,
-                          fontWeight: 500,
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                          whiteSpace: "nowrap",
-                        }}
-                      >
-                        {folder.name}
-                      </div>
+                  {/* 문서(TXT) 행 */}
+                  {visibleDocs.map((doc) =>
+                    renderRow("file", doc, getFileIcon(doc.mimeType), formatFileSize(doc.size))
+                  )}
 
-                      {renderItemMenu("folder", folder)}
-                    </div>
-                  ))}
-
-                  {visibleFiles.map((file) => (
-                    <div
-                      key={file.id}
-                      data-drag-type="file"
-                      data-drag-id={file.id}
-                      onPointerDown={rowPointerDown("file", file.id)}
-                      onPointerMove={rowPointerMove}
-                      onPointerUp={rowPointerUp}
-                      onMouseDown={pressDown("scale(0.98)")}
-                      onMouseUp={pressUp("none")}
-                      onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
-                      onMouseLeave={(e) => {
-                        e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                        e.currentTarget.style.transform = "none";
-                      }}
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 12,
-                        padding: "12px 18px",
-                        marginBottom: 8,
-                        borderRadius: 10,
-                        background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
-                        backdropFilter: "blur(20px) saturate(180%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        border: `1px solid ${
-                          dragOverKey === `file-${file.id}` || (draggingItem && draggingItem.type === "file" && draggingItem.id === file.id)
-                            ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
-                            : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
-                        }`,
-                        touchAction: "manipulation",
-                        transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
-                      }}
-                    >
-                      <div style={{ flexShrink: 0 }}>{getFileIcon(file.mimeType)}</div>
-
-                      <div style={{ flex: 1, minWidth: 0 }}>
+                  {/* 이미지/움짤 콜라주 - 비율 유지한 2열 메이슨리 */}
+                  {visibleImages.length > 0 && (
+                    <div style={{ columnCount: 2, columnGap: 8, marginTop: visibleFolders.length || visibleDocs.length ? 8 : 0 }}>
+                      {visibleImages.map((img) => (
                         <div
+                          key={img.id}
                           style={{
-                            color: isLight ? "#14161A" : "#FFFFFF",
-                            fontSize: 14,
-                            fontWeight: 500,
+                            position: "relative",
+                            breakInside: "avoid",
+                            WebkitColumnBreakInside: "avoid",
+                            marginBottom: 8,
+                            borderRadius: 10,
                             overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
+                            border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                            background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           }}
                         >
-                          {file.name}
+                          {img.url ? (
+                            <img
+                              src={img.url}
+                              alt={img.name}
+                              style={{ width: "100%", display: "block" }}
+                            />
+                          ) : (
+                            <div style={{ padding: 24, display: "flex", justifyContent: "center" }}>
+                              {getFileIcon(img.mimeType)}
+                            </div>
+                          )}
+                          {/* 이미지 위 삼점 메뉴 (어두운 스크림 알약 위에) */}
+                          <div
+                            style={{
+                              position: "absolute",
+                              top: 4,
+                              right: 4,
+                              borderRadius: 8,
+                              background: "rgba(0,0,0,0.35)",
+                              backdropFilter: "blur(6px)",
+                              WebkitBackdropFilter: "blur(6px)",
+                              color: "#FFFFFF",
+                            }}
+                          >
+                            {renderItemMenu("file", img)}
+                          </div>
                         </div>
-                        <div style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 2 }}>
-                          {formatFileSize(file.size)}
-                        </div>
-                      </div>
-
-                      {renderItemMenu("file", file)}
+                      ))}
                     </div>
-                  ))}
+                  )}
                 </>
               );
             })()}
@@ -1443,6 +1502,136 @@ export default function Alloy() {
           </div>
         )}
       </div>
+
+      {/* Vault(프로젝트) 생성 모달 - 제목 "Vault" + 우측 X, 인풋 + 오른쪽 생성 버튼.
+          빈 배경(딤 오버레이) 클릭 시 취소된다. */}
+      {vaultModalOpen && (
+        <>
+          <div
+            onClick={closeVaultModal}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(0,0,0,0.4)",
+              zIndex: 39,
+              opacity: vaultModalVisible ? 1 : 0,
+              transition: "opacity 0.2s ease",
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: vaultModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
+              opacity: vaultModalVisible ? 1 : 0,
+              background: isLight ? "#FFFFFF" : "#1a1918",
+              borderRadius: 16,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              padding: 24,
+              width: "min(340px, 88vw)",
+              zIndex: 40,
+              boxShadow: "0 25px 50px rgba(0,0,0,0.5)",
+              transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* 제목 + 우측 끝 X 버튼 */}
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 18,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              >
+                Vault
+              </h2>
+              <button
+                onClick={closeVaultModal}
+                onMouseDown={pressDown("scale(0.85)")}
+                onMouseUp={pressUp("scale(1)")}
+                aria-label="닫기"
+                style={{
+                  width: 28,
+                  height: 28,
+                  borderRadius: 6,
+                  border: "none",
+                  background: "transparent",
+                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                  cursor: "pointer",
+                  outline: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.2s ease, transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)"}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* 인풋 + 오른쪽 생성 버튼 */}
+            <div style={{ display: "flex", gap: 10 }}>
+              <input
+                type="text"
+                value={vaultNameInput}
+                onChange={(e) => setVaultNameInput(e.target.value)}
+                placeholder="새 프로젝트 제목을 입력하세요"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") createVault();
+                  if (e.key === "Escape") closeVaultModal();
+                }}
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  padding: 12,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  borderRadius: 8,
+                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 16,
+                  outline: "none",
+                  boxSizing: "border-box",
+                  transition: "border-color 0.2s ease",
+                }}
+              />
+              <button
+                onClick={createVault}
+                onMouseDown={pressDown("scale(0.95)")}
+                onMouseUp={pressUp("scale(1)")}
+                style={{
+                  flexShrink: 0,
+                  padding: "0 16px",
+                  border: "none",
+                  borderRadius: 8,
+                  background: isLight ? "#14161A" : "#FFFFFF",
+                  color: isLight ? "#FFFFFF" : "#14161A",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+              >
+                생성
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 폴더 생성 모달 - 배경 페이드 + 카드 스케일 인/아웃 애니메이션 */}
       {folderModalOpen && (
@@ -1794,7 +1983,7 @@ export default function Alloy() {
             </div>
 
             <div style={{ flex: 1, overflowY: "auto", minHeight: 80, marginBottom: 16 }}>
-              {moveModalFolders.length === 0 ? (
+              {moveModalEntries.length === 0 ? (
                 <div
                   style={{
                     padding: "24px 0",
@@ -1803,13 +1992,13 @@ export default function Alloy() {
                     fontSize: 13,
                   }}
                 >
-                  하위 폴더가 없습니다
+                  {moveBrowsePath.length === 0 ? "Vault가 없습니다" : "하위 폴더가 없습니다"}
                 </div>
               ) : (
-                moveModalFolders.map((folder) => (
+                moveModalEntries.map((entry) => (
                   <div
-                    key={folder.id}
-                    onClick={() => setMoveBrowsePath([...moveBrowsePath, folder.name])}
+                    key={entry.id}
+                    onClick={() => setMoveBrowsePath([...moveBrowsePath, entry.name])}
                     onMouseDown={pressDown("scale(0.98)")}
                     onMouseUp={pressUp("scale(1)")}
                     onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)"}
@@ -1841,7 +2030,7 @@ export default function Alloy() {
                         whiteSpace: "nowrap",
                       }}
                     >
-                      {folder.name}
+                      {entry.name}
                     </div>
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="m9 6 6 6-6 6" />
@@ -1879,8 +2068,9 @@ export default function Alloy() {
               </button>
               <button
                 onClick={confirmMove}
-                onMouseDown={pressDown("scale(0.95)")}
-                onMouseUp={pressUp("scale(1)")}
+                disabled={!canDropHere}
+                onMouseDown={canDropHere ? pressDown("scale(0.95)") : undefined}
+                onMouseUp={canDropHere ? pressUp("scale(1)") : undefined}
                 style={{
                   flex: 1,
                   padding: 10,
@@ -1890,11 +2080,12 @@ export default function Alloy() {
                   color: isLight ? "#FFFFFF" : "#14161A",
                   fontSize: 14,
                   fontWeight: 600,
-                  cursor: "pointer",
+                  cursor: canDropHere ? "pointer" : "not-allowed",
+                  opacity: canDropHere ? 1 : 0.4,
                   outline: "none",
-                  transition: "transform 0.15s ease",
+                  transition: "transform 0.15s ease, opacity 0.2s ease",
                 }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseEnter={(e) => { if (canDropHere) e.currentTarget.style.transform = "translateY(-1px)"; }}
                 onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
               >
                 여기로 이동
