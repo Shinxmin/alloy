@@ -159,8 +159,11 @@ export default function Alloy() {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [searchOpen]);
 
+  // 경로 세그먼트 버튼 클릭 시 그 세그먼트 자신까지 포함해서 이동해야 한다.
+  // slice(0, index)로 자기 자신을 빼먹으면 A>B에서 A를 눌러도 A 화면이 아니라
+  // 그 위(Vault 홈)로 튕겨나가는 버그가 생긴다.
   const navigateToBreadcrumb = (index) => {
-    setCurrentPath(currentPath.slice(0, index));
+    setCurrentPath(currentPath.slice(0, index + 1));
   };
 
   // 업로드 메뉴 - 부드러운 페이드/슬라이드 애니메이션을 위해 마운트(open)와
@@ -550,20 +553,20 @@ export default function Alloy() {
     const color = isLight ? "#14161A" : "#FFFFFF";
     if (mimeType && mimeType.startsWith("image/")) {
       return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={color}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={color}>
           <path d="M4 5a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5zm3 10 3.2-4 2.4 3 2-2.6L18 15H7z" />
         </svg>
       );
     }
     if (mimeType && mimeType.startsWith("video/")) {
       return (
-        <svg width="20" height="20" viewBox="0 0 24 24" fill={color}>
+        <svg width="22" height="22" viewBox="0 0 24 24" fill={color}>
           <path d="M4 5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v3.5l4-2.2v11.4l-4-2.2V19a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5z" />
         </svg>
       );
     }
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
         <path d="M6 2h9l5 5v13a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" />
         <path d="M14 2v5h5" />
       </svg>
@@ -648,7 +651,7 @@ export default function Alloy() {
             <h1
               style={{
                 margin: 0,
-                fontSize: 22,
+                fontSize: 24,
                 fontWeight: 700,
                 color: isLight ? "#14161A" : "#FFFFFF",
                 letterSpacing: 0.2,
@@ -782,7 +785,7 @@ export default function Alloy() {
                         border: "none",
                         background: "transparent",
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         cursor: "pointer",
                         outline: "none",
@@ -807,7 +810,7 @@ export default function Alloy() {
                         border: "none",
                         background: "transparent",
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         cursor: "pointer",
                         outline: "none",
@@ -833,7 +836,7 @@ export default function Alloy() {
                         border: "none",
                         background: "transparent",
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         cursor: "pointer",
                         outline: "none",
@@ -860,7 +863,7 @@ export default function Alloy() {
                           border: "none",
                           background: "transparent",
                           color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: 500,
                           cursor: "pointer",
                           outline: "none",
@@ -905,7 +908,7 @@ export default function Alloy() {
                     background: "none",
                     border: "none",
                     color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 14,
+                    fontSize: 15,
                     fontWeight: 500,
                     cursor: "pointer",
                     padding: 0,
@@ -923,7 +926,7 @@ export default function Alloy() {
                 </button>
                 {currentPath.map((path, index) => (
                   <div key={index} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                    <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 14 }}>
+                    <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 15 }}>
                       &gt;
                     </span>
                     <button
@@ -934,7 +937,7 @@ export default function Alloy() {
                         background: "none",
                         border: "none",
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         cursor: "pointer",
                         padding: 0,
@@ -970,7 +973,7 @@ export default function Alloy() {
                     border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
                     background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                     color: isLight ? "#14161A" : "#FFFFFF",
-                    fontSize: 11,
+                    fontSize: 12,
                     fontWeight: 700,
                     letterSpacing: 0.2,
                     cursor: "pointer",
@@ -1019,9 +1022,9 @@ export default function Alloy() {
                       onMouseDown={pressDown("scale(0.85)")}
                       onMouseUp={pressUp("scale(1)")}
                       style={{
-                        width: 28,
-                        height: 28,
-                        borderRadius: 6,
+                        width: 30,
+                        height: 30,
+                        borderRadius: 7,
                         border: "none",
                         background: "transparent",
                         color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
@@ -1042,7 +1045,7 @@ export default function Alloy() {
                       }}
                       aria-label="옵션"
                     >
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor">
                         <circle cx="12" cy="5" r="2" />
                         <circle cx="12" cy="12" r="2" />
                         <circle cx="12" cy="19" r="2" />
@@ -1063,7 +1066,7 @@ export default function Alloy() {
                             position: "fixed",
                             top: itemMenuAnchor.top,
                             right: itemMenuAnchor.right,
-                            minWidth: 120,
+                            minWidth: 128,
                             background: isLight ? "rgba(255,255,255,0.95)" : "rgba(20,20,19,0.95)",
                             backdropFilter: "blur(20px) saturate(180%)",
                             WebkitBackdropFilter: "blur(20px) saturate(180%)",
@@ -1091,7 +1094,7 @@ export default function Alloy() {
                               border: "none",
                               background: "transparent",
                               color: isLight ? "#14161A" : "#FFFFFF",
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: 500,
                               cursor: "pointer",
                               outline: "none",
@@ -1101,8 +1104,41 @@ export default function Alloy() {
                             onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
                             onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
                           >
-                            이름 수정
+                            {type === "vault" ? "이름 바꾸기" : "이름 수정"}
                           </button>
+                          {type === "vault" && (
+                            <button
+                              onClick={(e) => {
+                                // 암호화 기능은 추후 추가 예정 - 지금은 메뉴만 노출하고 동작은 비워둔다.
+                                e.stopPropagation();
+                                closeItemMenu();
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "10px 12px",
+                                border: "none",
+                                background: "transparent",
+                                color: isLight ? "#14161A" : "#FFFFFF",
+                                fontSize: 15,
+                                fontWeight: 500,
+                                cursor: "pointer",
+                                outline: "none",
+                                textAlign: "left",
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                transition: "background 0.2s",
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                            >
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+                                <circle cx="8" cy="15" r="4.5" />
+                                <path d="M11.5 11.5 20 3M16.5 6l2 2M19 3.5l1.5 1.5" />
+                              </svg>
+                              암호화
+                            </button>
+                          )}
                           {type !== "vault" && (
                             <button
                               onClick={(e) => {
@@ -1116,7 +1152,7 @@ export default function Alloy() {
                                 border: "none",
                                 background: "transparent",
                                 color: isLight ? "#14161A" : "#FFFFFF",
-                                fontSize: 14,
+                                fontSize: 15,
                                 fontWeight: 500,
                                 cursor: "pointer",
                                 outline: "none",
@@ -1141,7 +1177,7 @@ export default function Alloy() {
                               border: "none",
                               background: "transparent",
                               color: "#EF4444",
-                              fontSize: 14,
+                              fontSize: 15,
                               fontWeight: 500,
                               cursor: "pointer",
                               outline: "none",
@@ -1171,7 +1207,7 @@ export default function Alloy() {
                         padding: "56px 0",
                         textAlign: "center",
                         color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-                        fontSize: 13,
+                        fontSize: 14,
                         lineHeight: 1.7,
                       }}
                     >
@@ -1198,9 +1234,9 @@ export default function Alloy() {
                           position: "relative",
                           display: "flex",
                           alignItems: "center",
-                          gap: 16,
-                          padding: "18px 16px",
-                          borderRadius: 14,
+                          gap: 20,
+                          padding: "48px 18px",
+                          borderRadius: 16,
                           background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           backdropFilter: "blur(20px) saturate(180%)",
                           WebkitBackdropFilter: "blur(20px) saturate(180%)",
@@ -1212,17 +1248,17 @@ export default function Alloy() {
                       >
                         {/* 좌측 중앙정렬 금고(safe) 아이콘 */}
                         <svg
-                          width="36"
-                          height="36"
+                          width="52"
+                          height="52"
                           viewBox="0 0 24 24"
                           fill="none"
                           stroke={isLight ? "#14161A" : "#FFFFFF"}
-                          strokeWidth="1.6"
+                          strokeWidth="1.5"
                           strokeLinecap="round"
                           strokeLinejoin="round"
                           style={{ flexShrink: 0 }}
                         >
-                          <rect x="3" y="3" width="18" height="18" rx="2.5" />
+                          <rect x="3" y="3" width="20" height="20" rx="2.5" />
                           <circle cx="12" cy="12" r="4.5" />
                           <circle cx="12" cy="12" r="1" fill={isLight ? "#14161A" : "#FFFFFF"} stroke="none" />
                           <path d="M12 7.5v1M12 15.5v1M7.5 12h1M15.5 12h1" />
@@ -1233,7 +1269,7 @@ export default function Alloy() {
                           <div
                             style={{
                               color: isLight ? "#14161A" : "#FFFFFF",
-                              fontSize: 15,
+                              fontSize: 17,
                               fontWeight: 700,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
@@ -1244,9 +1280,9 @@ export default function Alloy() {
                           </div>
                           <div
                             style={{
-                              marginTop: 4,
+                              marginTop: 5,
                               color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                              fontSize: 11,
+                              fontSize: 13,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
@@ -1287,7 +1323,7 @@ export default function Alloy() {
                       padding: "48px 0",
                       textAlign: "center",
                       color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-                      fontSize: 13,
+                      fontSize: 14,
                     }}
                   >
                     비어 있습니다
@@ -1341,7 +1377,7 @@ export default function Alloy() {
                     <div
                       style={{
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -1351,7 +1387,7 @@ export default function Alloy() {
                       {item.name}
                     </div>
                     {subText && (
-                      <div style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 12, marginTop: 2 }}>
+                      <div style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 13, marginTop: 2 }}>
                         {subText}
                       </div>
                     )}
@@ -1367,7 +1403,7 @@ export default function Alloy() {
                     renderRow(
                       "folder",
                       folder,
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
+                      <svg width="22" height="22" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
                         <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                       </svg>,
                       null
@@ -1465,7 +1501,7 @@ export default function Alloy() {
                   transition: "color 0.3s ease",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <circle cx="12" cy="12" r="4" />
                   <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
                 </svg>
@@ -1481,7 +1517,7 @@ export default function Alloy() {
                   transition: "color 0.3s ease",
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
                 </svg>
               </span>
@@ -1504,12 +1540,12 @@ export default function Alloy() {
                 }}
               >
                 {isLight ? (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round">
                     <circle cx="12" cy="12" r="4" />
                     <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
                   </svg>
                 ) : (
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFFFF">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="#FFFFFF">
                     <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
                   </svg>
                 )}
@@ -1560,7 +1596,7 @@ export default function Alloy() {
               <h2
                 style={{
                   margin: 0,
-                  fontSize: 18,
+                  fontSize: 19,
                   fontWeight: 700,
                   color: isLight ? "#14161A" : "#FFFFFF",
                 }}
@@ -1589,7 +1625,7 @@ export default function Alloy() {
                 onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)"}
                 onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
               >
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
                   <line x1="6" y1="6" x2="18" y2="18" />
                   <line x1="18" y1="6" x2="6" y2="18" />
                 </svg>
@@ -1616,7 +1652,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                   color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 16,
+                  fontSize: 17,
                   outline: "none",
                   boxSizing: "border-box",
                   transition: "border-color 0.2s ease",
@@ -1633,7 +1669,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "#14161A" : "#FFFFFF",
                   color: isLight ? "#FFFFFF" : "#14161A",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                   outline: "none",
@@ -1687,7 +1723,7 @@ export default function Alloy() {
             <h2
               style={{
                 margin: "0 0 16px 0",
-                fontSize: 18,
+                fontSize: 19,
                 fontWeight: 700,
                 color: isLight ? "#14161A" : "#FFFFFF",
               }}
@@ -1712,7 +1748,7 @@ export default function Alloy() {
                 borderRadius: 8,
                 background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                 color: isLight ? "#14161A" : "#FFFFFF",
-                fontSize: 14,
+                fontSize: 15,
                 outline: "none",
                 boxSizing: "border-box",
                 transition: "border-color 0.2s ease",
@@ -1730,7 +1766,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                   color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 500,
                   cursor: "pointer",
                   outline: "none",
@@ -1755,7 +1791,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "#14161A" : "#FFFFFF",
                   color: isLight ? "#FFFFFF" : "#14161A",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                   outline: "none",
@@ -1809,7 +1845,7 @@ export default function Alloy() {
             <h2
               style={{
                 margin: "0 0 16px 0",
-                fontSize: 18,
+                fontSize: 19,
                 fontWeight: 700,
                 color: isLight ? "#14161A" : "#FFFFFF",
                 overflow: "hidden",
@@ -1837,7 +1873,7 @@ export default function Alloy() {
                 borderRadius: 8,
                 background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                 color: isLight ? "#14161A" : "#FFFFFF",
-                fontSize: 14,
+                fontSize: 15,
                 outline: "none",
                 boxSizing: "border-box",
                 transition: "border-color 0.2s ease",
@@ -1855,7 +1891,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                   color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 500,
                   cursor: "pointer",
                   outline: "none",
@@ -1880,7 +1916,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "#14161A" : "#FFFFFF",
                   color: isLight ? "#FFFFFF" : "#14161A",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: "pointer",
                   outline: "none",
@@ -1938,7 +1974,7 @@ export default function Alloy() {
             <h2
               style={{
                 margin: "0 0 4px 0",
-                fontSize: 18,
+                fontSize: 19,
                 fontWeight: 700,
                 color: isLight ? "#14161A" : "#FFFFFF",
                 overflow: "hidden",
@@ -1965,7 +2001,7 @@ export default function Alloy() {
                   background: "none",
                   border: "none",
                   color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: 500,
                   cursor: "pointer",
                   padding: 0,
@@ -1977,14 +2013,14 @@ export default function Alloy() {
               </button>
               {moveBrowsePath.map((seg, index) => (
                 <div key={index} style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                  <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 13 }}>&gt;</span>
+                  <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 14 }}>&gt;</span>
                   <button
                     onClick={() => setMoveBrowsePath(moveBrowsePath.slice(0, index + 1))}
                     style={{
                       background: "none",
                       border: "none",
                       color: isLight ? "#14161A" : "#FFFFFF",
-                      fontSize: 13,
+                      fontSize: 14,
                       fontWeight: 500,
                       cursor: "pointer",
                       padding: 0,
@@ -2005,7 +2041,7 @@ export default function Alloy() {
                     padding: "24px 0",
                     textAlign: "center",
                     color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
-                    fontSize: 13,
+                    fontSize: 14,
                   }}
                 >
                   {moveBrowsePath.length === 0 ? "Vault가 없습니다" : "하위 폴더가 없습니다"}
@@ -2032,14 +2068,14 @@ export default function Alloy() {
                       transition: "background 0.2s ease, transform 0.15s ease",
                     }}
                   >
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ flexShrink: 0 }}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ flexShrink: 0 }}>
                       <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
                     </svg>
                     <div
                       style={{
                         flex: 1,
                         color: isLight ? "#14161A" : "#FFFFFF",
-                        fontSize: 14,
+                        fontSize: 15,
                         fontWeight: 500,
                         overflow: "hidden",
                         textOverflow: "ellipsis",
@@ -2048,7 +2084,7 @@ export default function Alloy() {
                     >
                       {entry.name}
                     </div>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke={isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <path d="m9 6 6 6-6 6" />
                     </svg>
                   </div>
@@ -2068,7 +2104,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
                   color: isLight ? "#14161A" : "#FFFFFF",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 500,
                   cursor: "pointer",
                   outline: "none",
@@ -2094,7 +2130,7 @@ export default function Alloy() {
                   borderRadius: 8,
                   background: isLight ? "#14161A" : "#FFFFFF",
                   color: isLight ? "#FFFFFF" : "#14161A",
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: 600,
                   cursor: canDropHere ? "pointer" : "not-allowed",
                   opacity: canDropHere ? 1 : 0.4,
@@ -2194,7 +2230,7 @@ export default function Alloy() {
                     : isHovered
                     ? (isLight ? "rgba(20,22,26,0.85)" : "rgba(255,255,255,0.85)")
                     : (isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)"),
-                  fontSize: 14,
+                  fontSize: 15,
                   fontWeight: isActive ? 600 : 500,
                   letterSpacing: 0.2,
                   cursor: "pointer",
@@ -2206,17 +2242,17 @@ export default function Alloy() {
               >
                 {i === 0 ? (
                   // 홈 탭
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 3.2 3 10.5V20a1 1 0 0 0 1 1h5.5v-6.5h5V21H19a1 1 0 0 0 1-1v-9.5L12 3.2z" />
                   </svg>
                 ) : i === 1 ? (
                   // 커뮤니티 탭
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-4.4 3.7A0.6 0.6 0 0 1 3.6 20V6a1 1 0 0 1 1-1z" />
                   </svg>
                 ) : (
                   // 설정 탭
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
                     <circle cx="12" cy="8" r="3.6" />
                     <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1z" />
                   </svg>
@@ -2264,7 +2300,7 @@ export default function Alloy() {
             transform: searchButtonHovered ? "scale(1.08)" : "scale(1)",
           }}
         >
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
@@ -2334,7 +2370,7 @@ export default function Alloy() {
                   border: "none",
                   outline: "none",
                   background: "transparent",
-                  fontSize: 16,
+                  fontSize: 17,
                   fontWeight: 500,
                   color: isLight ? "#14161A" : "#FFFFFF",
                 }}
