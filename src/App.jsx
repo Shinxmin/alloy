@@ -197,16 +197,73 @@ export default function Alloy() {
     closeFolderModal();
   };
 
-  const renameFolder = (folderId, newName) => {
-    if (newName.trim()) {
-      setFolders(folders.map(f => f.id === folderId ? { ...f, name: newName } : f));
-    }
-    closeFolderMenu();
-  };
-
   const deleteFolder = (folderId) => {
     setFolders(folders.filter(f => f.id !== folderId));
     closeFolderMenu();
+  };
+
+  // 정렬 - ㄱㄴㄷ(가나다) / 123(숫자) / ABC(알파벳) 순으로 순환하며 현재 열려있는
+  // 섹션(폴더/파일 목록)을 정렬한다.
+  const SORT_MODES = ["ko", "num", "en"];
+  const SORT_LABELS = { ko: "가나", num: "123", en: "ABC" };
+  const [sortModeIndex, setSortModeIndex] = useState(0);
+  const sortMode = SORT_MODES[sortModeIndex];
+  const cycleSortMode = () => setSortModeIndex((i) => (i + 1) % SORT_MODES.length);
+
+  const sortItems = (items) => {
+    const sorted = [...items];
+    if (sortMode === "num") {
+      sorted.sort((a, b) => {
+        const na = parseFloat(a.name);
+        const nb = parseFloat(b.name);
+        const aIsNum = !isNaN(na);
+        const bIsNum = !isNaN(nb);
+        if (aIsNum && bIsNum) return na - nb;
+        if (aIsNum) return -1;
+        if (bIsNum) return 1;
+        return a.name.localeCompare(b.name);
+      });
+    } else if (sortMode === "en") {
+      sorted.sort((a, b) => a.name.localeCompare(b.name, "en"));
+    } else {
+      sorted.sort((a, b) => a.name.localeCompare(b.name, "ko"));
+    }
+    return sorted;
+  };
+
+  // 보기 방식 - 리스트형 / 3x3 갤러리형
+  const [viewMode, setViewMode] = useState("list");
+
+  // 이름 수정 모달 - prompt() 대신 폴더 생성 모달과 동일한 애니메이션의 모달을 사용.
+  // 제목에 대상 폴더/파일의 현재 이름을 보여주고, 빈 배경을 눌러도 취소된다.
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [renameModalVisible, setRenameModalVisible] = useState(false);
+  const [renameTarget, setRenameTarget] = useState(null); // { type: 'folder' | 'file', id, name }
+  const [renameValue, setRenameValue] = useState("");
+
+  const openRenameModal = (type, id, currentName) => {
+    setRenameTarget({ type, id, name: currentName });
+    setRenameValue(currentName);
+    setRenameModalOpen(true);
+    requestAnimationFrame(() => setRenameModalVisible(true));
+  };
+  const closeRenameModal = () => {
+    setRenameModalVisible(false);
+    setTimeout(() => {
+      setRenameModalOpen(false);
+      setRenameTarget(null);
+      setRenameValue("");
+    }, 200);
+  };
+  const confirmRename = () => {
+    if (renameTarget && renameValue.trim()) {
+      if (renameTarget.type === "folder") {
+        setFolders((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: renameValue } : f)));
+      } else {
+        setFiles((prev) => prev.map((f) => (f.id === renameTarget.id ? { ...f, name: renameValue } : f)));
+      }
+    }
+    closeRenameModal();
   };
 
   // 실제 갤러리/파일 선택 다이얼로그(input[type=file])를 통해 고른 항목을
@@ -224,13 +281,6 @@ export default function Alloy() {
       setFiles((prev) => [...prev, ...newFiles]);
     }
     e.target.value = "";
-  };
-
-  const renameFile = (fileId, newName) => {
-    if (newName.trim()) {
-      setFiles((prev) => prev.map((f) => (f.id === fileId ? { ...f, name: newName } : f)));
-    }
-    closeFileMenu();
   };
 
   const deleteFile = (fileId) => {
@@ -353,12 +403,192 @@ export default function Alloy() {
               {TAB_TITLES[active]}
             </h1>
           </div>
+
+          {/* 업로드 버튼 - 홈 탭 제목 열 오른쪽에 배치, 리퀴드 글래스 원형 + 애니메이션 */}
+          {active === 0 && (
+            <div style={{ position: "relative" }}>
+              <button
+                onClick={toggleUploadMenu}
+                onMouseEnter={() => setUploadButtonHovered(true)}
+                onMouseLeave={(e) => {
+                  setUploadButtonHovered(false);
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+                onMouseDown={pressDown("scale(0.92)")}
+                onMouseUp={pressUp(uploadButtonHovered ? "scale(1.08)" : "scale(1)")}
+                onTouchStart={pressDown("scale(0.92)")}
+                onTouchEnd={pressUp("scale(1)")}
+                style={{
+                  width: 36,
+                  height: 36,
+                  borderRadius: "50%",
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  background: uploadMenuOpen || uploadButtonHovered
+                    ? (isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.14)")
+                    : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
+                  backdropFilter: "blur(20px) saturate(180%)",
+                  WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                  boxShadow: uploadButtonHovered
+                    ? "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.3)"
+                    : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  cursor: "pointer",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  outline: "none",
+                  transition: "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+                  transform: uploadButtonHovered ? "scale(1.08)" : "scale(1)",
+                }}
+                aria-label="추가하기"
+              >
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  style={{
+                    transition: "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+                    transform: uploadMenuOpen ? "rotate(45deg)" : "rotate(0deg)",
+                  }}
+                >
+                  <line x1="12" y1="5" x2="12" y2="19" />
+                  <line x1="5" y1="12" x2="19" y2="12" />
+                </svg>
+              </button>
+
+              {/* 숨겨진 파일 입력 - 갤러리(이미지/동영상)와 일반 파일을 각각 실제로 선택할 수 있다 */}
+              <input
+                ref={galleryInputRef}
+                type="file"
+                accept="image/*,video/*"
+                multiple
+                onChange={handleFilesPicked}
+                style={{ display: "none" }}
+              />
+              <input
+                ref={fileInputRef}
+                type="file"
+                multiple
+                onChange={handleFilesPicked}
+                style={{ display: "none" }}
+              />
+
+              {/* 업로드 메뉴 - 부드러운 페이드 + 슬라이드 애니메이션 */}
+              {uploadMenuOpen && (
+                <>
+                  <div onClick={closeUploadMenu} style={{ position: "fixed", inset: 0, zIndex: 19 }} />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 40,
+                      right: 0,
+                      minWidth: 140,
+                      background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                      backdropFilter: "blur(20px) saturate(180%)",
+                      WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                      borderRadius: 12,
+                      border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                      boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+                      zIndex: 20,
+                      overflow: "hidden",
+                      transformOrigin: "top right",
+                      opacity: uploadMenuVisible ? 1 : 0,
+                      transform: uploadMenuVisible ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                      transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                    }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <button
+                      onClick={() => {
+                        closeUploadMenu();
+                        galleryInputRef.current && galleryInputRef.current.click();
+                      }}
+                      onMouseDown={pressDown("scale(0.97)")}
+                      onMouseUp={pressUp("scale(1)")}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        outline: "none",
+                        textAlign: "left",
+                        transition: "background 0.2s, transform 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+                    >
+                      갤러리
+                    </button>
+                    <button
+                      onClick={() => {
+                        closeUploadMenu();
+                        fileInputRef.current && fileInputRef.current.click();
+                      }}
+                      onMouseDown={pressDown("scale(0.97)")}
+                      onMouseUp={pressUp("scale(1)")}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        outline: "none",
+                        textAlign: "left",
+                        transition: "background 0.2s, transform 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+                    >
+                      파일
+                    </button>
+                    <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
+                    <button
+                      onClick={() => {
+                        closeUploadMenu();
+                        openFolderModal();
+                      }}
+                      onMouseDown={pressDown("scale(0.97)")}
+                      onMouseUp={pressUp("scale(1)")}
+                      style={{
+                        width: "100%",
+                        padding: "10px 12px",
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        outline: "none",
+                        textAlign: "left",
+                        transition: "background 0.2s, transform 0.15s ease",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+                    >
+                      폴더
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 홈 탭 콘텐츠 */}
         {active === 0 && (
           <>
-            {/* 경로 표기 및 업로드 버튼 영역 */}
+            {/* 경로 표기 및 정렬/보기 방식 아이콘 영역 */}
             <div
               style={{
                 display: "flex",
@@ -428,196 +658,100 @@ export default function Alloy() {
                 ))}
               </div>
 
-              {/* 업로드 버튼 - 리퀴드 글래스 원형, 호버 시 확대 + 누르면 살짝 눌리는 애니메이션 */}
-              <div style={{ position: "relative" }}>
+              {/* 정렬 / 보기 방식 아이콘 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <button
-                  onClick={toggleUploadMenu}
-                  onMouseEnter={() => setUploadButtonHovered(true)}
-                  onMouseLeave={(e) => {
-                    setUploadButtonHovered(false);
-                    e.currentTarget.style.transform = "scale(1)";
-                  }}
-                  onMouseDown={pressDown("scale(0.92)")}
-                  onMouseUp={pressUp(uploadButtonHovered ? "scale(1.08)" : "scale(1)")}
-                  onTouchStart={pressDown("scale(0.92)")}
-                  onTouchEnd={pressUp("scale(1)")}
+                  onClick={cycleSortMode}
+                  onMouseDown={pressDown("scale(0.9)")}
+                  onMouseUp={pressUp("scale(1)")}
+                  aria-label="정렬"
+                  title="정렬"
                   style={{
-                    width: 36,
-                    height: 36,
-                    borderRadius: "50%",
+                    minWidth: 36,
+                    height: 30,
+                    padding: "0 8px",
+                    borderRadius: 8,
                     border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                    background: uploadMenuOpen || uploadButtonHovered
-                      ? (isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.14)")
-                      : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
-                    backdropFilter: "blur(20px) saturate(180%)",
-                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                    boxShadow: uploadButtonHovered
-                      ? "0 10px 28px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.3)"
-                      : "0 6px 20px rgba(0,0,0,0.3), inset 0 1px 0 rgba(255,255,255,0.08)",
+                    background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 11,
+                    fontWeight: 700,
+                    letterSpacing: 0.2,
+                    cursor: "pointer",
+                    outline: "none",
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    cursor: "pointer",
-                    color: isLight ? "#14161A" : "#FFFFFF",
-                    outline: "none",
-                    transition: "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
-                    transform: uploadButtonHovered ? "scale(1.08)" : "scale(1)",
+                    transition: "background 0.2s ease, transform 0.15s ease",
                   }}
-                  aria-label="추가하기"
+                  onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.12)"}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)";
+                    e.currentTarget.style.transform = "scale(1)";
+                  }}
                 >
-                  <svg
-                    width="18"
-                    height="18"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="2"
-                    strokeLinecap="round"
-                    style={{
-                      transition: "transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
-                      transform: uploadMenuOpen ? "rotate(45deg)" : "rotate(0deg)",
-                    }}
-                  >
-                    <line x1="12" y1="5" x2="12" y2="19" />
-                    <line x1="5" y1="12" x2="19" y2="12" />
-                  </svg>
+                  {SORT_LABELS[sortMode]}
                 </button>
 
-                {/* 숨겨진 파일 입력 - 갤러리(이미지/동영상)와 일반 파일을 각각 실제로 선택할 수 있다 */}
-                <input
-                  ref={galleryInputRef}
-                  type="file"
-                  accept="image/*,video/*"
-                  multiple
-                  onChange={handleFilesPicked}
-                  style={{ display: "none" }}
-                />
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  multiple
-                  onChange={handleFilesPicked}
-                  style={{ display: "none" }}
-                />
-
-                {/* 업로드 메뉴 - 부드러운 페이드 + 슬라이드 애니메이션 */}
-                {uploadMenuOpen && (
-                  <>
-                    <div onClick={closeUploadMenu} style={{ position: "fixed", inset: 0, zIndex: 19 }} />
-                    <div
-                      style={{
-                        position: "absolute",
-                        top: 40,
-                        right: 0,
-                        minWidth: 140,
-                        background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
-                        backdropFilter: "blur(20px) saturate(180%)",
-                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        borderRadius: 12,
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                        boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-                        zIndex: 20,
-                        overflow: "hidden",
-                        transformOrigin: "top right",
-                        opacity: uploadMenuVisible ? 1 : 0,
-                        transform: uploadMenuVisible ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                        transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                      }}
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() => {
-                          closeUploadMenu();
-                          galleryInputRef.current && galleryInputRef.current.click();
-                        }}
-                        onMouseDown={pressDown("scale(0.97)")}
-                        onMouseUp={pressUp("scale(1)")}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          border: "none",
-                          background: "transparent",
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 14,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          outline: "none",
-                          textAlign: "left",
-                          transition: "background 0.2s, transform 0.15s ease",
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
-                      >
-                        갤러리
-                      </button>
-                      <button
-                        onClick={() => {
-                          closeUploadMenu();
-                          fileInputRef.current && fileInputRef.current.click();
-                        }}
-                        onMouseDown={pressDown("scale(0.97)")}
-                        onMouseUp={pressUp("scale(1)")}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          border: "none",
-                          background: "transparent",
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 14,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          outline: "none",
-                          textAlign: "left",
-                          transition: "background 0.2s, transform 0.15s ease",
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
-                      >
-                        파일
-                      </button>
-                      <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
-                      <button
-                        onClick={() => {
-                          closeUploadMenu();
-                          openFolderModal();
-                        }}
-                        onMouseDown={pressDown("scale(0.97)")}
-                        onMouseUp={pressUp("scale(1)")}
-                        style={{
-                          width: "100%",
-                          padding: "10px 12px",
-                          border: "none",
-                          background: "transparent",
-                          color: isLight ? "#14161A" : "#FFFFFF",
-                          fontSize: 14,
-                          fontWeight: 500,
-                          cursor: "pointer",
-                          outline: "none",
-                          textAlign: "left",
-                          transition: "background 0.2s, transform 0.15s ease",
-                        }}
-                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                        onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
-                      >
-                        폴더
-                      </button>
-                    </div>
-                  </>
-                )}
+                <button
+                  onClick={() => setViewMode(viewMode === "list" ? "gallery" : "list")}
+                  onMouseDown={pressDown("scale(0.9)")}
+                  onMouseUp={pressUp("scale(1)")}
+                  aria-label="보기 방식"
+                  title="보기 방식"
+                  style={{
+                    width: 30,
+                    height: 30,
+                    borderRadius: 8,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    cursor: "pointer",
+                    outline: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    transition: "background 0.2s ease, transform 0.15s ease",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.12)"}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)";
+                    e.currentTarget.style.transform = "scale(1)";
+                  }}
+                >
+                  {viewMode === "list" ? (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                      <line x1="4" y1="6" x2="20" y2="6" />
+                      <line x1="4" y1="12" x2="20" y2="12" />
+                      <line x1="4" y1="18" x2="20" y2="18" />
+                    </svg>
+                  ) : (
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <rect x="3" y="3" width="7" height="7" rx="1.5" />
+                      <rect x="14" y="3" width="7" height="7" rx="1.5" />
+                      <rect x="3" y="14" width="7" height="7" rx="1.5" />
+                      <rect x="14" y="14" width="7" height="7" rx="1.5" />
+                    </svg>
+                  )}
+                </button>
               </div>
             </div>
 
             {/* 구분선 아래는 전부 드라이브 리스트 공간 - 현재 위치의 폴더와 파일을 함께 보여준다 */}
             {(() => {
-              const visibleFolders = folders.filter(
-                (f) =>
-                  f.path.length === currentPath.length + 1 &&
-                  f.path.slice(0, currentPath.length).every((p, i) => p === currentPath[i])
+              const visibleFolders = sortItems(
+                folders.filter(
+                  (f) =>
+                    f.path.length === currentPath.length + 1 &&
+                    f.path.slice(0, currentPath.length).every((p, i) => p === currentPath[i])
+                )
               );
-              const visibleFiles = files.filter(
-                (f) =>
-                  f.path.length === currentPath.length &&
-                  f.path.every((p, i) => p === currentPath[i])
+              const visibleFiles = sortItems(
+                files.filter(
+                  (f) =>
+                    f.path.length === currentPath.length &&
+                    f.path.every((p, i) => p === currentPath[i])
+                )
               );
 
               if (visibleFolders.length === 0 && visibleFiles.length === 0) {
@@ -631,6 +765,248 @@ export default function Alloy() {
                     }}
                   >
                     비어 있습니다
+                  </div>
+                );
+              }
+
+              // 삼점 메뉴(이름 수정/삭제) - 리스트/갤러리 뷰에서 공통으로 쓰는 드롭다운.
+              // 버튼과 바깥 래퍼 양쪽에서 stopPropagation을 걸어 행 자체의 클릭(폴더 이동)이
+              // 함께 트리거되는 버그를 막는다.
+              const renderItemMenu = (type, item) => {
+                const isOpen = type === "folder" ? folderMenuOpen === item.id : fileMenuOpen === item.id;
+                const isVisible = type === "folder" ? folderMenuVisibleId === item.id : fileMenuVisibleId === item.id;
+                const toggle = type === "folder" ? toggleFolderMenu : toggleFileMenu;
+                const close = type === "folder" ? closeFolderMenu : closeFileMenu;
+                const onDelete = type === "folder" ? deleteFolder : deleteFile;
+                return (
+                  <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggle(item.id);
+                      }}
+                      onMouseDown={pressDown("scale(0.85)")}
+                      onMouseUp={pressUp("scale(1)")}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                        cursor: "pointer",
+                        outline: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)";
+                        e.currentTarget.style.color = isLight ? "#14161A" : "#FFFFFF";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)";
+                      }}
+                      aria-label="옵션"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="2" />
+                        <circle cx="12" cy="12" r="2" />
+                        <circle cx="12" cy="19" r="2" />
+                      </svg>
+                    </button>
+
+                    {isOpen && (
+                      <>
+                        <div
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            close();
+                          }}
+                          style={{ position: "fixed", inset: 0, zIndex: 29 }}
+                        />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 32,
+                            right: 0,
+                            minWidth: 120,
+                            background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                            backdropFilter: "blur(20px) saturate(180%)",
+                            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                            borderRadius: 12,
+                            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                            boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+                            zIndex: 30,
+                            overflow: "hidden",
+                            transformOrigin: "top right",
+                            opacity: isVisible ? 1 : 0,
+                            transform: isVisible ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
+                            transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              close();
+                              openRenameModal(type, item.id, item.name);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "none",
+                              background: "transparent",
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              outline: "none",
+                              textAlign: "left",
+                              transition: "background 0.2s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            이름 수정
+                          </button>
+                          <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onDelete(item.id);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "none",
+                              background: "transparent",
+                              color: "#EF4444",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              outline: "none",
+                              textAlign: "left",
+                              transition: "background 0.2s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(239,68,68,0.06)" : "rgba(239,68,68,0.1)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              };
+
+              if (viewMode === "gallery") {
+                return (
+                  <div
+                    style={{
+                      display: "grid",
+                      gridTemplateColumns: "repeat(3, 1fr)",
+                      gap: 10,
+                    }}
+                  >
+                    {visibleFolders.map((folder) => (
+                      <div
+                        key={folder.id}
+                        onClick={() => setCurrentPath([...currentPath, folder.name])}
+                        onMouseDown={pressDown("scale(0.96)")}
+                        onMouseUp={pressUp("scale(1)")}
+                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
+                          e.currentTarget.style.transform = "scale(1)";
+                        }}
+                        style={{
+                          position: "relative",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "18px 8px 10px",
+                          borderRadius: 12,
+                          background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
+                          backdropFilter: "blur(20px) saturate(180%)",
+                          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                          border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                          cursor: "pointer",
+                          transition: "background 0.2s ease, transform 0.15s ease",
+                        }}
+                      >
+                        <div style={{ position: "absolute", top: 4, right: 4 }}>
+                          {renderItemMenu("folder", folder)}
+                        </div>
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
+                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                        </svg>
+                        <div
+                          style={{
+                            width: "100%",
+                            textAlign: "center",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {folder.name}
+                        </div>
+                      </div>
+                    ))}
+
+                    {visibleFiles.map((file) => (
+                      <div
+                        key={file.id}
+                        onMouseDown={pressDown("scale(0.96)")}
+                        onMouseUp={pressUp("scale(1)")}
+                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
+                          e.currentTarget.style.transform = "scale(1)";
+                        }}
+                        style={{
+                          position: "relative",
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "center",
+                          gap: 8,
+                          padding: "18px 8px 10px",
+                          borderRadius: 12,
+                          background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
+                          backdropFilter: "blur(20px) saturate(180%)",
+                          WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                          border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                          transition: "background 0.2s ease, transform 0.15s ease",
+                        }}
+                      >
+                        <div style={{ position: "absolute", top: 4, right: 4 }}>
+                          {renderItemMenu("file", file)}
+                        </div>
+                        {getFileIcon(file.mimeType)}
+                        <div
+                          style={{
+                            width: "100%",
+                            textAlign: "center",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            fontSize: 12,
+                            fontWeight: 500,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {file.name}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 );
               }
@@ -683,117 +1059,7 @@ export default function Alloy() {
                         {folder.name}
                       </div>
 
-                      {/* 삼점 메뉴 */}
-                      <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
-                        <button
-                          onClick={() => toggleFolderMenu(folder.id)}
-                          onMouseDown={pressDown("scale(0.85)")}
-                          onMouseUp={pressUp("scale(1)")}
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 6,
-                            border: "none",
-                            background: "transparent",
-                            color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                            cursor: "pointer",
-                            outline: "none",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            transition: "all 0.2s",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)";
-                            e.currentTarget.style.color = isLight ? "#14161A" : "#FFFFFF";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "transparent";
-                            e.currentTarget.style.color = isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)";
-                          }}
-                          aria-label="옵션"
-                        >
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
-                        </button>
-
-                        {/* 폴더 메뉴 */}
-                        {folderMenuOpen === folder.id && (
-                          <>
-                            <div onClick={closeFolderMenu} style={{ position: "fixed", inset: 0, zIndex: 29 }} />
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 32,
-                                right: 0,
-                                minWidth: 120,
-                                background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
-                                backdropFilter: "blur(20px) saturate(180%)",
-                                WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                                borderRadius: 12,
-                                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                                boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-                                zIndex: 30,
-                                overflow: "hidden",
-                                transformOrigin: "top right",
-                                opacity: folderMenuVisibleId === folder.id ? 1 : 0,
-                                transform: folderMenuVisibleId === folder.id ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                                transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                onClick={() => {
-                                  const newName = prompt("새 이름:", folder.name);
-                                  if (newName) renameFolder(folder.id, newName);
-                                  else closeFolderMenu();
-                                }}
-                                style={{
-                                  width: "100%",
-                                  padding: "10px 12px",
-                                  border: "none",
-                                  background: "transparent",
-                                  color: isLight ? "#14161A" : "#FFFFFF",
-                                  fontSize: 14,
-                                  fontWeight: 500,
-                                  cursor: "pointer",
-                                  outline: "none",
-                                  textAlign: "left",
-                                  transition: "background 0.2s",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                              >
-                                이름 수정
-                              </button>
-                              <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
-                              <button
-                                onClick={() => deleteFolder(folder.id)}
-                                style={{
-                                  width: "100%",
-                                  padding: "10px 12px",
-                                  border: "none",
-                                  background: "transparent",
-                                  color: "#EF4444",
-                                  fontSize: 14,
-                                  fontWeight: 500,
-                                  cursor: "pointer",
-                                  outline: "none",
-                                  textAlign: "left",
-                                  transition: "background 0.2s",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(239,68,68,0.06)" : "rgba(239,68,68,0.1)"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      {renderItemMenu("folder", folder)}
                     </div>
                   ))}
 
@@ -841,116 +1107,7 @@ export default function Alloy() {
                         </div>
                       </div>
 
-                      {/* 삼점 메뉴 */}
-                      <div style={{ position: "relative" }}>
-                        <button
-                          onClick={() => toggleFileMenu(file.id)}
-                          onMouseDown={pressDown("scale(0.85)")}
-                          onMouseUp={pressUp("scale(1)")}
-                          style={{
-                            width: 28,
-                            height: 28,
-                            borderRadius: 6,
-                            border: "none",
-                            background: "transparent",
-                            color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                            cursor: "pointer",
-                            outline: "none",
-                            display: "flex",
-                            alignItems: "center",
-                            justifyContent: "center",
-                            transition: "all 0.2s",
-                          }}
-                          onMouseEnter={(e) => {
-                            e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)";
-                            e.currentTarget.style.color = isLight ? "#14161A" : "#FFFFFF";
-                          }}
-                          onMouseLeave={(e) => {
-                            e.currentTarget.style.background = "transparent";
-                            e.currentTarget.style.color = isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)";
-                          }}
-                          aria-label="옵션"
-                        >
-                          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                            <circle cx="12" cy="5" r="2" />
-                            <circle cx="12" cy="12" r="2" />
-                            <circle cx="12" cy="19" r="2" />
-                          </svg>
-                        </button>
-
-                        {fileMenuOpen === file.id && (
-                          <>
-                            <div onClick={closeFileMenu} style={{ position: "fixed", inset: 0, zIndex: 29 }} />
-                            <div
-                              style={{
-                                position: "absolute",
-                                top: 32,
-                                right: 0,
-                                minWidth: 120,
-                                background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
-                                backdropFilter: "blur(20px) saturate(180%)",
-                                WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                                borderRadius: 12,
-                                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
-                                boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
-                                zIndex: 30,
-                                overflow: "hidden",
-                                transformOrigin: "top right",
-                                opacity: fileMenuVisibleId === file.id ? 1 : 0,
-                                transform: fileMenuVisibleId === file.id ? "scale(1) translateY(0)" : "scale(0.92) translateY(-6px)",
-                                transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
-                              }}
-                              onClick={(e) => e.stopPropagation()}
-                            >
-                              <button
-                                onClick={() => {
-                                  const newName = prompt("새 이름:", file.name);
-                                  if (newName) renameFile(file.id, newName);
-                                  else closeFileMenu();
-                                }}
-                                style={{
-                                  width: "100%",
-                                  padding: "10px 12px",
-                                  border: "none",
-                                  background: "transparent",
-                                  color: isLight ? "#14161A" : "#FFFFFF",
-                                  fontSize: 14,
-                                  fontWeight: 500,
-                                  cursor: "pointer",
-                                  outline: "none",
-                                  textAlign: "left",
-                                  transition: "background 0.2s",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                              >
-                                이름 수정
-                              </button>
-                              <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
-                              <button
-                                onClick={() => deleteFile(file.id)}
-                                style={{
-                                  width: "100%",
-                                  padding: "10px 12px",
-                                  border: "none",
-                                  background: "transparent",
-                                  color: "#EF4444",
-                                  fontSize: 14,
-                                  fontWeight: 500,
-                                  cursor: "pointer",
-                                  outline: "none",
-                                  textAlign: "left",
-                                  transition: "background 0.2s",
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(239,68,68,0.06)" : "rgba(239,68,68,0.1)"}
-                                onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
-                              >
-                                삭제
-                              </button>
-                            </div>
-                          </>
-                        )}
-                      </div>
+                      {renderItemMenu("file", file)}
                     </div>
                   ))}
                 </>
@@ -1054,6 +1211,128 @@ export default function Alloy() {
               </button>
               <button
                 onClick={createFolder}
+                onMouseDown={pressDown("scale(0.95)")}
+                onMouseUp={pressUp("scale(1)")}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: "none",
+                  borderRadius: 8,
+                  background: isLight ? "#14161A" : "#FFFFFF",
+                  color: isLight ? "#FFFFFF" : "#14161A",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 이름 수정 모달 - 폴더 생성 모달과 동일한 페이드+스케일 애니메이션, 빈 배경 클릭 시 취소 */}
+      {renameModalOpen && (
+        <>
+          <div
+            onClick={closeRenameModal}
+            style={{
+              position: "fixed",
+              inset: 0,
+              background: "rgba(0,0,0,0.4)",
+              zIndex: 39,
+              opacity: renameModalVisible ? 1 : 0,
+              transition: "opacity 0.2s ease",
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: renameModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
+              opacity: renameModalVisible ? 1 : 0,
+              background: isLight ? "#F4F3EE" : "#1a1918",
+              borderRadius: 16,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              padding: 24,
+              minWidth: 280,
+              zIndex: 40,
+              boxShadow: "0 25px 50px rgba(0,0,0,0.5)",
+              transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: 18,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {renameTarget ? renameTarget.name : ""}
+            </h2>
+            <input
+              type="text"
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              placeholder="이름"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmRename();
+                if (e.key === "Escape") closeRenameModal();
+              }}
+              style={{
+                width: "100%",
+                padding: 12,
+                marginBottom: 20,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                borderRadius: 8,
+                background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                color: isLight ? "#14161A" : "#FFFFFF",
+                fontSize: 14,
+                outline: "none",
+                boxSizing: "border-box",
+                transition: "border-color 0.2s ease",
+              }}
+            />
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={closeRenameModal}
+                onMouseDown={pressDown("scale(0.95)")}
+                onMouseUp={pressUp("scale(1)")}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  borderRadius: 8,
+                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "background 0.2s ease, transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.1)"}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                취소
+              </button>
+              <button
+                onClick={confirmRename}
                 onMouseDown={pressDown("scale(0.95)")}
                 onMouseUp={pressUp("scale(1)")}
                 style={{
