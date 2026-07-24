@@ -211,7 +211,8 @@ export default function Alloy() {
   };
   const createVault = () => {
     if (vaultNameInput.trim()) {
-      setVaults((prev) => [...prev, { id: Date.now(), name: vaultNameInput.trim() }]);
+      const now = Date.now();
+      setVaults((prev) => [...prev, { id: now, name: vaultNameInput.trim(), createdAt: now, updatedAt: now }]);
     }
     closeVaultModal();
   };
@@ -404,7 +405,7 @@ export default function Alloy() {
       if (renameTarget.type === "vault") {
         const vault = vaults.find((v) => v.id === renameTarget.id);
         const oldName = vault ? vault.name : null;
-        setVaults((prev) => prev.map((v) => (v.id === renameTarget.id ? { ...v, name: newName } : v)));
+        setVaults((prev) => prev.map((v) => (v.id === renameTarget.id ? { ...v, name: newName, updatedAt: Date.now() } : v)));
         // Vault 이름이 바뀌면 그 하위 폴더/파일들의 path[0]도 함께 갱신한다.
         if (oldName && oldName !== newName) {
           setFolders((prev) => prev.map((f) => (f.path[0] === oldName ? { ...f, path: [newName, ...f.path.slice(1)] } : f)));
@@ -548,6 +549,30 @@ export default function Alloy() {
     const totalBytes = vaultFiles.reduce((s, f) => s + (f.size || 0), 0);
     return `${folderCount}개 폴더, ${imageCount}개 이미지 (${formatFileSize(totalBytes)})`;
   };
+  const vaultTotalBytes = (vaultName) =>
+    files.filter((f) => f.path[0] === vaultName).reduce((s, f) => s + (f.size || 0), 0);
+
+  const formatDate = (ts) =>
+    ts ? new Date(ts).toLocaleDateString("ko-KR", { year: "numeric", month: "2-digit", day: "2-digit" }) : "-";
+
+  // Vault 정보 모달 - 삼점 메뉴의 "정보"를 누르면 대형 모달로 생성/수정 일자와 크기를 보여준다.
+  const [vaultInfoModalOpen, setVaultInfoModalOpen] = useState(false);
+  const [vaultInfoModalVisible, setVaultInfoModalVisible] = useState(false);
+  const [vaultInfoTargetId, setVaultInfoTargetId] = useState(null);
+
+  const openVaultInfoModal = (vaultId) => {
+    setVaultInfoTargetId(vaultId);
+    setVaultInfoModalOpen(true);
+    requestAnimationFrame(() => setVaultInfoModalVisible(true));
+  };
+  const closeVaultInfoModal = () => {
+    setVaultInfoModalVisible(false);
+    setTimeout(() => {
+      setVaultInfoModalOpen(false);
+      setVaultInfoTargetId(null);
+    }, 200);
+  };
+  const vaultInfoTarget = vaultInfoTargetId ? vaults.find((v) => v.id === vaultInfoTargetId) : null;
 
   const getFileIcon = (mimeType) => {
     const color = isLight ? "#14161A" : "#FFFFFF";
@@ -1106,6 +1131,32 @@ export default function Alloy() {
                           >
                             {type === "vault" ? "이름 바꾸기" : "이름 수정"}
                           </button>
+                          {type === "vault" && (
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                closeItemMenu();
+                                openVaultInfoModal(item.id);
+                              }}
+                              style={{
+                                width: "100%",
+                                padding: "10px 12px",
+                                border: "none",
+                                background: "transparent",
+                                color: isLight ? "#14161A" : "#FFFFFF",
+                                fontSize: 15,
+                                fontWeight: 500,
+                                cursor: "pointer",
+                                outline: "none",
+                                textAlign: "left",
+                                transition: "background 0.2s",
+                              }}
+                              onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                              onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                            >
+                              정보
+                            </button>
+                          )}
                           {type === "vault" && (
                             <button
                               onClick={(e) => {
@@ -1680,6 +1731,107 @@ export default function Alloy() {
               >
                 생성
               </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Vault 정보 모달 - 다른 모달보다 큼직한 대형 모달. 제목 밑에 생성/수정 일자와 크기를 보여준다. */}
+      {vaultInfoModalOpen && (
+        <>
+          <div
+            onClick={closeVaultInfoModal}
+            style={{
+              position: "fixed",
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              background: "rgba(0,0,0,0.45)",
+              zIndex: 39,
+              opacity: vaultInfoModalVisible ? 1 : 0,
+              transition: "opacity 0.2s ease",
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: vaultInfoModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
+              opacity: vaultInfoModalVisible ? 1 : 0,
+              background: isLight ? "#FFFFFF" : "#1a1918",
+              borderRadius: 20,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              padding: "32px 28px",
+              width: "min(400px, 90vw)",
+              zIndex: 40,
+              boxShadow: "0 30px 60px rgba(0,0,0,0.55)",
+              transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", marginBottom: 24 }}>
+              {/* 프로젝트 제목 */}
+              <h2
+                style={{
+                  margin: 0,
+                  fontSize: 20,
+                  fontWeight: 700,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  overflow: "hidden",
+                  textOverflow: "ellipsis",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {vaultInfoTarget ? vaultInfoTarget.name : ""}
+              </h2>
+              <button
+                onClick={closeVaultInfoModal}
+                onMouseDown={pressDown("scale(0.85)")}
+                onMouseUp={pressUp("scale(1)")}
+                aria-label="닫기"
+                style={{
+                  flexShrink: 0,
+                  width: 30,
+                  height: 30,
+                  borderRadius: 7,
+                  border: "none",
+                  background: "transparent",
+                  color: isLight ? "rgba(20,22,26,0.55)" : "rgba(255,255,255,0.55)",
+                  cursor: "pointer",
+                  outline: "none",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "background 0.2s ease, transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)"}
+                onMouseLeave={(e) => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.transform = "scale(1)"; }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <line x1="6" y1="6" x2="18" y2="18" />
+                  <line x1="18" y1="6" x2="6" y2="18" />
+                </svg>
+              </button>
+            </div>
+
+            {/* 생성 일자 / 수정 일자 / 크기 */}
+            <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              {[
+                { label: "생성 일자", value: vaultInfoTarget ? formatDate(vaultInfoTarget.createdAt) : "-" },
+                { label: "수정 일자", value: vaultInfoTarget ? formatDate(vaultInfoTarget.updatedAt) : "-" },
+                { label: "크기", value: vaultInfoTarget ? formatFileSize(vaultTotalBytes(vaultInfoTarget.name)) : "-" },
+              ].map((row) => (
+                <div key={row.label} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                  <span style={{ color: isLight ? "rgba(20,22,26,0.5)" : "rgba(255,255,255,0.5)", fontSize: 15 }}>
+                    {row.label}
+                  </span>
+                  <span style={{ color: isLight ? "#14161A" : "#FFFFFF", fontSize: 15, fontWeight: 600 }}>
+                    {row.value}
+                  </span>
+                </div>
+              ))}
             </div>
           </div>
         </>
