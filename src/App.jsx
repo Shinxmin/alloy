@@ -1004,8 +1004,12 @@ export default function Alloy() {
                 const onDelete = type === "vault" ? deleteVault : type === "folder" ? deleteFolder : deleteFile;
                 return (
                   <div
-                    style={{ position: "relative", margin: -5, padding: 5 }}
+                    style={{ position: "relative", margin: -5, padding: 5, flexShrink: 0 }}
                     onClick={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onMouseUp={(e) => e.stopPropagation()}
+                    onTouchStart={(e) => e.stopPropagation()}
+                    onTouchEnd={(e) => e.stopPropagation()}
                   >
                     <button
                       onClick={(e) => {
@@ -1178,12 +1182,12 @@ export default function Alloy() {
                   );
                 }
                 return (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 12 }}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {visibleVaults.map((vault) => (
                       <div
                         key={vault.id}
                         onClick={() => setCurrentPath([vault.name])}
-                        onMouseDown={pressDown("scale(0.97)")}
+                        onMouseDown={pressDown("scale(0.98)")}
                         onMouseUp={pressUp("none")}
                         onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                         onMouseLeave={(e) => {
@@ -1193,8 +1197,9 @@ export default function Alloy() {
                         style={{
                           position: "relative",
                           display: "flex",
-                          flexDirection: "column",
-                          padding: "30px 14px 22px",
+                          alignItems: "center",
+                          gap: 16,
+                          padding: "18px 16px",
                           borderRadius: 14,
                           background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           backdropFilter: "blur(20px) saturate(180%)",
@@ -1205,20 +1210,31 @@ export default function Alloy() {
                           transition: "background 0.2s ease, transform 0.15s ease",
                         }}
                       >
-                        {/* 중앙 정렬된 큰 폴더 아이콘 */}
-                        <svg width="48" height="48" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ alignSelf: "center", marginBottom: 16 }}>
-                          <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                        {/* 좌측 중앙정렬 금고(safe) 아이콘 */}
+                        <svg
+                          width="36"
+                          height="36"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke={isLight ? "#14161A" : "#FFFFFF"}
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          style={{ flexShrink: 0 }}
+                        >
+                          <rect x="3" y="3" width="18" height="18" rx="2.5" />
+                          <circle cx="12" cy="12" r="4.5" />
+                          <circle cx="12" cy="12" r="1" fill={isLight ? "#14161A" : "#FFFFFF"} stroke="none" />
+                          <path d="M12 7.5v1M12 15.5v1M7.5 12h1M15.5 12h1" />
                         </svg>
 
-                        {/* 좌측 제목 + 우측 끝 삼점 메뉴 */}
-                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                        {/* 중앙: 제목(볼드) + 밑에 통계 */}
+                        <div style={{ flex: 1, minWidth: 0 }}>
                           <div
                             style={{
-                              flex: 1,
-                              minWidth: 0,
                               color: isLight ? "#14161A" : "#FFFFFF",
                               fontSize: 15,
-                              fontWeight: 600,
+                              fontWeight: 700,
                               overflow: "hidden",
                               textOverflow: "ellipsis",
                               whiteSpace: "nowrap",
@@ -1226,22 +1242,22 @@ export default function Alloy() {
                           >
                             {vault.name}
                           </div>
-                          {renderItemMenu("vault", vault)}
+                          <div
+                            style={{
+                              marginTop: 4,
+                              color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                              fontSize: 11,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}
+                          >
+                            {vaultStatsText(vault.name)}
+                          </div>
                         </div>
 
-                        {/* 제목 밑 통계 문구 */}
-                        <div
-                          style={{
-                            marginTop: 4,
-                            color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
-                            fontSize: 11,
-                            overflow: "hidden",
-                            textOverflow: "ellipsis",
-                            whiteSpace: "nowrap",
-                          }}
-                        >
-                          {vaultStatsText(vault.name)}
-                        </div>
+                        {/* 우측 중앙정렬 삼점 메뉴 */}
+                        {renderItemMenu("vault", vault)}
                       </div>
                     ))}
                   </div>
