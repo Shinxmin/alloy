@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect } from "react";
 
 // 앱 버전 표기
-const APP_VERSION = "0.2.1";
+const APP_VERSION = "0.2.2";
 
 export default function Alloy() {
   const tabs = ["A", "B", "C"];
@@ -73,9 +73,40 @@ export default function Alloy() {
 
   const BAR_HEIGHT = 58;
 
-  // 하단 바의 검색 바 - Cloudflare R2 연동 전이라 아직 실제 검색은 수행하지 않고 입력값만 들고 있는다.
+  // 하단 바의 원형 검색 버튼 - 누르면 탭바 위에 같은 디자인의 검색창 패널이 열린다.
+  // Cloudflare R2 연동 전이라 아직 실제 검색은 수행하지 않고 입력값만 로컬 상태로 들고 있는다.
   const [searchQuery, setSearchQuery] = useState("");
-  const [searchFocused, setSearchFocused] = useState(false);
+  const [searchButtonHovered, setSearchButtonHovered] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchVisible, setSearchVisible] = useState(false);
+  const searchInputRef = useRef(null);
+
+  const toggleSearch = () => {
+    if (searchOpen) {
+      if (document.activeElement && document.activeElement.blur) {
+        document.activeElement.blur();
+      }
+      setSearchVisible(false);
+      setTimeout(() => setSearchOpen(false), 300);
+    } else {
+      setSearchOpen(true);
+      requestAnimationFrame(() => {
+        setSearchVisible(true);
+        searchInputRef.current && searchInputRef.current.focus();
+      });
+    }
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape" && searchOpen) {
+        e.preventDefault();
+        toggleSearch();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [searchOpen]);
 
   // 상단 헤더(제목) 스티키 공통 스타일: 스크롤해도 화면 최상단에 계속 고정되어 보이고,
   // 탭 콘텐츠의 좌우 패딩을 상쇄하는 음수 마진으로 배경을 화면 끝까지 채운다.
@@ -160,8 +191,8 @@ export default function Alloy() {
         style={{
           position: "fixed",
           bottom: 24,
-          left: 20,
-          right: 20,
+          left: "50%",
+          transform: "translateX(-50%)",
           display: "flex",
           alignItems: "center",
           gap: 14,
@@ -215,9 +246,9 @@ export default function Alloy() {
                 style={{
                   position: "relative",
                   zIndex: 1,
-                  minWidth: 52,
+                  minWidth: 76,
                   height: BAR_HEIGHT - 16,
-                  padding: "0 17px",
+                  padding: "0 28px",
                   display: "flex",
                   alignItems: "center",
                   justifyContent: "center",
@@ -246,10 +277,16 @@ export default function Alloy() {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 3.2 3 10.5V20a1 1 0 0 0 1 1h5.5v-6.5h5V21H19a1 1 0 0 0 1-1v-9.5L12 3.2z" />
                   </svg>
+                ) : i === 1 ? (
+                  // 커뮤니티 탭
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M4 4h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H9l-4.4 3.7A0.6 0.6 0 0 1 3.6 20V6a1 1 0 0 1 1-1z" />
+                  </svg>
                 ) : (
-                  // 아직 기능이 없는 나머지 탭 - 빈 원형 아이콘으로 자리만 채워둔다
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
-                    <circle cx="12" cy="12" r="7.5" />
+                  // 설정 탭
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                    <circle cx="12" cy="8" r="3.6" />
+                    <path d="M4.5 20c0-3.6 3.4-6 7.5-6s7.5 2.4 7.5 6a1 1 0 0 1-1 1H5.5a1 1 0 0 1-1-1z" />
                   </svg>
                 )}
               </button>
@@ -257,67 +294,116 @@ export default function Alloy() {
           })}
         </div>
 
-        {/* 검색 바 (리퀴드 글래스, 탭바와 동일한 높이) - 클라우드플레어 R2 연동 전이라 아직 실제 검색은
-            수행하지 않고 입력값만 로컬 상태로 들고 있는다. */}
-        <div
+        {/* 검색 버튼 (리퀴드 글래스, 탭바와 동일한 높이의 원형) - 누르면 탭바 위에 검색창 패널이 열린다 */}
+        <button
+          onClick={toggleSearch}
+          onMouseEnter={() => setSearchButtonHovered(true)}
+          onMouseLeave={() => setSearchButtonHovered(false)}
+          aria-label="검색창 열기"
           style={{
-            position: "relative",
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
+            width: BAR_HEIGHT,
             height: BAR_HEIGHT,
-            flex: 1,
-            minWidth: 0,
-            boxSizing: "border-box",
-            padding: "0 16px",
-            borderRadius: 999,
-            background: isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)",
+            flexShrink: 0,
+            borderRadius: "50%",
+            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+            background: searchButtonHovered
+              ? (isLight ? "rgba(255,255,255,0.85)" : "rgba(255,255,255,0.14)")
+              : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
             backdropFilter: "blur(20px) saturate(180%)",
             WebkitBackdropFilter: "blur(20px) saturate(180%)",
-            border: `1px solid ${
-              searchFocused
-                ? (isLight ? "rgba(20,22,26,0.28)" : "rgba(255,255,255,0.28)")
-                : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
-            }`,
-            boxShadow: "0 8px 32px rgba(0, 0, 0, 0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
-            transition: "border 0.2s ease",
+            boxShadow: searchButtonHovered
+              ? "0 10px 36px rgba(0,0,0,0.4), inset 0 1px 0 rgba(255,255,255,0.3)"
+              : "0 8px 32px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.08)",
+            color: isLight ? "#14161A" : "#FFFFFF",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            outline: "none",
+            transition:
+              "background 0.3s ease, box-shadow 0.3s ease, transform 0.25s cubic-bezier(0.22, 1, 0.36, 1)",
+            transform: searchButtonHovered ? "scale(1.08)" : "scale(1)",
           }}
         >
-          <svg
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", flexShrink: 0 }}
-          >
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" />
             <path d="m21 21-4.3-4.3" />
           </svg>
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            onFocus={() => setSearchFocused(true)}
-            onBlur={() => setSearchFocused(false)}
-            placeholder="검색"
-            aria-label="검색"
-            style={{
-              flex: 1,
-              minWidth: 0,
-              border: "none",
-              outline: "none",
-              background: "transparent",
-              fontSize: 14,
-              fontWeight: 500,
-              color: isLight ? "#14161A" : "#FFFFFF",
-            }}
-          />
-        </div>
+        </button>
       </div>
+
+      {/* 검색창 패널 (리퀴드 글래스) - 탭바와 동일한 디자인 위에 검색 플레이스홀더 입력창 하나만 있다.
+          입력창 폰트 크기를 16px 이상으로 둬야 iOS 사파리가 포커스 시 화면을 자동 확대하지 않는다. */}
+      {searchOpen && (
+        <>
+          <div onClick={toggleSearch} style={{ position: "fixed", inset: 0, zIndex: 9 }} />
+          <div
+            style={{
+              position: "fixed",
+              bottom: 24 + BAR_HEIGHT + 14,
+              left: "50%",
+              zIndex: 10,
+              width: "min(360px, 88vw)",
+              opacity: searchVisible ? 1 : 0,
+              transform: searchVisible
+                ? "translate(-50%, 0)"
+                : "translate(-50%, 16px)",
+              transition:
+                "opacity 0.3s cubic-bezier(0.22, 1, 0.36, 1), transform 0.3s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+            <div
+              onClick={(e) => e.stopPropagation()}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                padding: 12,
+                borderRadius: 26,
+                background: isLight ? "rgba(255,255,255,0.75)" : "rgba(255,255,255,0.08)",
+                backdropFilter: "blur(28px) saturate(180%)",
+                WebkitBackdropFilter: "blur(28px) saturate(180%)",
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                boxShadow:
+                  "0 20px 60px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255,255,255,0.12)",
+              }}
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", flexShrink: 0, marginLeft: 4 }}
+              >
+                <circle cx="11" cy="11" r="7" />
+                <path d="m21 21-4.3-4.3" />
+              </svg>
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="검색"
+                aria-label="검색"
+                style={{
+                  flex: 1,
+                  minWidth: 0,
+                  border: "none",
+                  outline: "none",
+                  background: "transparent",
+                  fontSize: 16,
+                  fontWeight: 500,
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                }}
+              />
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }
