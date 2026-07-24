@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 
 // 앱 버전 표기
 const APP_VERSION = "0.2.2";
@@ -37,13 +38,15 @@ export default function Alloy() {
 
   const [theme, setTheme] = useState("dark"); // "dark" | "light" | "sunset" | "forest"
   const THEME_SWATCHES = {
-    light: "#F4F3EE",
+    light: "#FFFFFF",
     dark: "#141413",
     sunset: "radial-gradient(circle at 50% 50%, #47301e 0%, #2a1f1a 55%, #17191D 95%)",
     forest: "radial-gradient(circle at 50% 50%, #1f3d28 0%, #1a2a20 55%, #17191D 95%)",
   };
   const [themeLoaded, setThemeLoaded] = useState(false);
   const isLight = theme === "light";
+  // 설정 탭의 라이트/다크 스위치 - sunset/forest 테마는 그대로 두고 light<->dark만 오간다.
+  const toggleLightDark = () => setTheme(isLight ? "dark" : "light");
 
   useEffect(() => {
     try {
@@ -88,13 +91,20 @@ export default function Alloy() {
   const [uploadButtonHovered, setUploadButtonHovered] = useState(false);
   const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
   const [uploadMenuVisible, setUploadMenuVisible] = useState(false);
+  // 업로드 메뉴 드롭다운 위치 - backdropFilter가 걸린 상단 헤더 안에 있으면 position:fixed
+  // 오버레이가 뷰포트가 아닌 헤더를 기준으로 잡히므로(모든 filter/backdrop-filter/transform
+  // 속성은 fixed 자손의 컨테이닝 블록을 새로 만든다), 드롭다운을 document.body로 포탈하고
+  // 버튼의 화면 좌표를 직접 계산해 고정 위치로 띄운다.
+  const uploadButtonRef = useRef(null);
+  const [uploadMenuAnchor, setUploadMenuAnchor] = useState({ top: 0, right: 0 });
   const [folderModalOpen, setFolderModalOpen] = useState(false);
   const [folderModalVisible, setFolderModalVisible] = useState(false);
   const [folderName, setFolderName] = useState("");
-  const [folderMenuOpen, setFolderMenuOpen] = useState(null);
-  const [folderMenuVisibleId, setFolderMenuVisibleId] = useState(null);
-  const [fileMenuOpen, setFileMenuOpen] = useState(null);
-  const [fileMenuVisibleId, setFileMenuVisibleId] = useState(null);
+  // 폴더/파일 삼점 메뉴 - 리스트/갤러리 통틀어 한 번에 하나만 열리도록 단일 상태로 관리한다.
+  // 이 메뉴 역시 backdropFilter가 걸린 행(row) 안에 있으므로 위와 같은 이유로 포탈 + 고정 좌표를 쓴다.
+  const [itemMenuOpen, setItemMenuOpen] = useState(null); // { type: 'folder' | 'file', id }
+  const [itemMenuVisibleKey, setItemMenuVisibleKey] = useState(null);
+  const [itemMenuAnchor, setItemMenuAnchor] = useState({ top: 0, right: 0 });
   const galleryInputRef = useRef(null);
   const fileInputRef = useRef(null);
 
@@ -135,6 +145,10 @@ export default function Alloy() {
   // 업로드 메뉴 - 부드러운 페이드/슬라이드 애니메이션을 위해 마운트(open)와
   // 실제 트랜지션 시작(visible)을 한 프레임 지연시켜 분리한다.
   const openUploadMenu = () => {
+    if (uploadButtonRef.current) {
+      const rect = uploadButtonRef.current.getBoundingClientRect();
+      setUploadMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
     setUploadMenuOpen(true);
     requestAnimationFrame(() => setUploadMenuVisible(true));
   };
@@ -159,30 +173,21 @@ export default function Alloy() {
     }, 200);
   };
 
-  const openFolderMenu = (id) => {
-    setFolderMenuOpen(id);
-    requestAnimationFrame(() => setFolderMenuVisibleId(id));
+  const openItemMenu = (type, id, anchorEl) => {
+    if (anchorEl) {
+      const rect = anchorEl.getBoundingClientRect();
+      setItemMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+    }
+    setItemMenuOpen({ type, id });
+    requestAnimationFrame(() => setItemMenuVisibleKey(`${type}-${id}`));
   };
-  const closeFolderMenu = () => {
-    setFolderMenuVisibleId(null);
-    setTimeout(() => setFolderMenuOpen(null), 200);
+  const closeItemMenu = () => {
+    setItemMenuVisibleKey(null);
+    setTimeout(() => setItemMenuOpen(null), 200);
   };
-  const toggleFolderMenu = (id) => {
-    if (folderMenuOpen === id) closeFolderMenu();
-    else openFolderMenu(id);
-  };
-
-  const openFileMenu = (id) => {
-    setFileMenuOpen(id);
-    requestAnimationFrame(() => setFileMenuVisibleId(id));
-  };
-  const closeFileMenu = () => {
-    setFileMenuVisibleId(null);
-    setTimeout(() => setFileMenuOpen(null), 200);
-  };
-  const toggleFileMenu = (id) => {
-    if (fileMenuOpen === id) closeFileMenu();
-    else openFileMenu(id);
+  const toggleItemMenu = (type, id, anchorEl) => {
+    if (itemMenuOpen && itemMenuOpen.type === type && itemMenuOpen.id === id) closeItemMenu();
+    else openItemMenu(type, id, anchorEl);
   };
 
   const createFolder = () => {
@@ -199,18 +204,22 @@ export default function Alloy() {
 
   const deleteFolder = (folderId) => {
     setFolders(folders.filter(f => f.id !== folderId));
-    closeFolderMenu();
+    closeItemMenu();
   };
 
-  // 정렬 - ㄱㄴㄷ(가나다) / 123(숫자) / ABC(알파벳) 순으로 순환하며 현재 열려있는
-  // 섹션(폴더/파일 목록)을 정렬한다.
+  // 정렬 - 단일 "ABC" 버튼 하나로 가나다순 -> 숫자순 -> 알파벳순을 순환한다.
+  // 사용자 지정(꾹 눌러서 드래그) 정렬을 사용하면 배열 자체의 순서를 그대로 쓴다.
   const SORT_MODES = ["ko", "num", "en"];
-  const SORT_LABELS = { ko: "가나", num: "123", en: "ABC" };
   const [sortModeIndex, setSortModeIndex] = useState(0);
-  const sortMode = SORT_MODES[sortModeIndex];
-  const cycleSortMode = () => setSortModeIndex((i) => (i + 1) % SORT_MODES.length);
+  const [customOrderActive, setCustomOrderActive] = useState(false);
+  const sortMode = customOrderActive ? "custom" : SORT_MODES[sortModeIndex];
+  const cycleSortMode = () => {
+    setCustomOrderActive(false);
+    setSortModeIndex((i) => (i + 1) % SORT_MODES.length);
+  };
 
   const sortItems = (items) => {
+    if (sortMode === "custom") return items;
     const sorted = [...items];
     if (sortMode === "num") {
       sorted.sort((a, b) => {
@@ -233,6 +242,85 @@ export default function Alloy() {
 
   // 보기 방식 - 리스트형 / 3x3 갤러리형
   const [viewMode, setViewMode] = useState("list");
+
+  // 폴더/문서 꾹 눌러서 드래그로 섹션 내 순서 변경(사용자 지정 정렬)
+  const [draggingItem, setDraggingItem] = useState(null); // { type: 'folder' | 'file', id }
+  const [dragOverKey, setDragOverKey] = useState(null);
+  const draggingItemRef = useRef(null);
+  const longPressTimerRef = useRef(null);
+  const longPressStartRef = useRef(null);
+  const justDraggedRef = useRef(false);
+
+  useEffect(() => {
+    draggingItemRef.current = draggingItem;
+  }, [draggingItem]);
+
+  const reorderItem = (type, draggedId, targetId) => {
+    const setter = type === "folder" ? setFolders : setFiles;
+    setter((prev) => {
+      const list = [...prev];
+      const fromIndex = list.findIndex((it) => it.id === draggedId);
+      const toIndex = list.findIndex((it) => it.id === targetId);
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return prev;
+      const [moved] = list.splice(fromIndex, 1);
+      list.splice(toIndex, 0, moved);
+      return list;
+    });
+  };
+
+  const handleDragPointerMove = (e) => {
+    const current = draggingItemRef.current;
+    if (!current) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    const targetEl = el && el.closest("[data-drag-type]");
+    if (!targetEl) return;
+    const targetType = targetEl.getAttribute("data-drag-type");
+    const targetId = parseFloat(targetEl.getAttribute("data-drag-id"));
+    if (targetType !== current.type || targetId === current.id) return;
+    setDragOverKey(`${targetType}-${targetId}`);
+    reorderItem(current.type, current.id, targetId);
+  };
+
+  const handleDragPointerUp = () => {
+    setDraggingItem(null);
+    setDragOverKey(null);
+    setCustomOrderActive(true);
+    justDraggedRef.current = true;
+    setTimeout(() => {
+      justDraggedRef.current = false;
+    }, 80);
+    window.removeEventListener("pointermove", handleDragPointerMove);
+    window.removeEventListener("pointerup", handleDragPointerUp);
+  };
+
+  const beginDrag = (type, id) => {
+    setDraggingItem({ type, id });
+    window.addEventListener("pointermove", handleDragPointerMove);
+    window.addEventListener("pointerup", handleDragPointerUp);
+  };
+
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const rowPointerDown = (type, id) => (e) => {
+    if (e.pointerType === "mouse" && e.button !== 0) return;
+    longPressStartRef.current = { x: e.clientX, y: e.clientY };
+    clearLongPressTimer();
+    longPressTimerRef.current = setTimeout(() => {
+      beginDrag(type, id);
+    }, 450);
+  };
+  const rowPointerMove = (e) => {
+    if (!longPressStartRef.current || draggingItemRef.current) return;
+    const dx = e.clientX - longPressStartRef.current.x;
+    const dy = e.clientY - longPressStartRef.current.y;
+    if (Math.abs(dx) > 8 || Math.abs(dy) > 8) clearLongPressTimer();
+  };
+  const rowPointerUp = () => clearLongPressTimer();
 
   // 이름 수정 모달 - prompt() 대신 폴더 생성 모달과 동일한 애니메이션의 모달을 사용.
   // 제목에 대상 폴더/파일의 현재 이름을 보여주고, 빈 배경을 눌러도 취소된다.
@@ -266,6 +354,80 @@ export default function Alloy() {
     closeRenameModal();
   };
 
+  // 이동 모달 - 삼점 메뉴의 "이동"을 누르면 최상위 홈부터 폴더를 탐색하며
+  // 옮길 위치를 고를 수 있다. 폴더 자기 자신이나 그 하위 폴더로는 옮길 수 없다.
+  const [moveModalOpen, setMoveModalOpen] = useState(false);
+  const [moveModalVisible, setMoveModalVisible] = useState(false);
+  const [moveTarget, setMoveTarget] = useState(null); // { type: 'folder' | 'file', id, name }
+  const [moveBrowsePath, setMoveBrowsePath] = useState([]);
+
+  const openMoveModal = (type, id, name) => {
+    setMoveTarget({ type, id, name });
+    setMoveBrowsePath([]);
+    setMoveModalOpen(true);
+    requestAnimationFrame(() => setMoveModalVisible(true));
+  };
+  const closeMoveModal = () => {
+    setMoveModalVisible(false);
+    setTimeout(() => {
+      setMoveModalOpen(false);
+      setMoveTarget(null);
+      setMoveBrowsePath([]);
+    }, 200);
+  };
+
+  const movingFolder = moveTarget && moveTarget.type === "folder" ? folders.find((f) => f.id === moveTarget.id) : null;
+  const isBlockedMoveFolder = (folder) => {
+    if (!movingFolder) return false;
+    if (folder.id === movingFolder.id) return true;
+    return (
+      folder.path.length >= movingFolder.path.length &&
+      movingFolder.path.every((seg, i) => folder.path[i] === seg)
+    );
+  };
+  const moveModalFolders = moveModalOpen
+    ? folders.filter(
+        (f) =>
+          f.path.length === moveBrowsePath.length + 1 &&
+          f.path.slice(0, moveBrowsePath.length).every((p, i) => p === moveBrowsePath[i]) &&
+          !isBlockedMoveFolder(f)
+      )
+    : [];
+
+  const confirmMove = () => {
+    if (!moveTarget) {
+      closeMoveModal();
+      return;
+    }
+    if (moveTarget.type === "folder") {
+      const folder = folders.find((f) => f.id === moveTarget.id);
+      if (folder) {
+        const oldPath = folder.path;
+        const newPath = [...moveBrowsePath, folder.name];
+        setFolders((prev) =>
+          prev.map((f) => {
+            if (f.id === folder.id) return { ...f, path: newPath };
+            if (f.path.length > oldPath.length && oldPath.every((seg, i) => f.path[i] === seg)) {
+              return { ...f, path: [...newPath, ...f.path.slice(oldPath.length)] };
+            }
+            return f;
+          })
+        );
+        setFiles((prev) =>
+          prev.map((file) => {
+            if (file.path.length >= oldPath.length && oldPath.every((seg, i) => file.path[i] === seg)) {
+              return { ...file, path: [...newPath, ...file.path.slice(oldPath.length)] };
+            }
+            return file;
+          })
+        );
+      }
+    } else {
+      setFiles((prev) => prev.map((f) => (f.id === moveTarget.id ? { ...f, path: moveBrowsePath } : f)));
+    }
+    closeMoveModal();
+  };
+
   // 실제 갤러리/파일 선택 다이얼로그(input[type=file])를 통해 고른 항목을
   // 현재 위치(currentPath)에 저장 - 아직 Cloudflare R2 연동 전이라 로컬 상태로만 보관
   const handleFilesPicked = (e) => {
@@ -285,7 +447,7 @@ export default function Alloy() {
 
   const deleteFile = (fileId) => {
     setFiles((prev) => prev.filter((f) => f.id !== fileId));
-    closeFileMenu();
+    closeItemMenu();
   };
 
   const formatFileSize = (bytes) => {
@@ -338,7 +500,7 @@ export default function Alloy() {
     justifyContent: "space-between",
     margin: "0 -20px 24px -20px",
     padding: "22px 20px 14px 20px",
-    background: isLight ? "rgba(244,243,238,0.45)" : "rgba(20,20,19,0.45)",
+    background: isLight ? "rgba(255,255,255,0.45)" : "rgba(20,20,19,0.45)",
     backdropFilter: "blur(20px) saturate(180%)",
     WebkitBackdropFilter: "blur(20px) saturate(180%)",
   };
@@ -360,7 +522,7 @@ export default function Alloy() {
           margin: 0;
           padding: 0;
           min-height: 100%;
-          background: ${isLight ? "#F4F3EE" : "#141413"};
+          background: ${isLight ? "#FFFFFF" : "#141413"};
         }
       `}</style>
 
@@ -368,7 +530,10 @@ export default function Alloy() {
       <div
         style={{
           position: "fixed",
-          inset: 0,
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
           background:
             theme === "sunset" || theme === "forest"
               ? THEME_SWATCHES[theme]
@@ -408,6 +573,7 @@ export default function Alloy() {
           {active === 0 && (
             <div style={{ position: "relative" }}>
               <button
+                ref={uploadButtonRef}
                 onClick={toggleUploadMenu}
                 onMouseEnter={() => setUploadButtonHovered(true)}
                 onMouseLeave={(e) => {
@@ -477,17 +643,19 @@ export default function Alloy() {
                 style={{ display: "none" }}
               />
 
-              {/* 업로드 메뉴 - 부드러운 페이드 + 슬라이드 애니메이션 */}
-              {uploadMenuOpen && (
+              {/* 업로드 메뉴 - 부드러운 페이드 + 슬라이드 애니메이션. 상단 헤더에 backdropFilter가
+                  걸려 있어 position:fixed 자손의 컨테이닝 블록이 헤더로 제한되므로, 헤더 바깥
+                  document.body로 포탈하고 버튼의 화면 좌표를 계산한 고정 위치로 띄운다. */}
+              {uploadMenuOpen && createPortal(
                 <>
-                  <div onClick={closeUploadMenu} style={{ position: "fixed", inset: 0, zIndex: 19 }} />
+                  <div onClick={closeUploadMenu} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 19 }} />
                   <div
                     style={{
-                      position: "absolute",
-                      top: 40,
-                      right: 0,
+                      position: "fixed",
+                      top: uploadMenuAnchor.top,
+                      right: uploadMenuAnchor.right,
                       minWidth: 140,
-                      background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                      background: isLight ? "rgba(255,255,255,0.95)" : "rgba(20,20,19,0.95)",
                       backdropFilter: "blur(20px) saturate(180%)",
                       WebkitBackdropFilter: "blur(20px) saturate(180%)",
                       borderRadius: 12,
@@ -579,7 +747,8 @@ export default function Alloy() {
                       폴더
                     </button>
                   </div>
-                </>
+                </>,
+                document.body
               )}
             </div>
           )}
@@ -690,7 +859,7 @@ export default function Alloy() {
                     e.currentTarget.style.transform = "scale(1)";
                   }}
                 >
-                  {SORT_LABELS[sortMode]}
+                  ABC
                 </button>
 
                 <button
@@ -769,21 +938,22 @@ export default function Alloy() {
                 );
               }
 
-              // 삼점 메뉴(이름 수정/삭제) - 리스트/갤러리 뷰에서 공통으로 쓰는 드롭다운.
+              // 삼점 메뉴(이름 수정/이동/삭제) - 리스트/갤러리 뷰에서 공통으로 쓰는 드롭다운.
               // 버튼과 바깥 래퍼 양쪽에서 stopPropagation을 걸어 행 자체의 클릭(폴더 이동)이
-              // 함께 트리거되는 버그를 막는다.
+              // 함께 트리거되는 버그를 막고, 래퍼에 5px 안쪽 패딩(+ 상쇄용 음수 마진)을 둬서
+              // 삼점 버튼 주변 5px 이내는 항상 메뉴 토글만 반응하도록 안전 여백을 넓힌다.
               const renderItemMenu = (type, item) => {
-                const isOpen = type === "folder" ? folderMenuOpen === item.id : fileMenuOpen === item.id;
-                const isVisible = type === "folder" ? folderMenuVisibleId === item.id : fileMenuVisibleId === item.id;
-                const toggle = type === "folder" ? toggleFolderMenu : toggleFileMenu;
-                const close = type === "folder" ? closeFolderMenu : closeFileMenu;
-                const onDelete = type === "folder" ? deleteFolder : deleteFile;
+                const isOpen = itemMenuOpen && itemMenuOpen.type === type && itemMenuOpen.id === item.id;
+                const isVisible = itemMenuVisibleKey === `${type}-${item.id}`;
                 return (
-                  <div style={{ position: "relative" }} onClick={(e) => e.stopPropagation()}>
+                  <div
+                    style={{ position: "relative", margin: -5, padding: 5 }}
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggle(item.id);
+                        toggleItemMenu(type, item.id, e.currentTarget);
                       }}
                       onMouseDown={pressDown("scale(0.85)")}
                       onMouseUp={pressUp("scale(1)")}
@@ -818,22 +988,22 @@ export default function Alloy() {
                       </svg>
                     </button>
 
-                    {isOpen && (
+                    {isOpen && createPortal(
                       <>
                         <div
                           onClick={(e) => {
                             e.stopPropagation();
-                            close();
+                            closeItemMenu();
                           }}
-                          style={{ position: "fixed", inset: 0, zIndex: 29 }}
+                          style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 29 }}
                         />
                         <div
                           style={{
-                            position: "absolute",
-                            top: 32,
-                            right: 0,
+                            position: "fixed",
+                            top: itemMenuAnchor.top,
+                            right: itemMenuAnchor.right,
                             minWidth: 120,
-                            background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                            background: isLight ? "rgba(255,255,255,0.95)" : "rgba(20,20,19,0.95)",
                             backdropFilter: "blur(20px) saturate(180%)",
                             WebkitBackdropFilter: "blur(20px) saturate(180%)",
                             borderRadius: 12,
@@ -851,7 +1021,7 @@ export default function Alloy() {
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              close();
+                              closeItemMenu();
                               openRenameModal(type, item.id, item.name);
                             }}
                             style={{
@@ -872,11 +1042,35 @@ export default function Alloy() {
                           >
                             이름 수정
                           </button>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              closeItemMenu();
+                              openMoveModal(type, item.id, item.name);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "none",
+                              background: "transparent",
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              outline: "none",
+                              textAlign: "left",
+                              transition: "background 0.2s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            이동
+                          </button>
                           <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onDelete(item.id);
+                              (type === "folder" ? deleteFolder : deleteFile)(item.id);
                             }}
                             style={{
                               width: "100%",
@@ -897,7 +1091,8 @@ export default function Alloy() {
                             삭제
                           </button>
                         </div>
-                      </>
+                      </>,
+                      document.body
                     )}
                   </div>
                 );
@@ -915,13 +1110,21 @@ export default function Alloy() {
                     {visibleFolders.map((folder) => (
                       <div
                         key={folder.id}
-                        onClick={() => setCurrentPath([...currentPath, folder.name])}
+                        data-drag-type="folder"
+                        data-drag-id={folder.id}
+                        onClick={() => {
+                          if (justDraggedRef.current) return;
+                          setCurrentPath([...currentPath, folder.name]);
+                        }}
+                        onPointerDown={rowPointerDown("folder", folder.id)}
+                        onPointerMove={rowPointerMove}
+                        onPointerUp={rowPointerUp}
                         onMouseDown={pressDown("scale(0.96)")}
-                        onMouseUp={pressUp("scale(1)")}
+                        onMouseUp={pressUp("none")}
                         onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                          e.currentTarget.style.transform = "scale(1)";
+                          e.currentTarget.style.transform = "none";
                         }}
                         style={{
                           position: "relative",
@@ -929,14 +1132,19 @@ export default function Alloy() {
                           flexDirection: "column",
                           alignItems: "center",
                           gap: 8,
-                          padding: "18px 8px 10px",
+                          padding: "18px 12px 10px",
                           borderRadius: 12,
                           background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           backdropFilter: "blur(20px) saturate(180%)",
                           WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                          border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                          border: `1px solid ${
+                            dragOverKey === `folder-${folder.id}` || (draggingItem && draggingItem.type === "folder" && draggingItem.id === folder.id)
+                              ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                              : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
+                          }`,
                           cursor: "pointer",
-                          transition: "background 0.2s ease, transform 0.15s ease",
+                          touchAction: "manipulation",
+                          transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
                         }}
                       >
                         <div style={{ position: "absolute", top: 4, right: 4 }}>
@@ -965,12 +1173,17 @@ export default function Alloy() {
                     {visibleFiles.map((file) => (
                       <div
                         key={file.id}
+                        data-drag-type="file"
+                        data-drag-id={file.id}
+                        onPointerDown={rowPointerDown("file", file.id)}
+                        onPointerMove={rowPointerMove}
+                        onPointerUp={rowPointerUp}
                         onMouseDown={pressDown("scale(0.96)")}
-                        onMouseUp={pressUp("scale(1)")}
+                        onMouseUp={pressUp("none")}
                         onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                         onMouseLeave={(e) => {
                           e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                          e.currentTarget.style.transform = "scale(1)";
+                          e.currentTarget.style.transform = "none";
                         }}
                         style={{
                           position: "relative",
@@ -978,13 +1191,18 @@ export default function Alloy() {
                           flexDirection: "column",
                           alignItems: "center",
                           gap: 8,
-                          padding: "18px 8px 10px",
+                          padding: "18px 12px 10px",
                           borderRadius: 12,
                           background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                           backdropFilter: "blur(20px) saturate(180%)",
                           WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                          border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                          transition: "background 0.2s ease, transform 0.15s ease",
+                          border: `1px solid ${
+                            dragOverKey === `file-${file.id}` || (draggingItem && draggingItem.type === "file" && draggingItem.id === file.id)
+                              ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                              : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
+                          }`,
+                          touchAction: "manipulation",
+                          transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
                         }}
                       >
                         <div style={{ position: "absolute", top: 4, right: 4 }}>
@@ -1016,27 +1234,40 @@ export default function Alloy() {
                   {visibleFolders.map((folder) => (
                     <div
                       key={folder.id}
-                      onClick={() => setCurrentPath([...currentPath, folder.name])}
+                      data-drag-type="folder"
+                      data-drag-id={folder.id}
+                      onClick={() => {
+                        if (justDraggedRef.current) return;
+                        setCurrentPath([...currentPath, folder.name]);
+                      }}
+                      onPointerDown={rowPointerDown("folder", folder.id)}
+                      onPointerMove={rowPointerMove}
+                      onPointerUp={rowPointerUp}
                       onMouseDown={pressDown("scale(0.98)")}
-                      onMouseUp={pressUp("scale(1)")}
+                      onMouseUp={pressUp("none")}
                       onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                        e.currentTarget.style.transform = "scale(1)";
+                        e.currentTarget.style.transform = "none";
                       }}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: 12,
-                        padding: "12px 14px",
+                        padding: "12px 18px",
                         marginBottom: 8,
                         borderRadius: 10,
                         background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                         backdropFilter: "blur(20px) saturate(180%)",
                         WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                        border: `1px solid ${
+                          dragOverKey === `folder-${folder.id}` || (draggingItem && draggingItem.type === "folder" && draggingItem.id === folder.id)
+                            ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                            : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
+                        }`,
                         cursor: "pointer",
-                        transition: "background 0.2s ease, transform 0.15s ease",
+                        touchAction: "manipulation",
+                        transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
                       }}
                     >
                       {/* 폴더 아이콘 */}
@@ -1066,25 +1297,35 @@ export default function Alloy() {
                   {visibleFiles.map((file) => (
                     <div
                       key={file.id}
+                      data-drag-type="file"
+                      data-drag-id={file.id}
+                      onPointerDown={rowPointerDown("file", file.id)}
+                      onPointerMove={rowPointerMove}
+                      onPointerUp={rowPointerUp}
                       onMouseDown={pressDown("scale(0.98)")}
-                      onMouseUp={pressUp("scale(1)")}
+                      onMouseUp={pressUp("none")}
                       onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.6)" : "rgba(255,255,255,0.08)"}
                       onMouseLeave={(e) => {
                         e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)";
-                        e.currentTarget.style.transform = "scale(1)";
+                        e.currentTarget.style.transform = "none";
                       }}
                       style={{
                         display: "flex",
                         alignItems: "center",
                         gap: 12,
-                        padding: "12px 14px",
+                        padding: "12px 18px",
                         marginBottom: 8,
                         borderRadius: 10,
                         background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
                         backdropFilter: "blur(20px) saturate(180%)",
                         WebkitBackdropFilter: "blur(20px) saturate(180%)",
-                        border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
-                        transition: "background 0.2s ease, transform 0.15s ease",
+                        border: `1px solid ${
+                          dragOverKey === `file-${file.id}` || (draggingItem && draggingItem.type === "file" && draggingItem.id === file.id)
+                            ? (isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)")
+                            : (isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)")
+                        }`,
+                        touchAction: "manipulation",
+                        transition: "background 0.2s ease, transform 0.15s ease, border-color 0.15s ease",
                       }}
                     >
                       <div style={{ flexShrink: 0 }}>{getFileIcon(file.mimeType)}</div>
@@ -1115,6 +1356,92 @@ export default function Alloy() {
             })()}
           </>
         )}
+
+        {/* 설정 탭 콘텐츠 - 라이트/다크 테마 전환 스위치 (텍스트 없이 해/달 아이콘으로만 구분) */}
+        {active === 2 && (
+          <div style={{ display: "flex", justifyContent: "flex-end" }}>
+            <button
+              onClick={toggleLightDark}
+              onMouseDown={pressDown("scale(0.94)")}
+              onMouseUp={pressUp("scale(1)")}
+              aria-label="라이트/다크 테마 전환"
+              style={{
+                position: "relative",
+                width: 64,
+                height: 32,
+                borderRadius: 999,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                background: isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.1)",
+                cursor: "pointer",
+                outline: "none",
+                padding: 0,
+                transition: "background 0.3s ease, transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+              }}
+            >
+              {/* 트랙 좌우의 흐린 해/달 아이콘 */}
+              <span
+                style={{
+                  position: "absolute",
+                  left: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  display: "flex",
+                  color: isLight ? "transparent" : "rgba(255,255,255,0.4)",
+                  transition: "color 0.3s ease",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                </svg>
+              </span>
+              <span
+                style={{
+                  position: "absolute",
+                  right: 8,
+                  top: "50%",
+                  transform: "translateY(-50%)",
+                  display: "flex",
+                  color: isLight ? "rgba(20,22,26,0.35)" : "transparent",
+                  transition: "color 0.3s ease",
+                }}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
+                </svg>
+              </span>
+
+              {/* 슬라이딩 노브 - 현재 테마의 아이콘을 담고 좌우로 부드럽게 이동한다 */}
+              <span
+                style={{
+                  position: "absolute",
+                  top: 3,
+                  left: isLight ? 3 : 33,
+                  width: 26,
+                  height: 26,
+                  borderRadius: "50%",
+                  background: isLight ? "#FFFFFF" : "#14161A",
+                  boxShadow: "0 2px 8px rgba(0,0,0,0.35)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  transition: "left 0.3s cubic-bezier(0.22, 1, 0.36, 1), background 0.3s ease",
+                }}
+              >
+                {isLight ? (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2" strokeLinecap="round">
+                    <circle cx="12" cy="12" r="4" />
+                    <path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+                  </svg>
+                ) : (
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="#FFFFFF">
+                    <path d="M20 14.5A8.5 8.5 0 0 1 9.5 4a8.5 8.5 0 1 0 10.5 10.5z" />
+                  </svg>
+                )}
+              </span>
+            </button>
+          </div>
+        )}
       </div>
 
       {/* 폴더 생성 모달 - 배경 페이드 + 카드 스케일 인/아웃 애니메이션 */}
@@ -1124,7 +1451,10 @@ export default function Alloy() {
             onClick={closeFolderModal}
             style={{
               position: "fixed",
-              inset: 0,
+              top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
               background: "rgba(0,0,0,0.4)",
               zIndex: 39,
               opacity: folderModalVisible ? 1 : 0,
@@ -1138,7 +1468,7 @@ export default function Alloy() {
               left: "50%",
               transform: folderModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
               opacity: folderModalVisible ? 1 : 0,
-              background: isLight ? "#F4F3EE" : "#1a1918",
+              background: isLight ? "#FFFFFF" : "#1a1918",
               borderRadius: 16,
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               padding: 24,
@@ -1243,7 +1573,10 @@ export default function Alloy() {
             onClick={closeRenameModal}
             style={{
               position: "fixed",
-              inset: 0,
+              top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
               background: "rgba(0,0,0,0.4)",
               zIndex: 39,
               opacity: renameModalVisible ? 1 : 0,
@@ -1257,7 +1590,7 @@ export default function Alloy() {
               left: "50%",
               transform: renameModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
               opacity: renameModalVisible ? 1 : 0,
-              background: isLight ? "#F4F3EE" : "#1a1918",
+              background: isLight ? "#FFFFFF" : "#1a1918",
               borderRadius: 16,
               border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
               padding: 24,
@@ -1352,6 +1685,219 @@ export default function Alloy() {
                 onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
               >
                 확인
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* 이동 모달 - 최상위 홈부터 폴더를 탐색하며 옮길 위치를 고른다.
+          다른 모달과 동일한 페이드+스케일 애니메이션, 빈 배경 클릭 시 취소 */}
+      {moveModalOpen && (
+        <>
+          <div
+            onClick={closeMoveModal}
+            style={{
+              position: "fixed",
+              top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+              background: "rgba(0,0,0,0.4)",
+              zIndex: 39,
+              opacity: moveModalVisible ? 1 : 0,
+              transition: "opacity 0.2s ease",
+            }}
+          />
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: moveModalVisible ? "translate(-50%, -50%) scale(1)" : "translate(-50%, -50%) scale(0.92)",
+              opacity: moveModalVisible ? 1 : 0,
+              background: isLight ? "#FFFFFF" : "#1a1918",
+              borderRadius: 16,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              padding: 24,
+              width: "min(340px, 88vw)",
+              maxHeight: "70vh",
+              display: "flex",
+              flexDirection: "column",
+              zIndex: 40,
+              boxShadow: "0 25px 50px rgba(0,0,0,0.5)",
+              transition: "opacity 0.2s cubic-bezier(0.22, 1, 0.36, 1), transform 0.2s cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                margin: "0 0 4px 0",
+                fontSize: 18,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+            >
+              {moveTarget ? `"${moveTarget.name}" 이동` : "이동"}
+            </h2>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                flexWrap: "wrap",
+                gap: 4,
+                margin: "12px 0",
+                paddingBottom: 12,
+                borderBottom: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+              }}
+            >
+              <button
+                onClick={() => setMoveBrowsePath([])}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 13,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  padding: 0,
+                  outline: "none",
+                  opacity: moveBrowsePath.length === 0 ? 1 : 0.7,
+                }}
+              >
+                홈
+              </button>
+              {moveBrowsePath.map((seg, index) => (
+                <div key={index} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                  <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 13 }}>&gt;</span>
+                  <button
+                    onClick={() => setMoveBrowsePath(moveBrowsePath.slice(0, index + 1))}
+                    style={{
+                      background: "none",
+                      border: "none",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: "pointer",
+                      padding: 0,
+                      outline: "none",
+                      opacity: index === moveBrowsePath.length - 1 ? 1 : 0.7,
+                    }}
+                  >
+                    {seg}
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            <div style={{ flex: 1, overflowY: "auto", minHeight: 80, marginBottom: 16 }}>
+              {moveModalFolders.length === 0 ? (
+                <div
+                  style={{
+                    padding: "24px 0",
+                    textAlign: "center",
+                    color: isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)",
+                    fontSize: 13,
+                  }}
+                >
+                  하위 폴더가 없습니다
+                </div>
+              ) : (
+                moveModalFolders.map((folder) => (
+                  <div
+                    key={folder.id}
+                    onClick={() => setMoveBrowsePath([...moveBrowsePath, folder.name])}
+                    onMouseDown={pressDown("scale(0.98)")}
+                    onMouseUp={pressUp("scale(1)")}
+                    onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)"}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.background = "transparent";
+                      e.currentTarget.style.transform = "scale(1)";
+                    }}
+                    style={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 10,
+                      padding: "10px 8px",
+                      borderRadius: 8,
+                      cursor: "pointer",
+                      transition: "background 0.2s ease, transform 0.15s ease",
+                    }}
+                  >
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"} style={{ flexShrink: 0 }}>
+                      <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                    </svg>
+                    <div
+                      style={{
+                        flex: 1,
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {folder.name}
+                    </div>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={isLight ? "rgba(20,22,26,0.35)" : "rgba(255,255,255,0.35)"} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="m9 6 6 6-6 6" />
+                    </svg>
+                  </div>
+                ))
+              )}
+            </div>
+
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={closeMoveModal}
+                onMouseDown={pressDown("scale(0.95)")}
+                onMouseUp={pressUp("scale(1)")}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  borderRadius: 8,
+                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "background 0.2s ease, transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.1)"}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)";
+                  e.currentTarget.style.transform = "scale(1)";
+                }}
+              >
+                취소
+              </button>
+              <button
+                onClick={confirmMove}
+                onMouseDown={pressDown("scale(0.95)")}
+                onMouseUp={pressUp("scale(1)")}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: "none",
+                  borderRadius: 8,
+                  background: isLight ? "#14161A" : "#FFFFFF",
+                  color: isLight ? "#FFFFFF" : "#14161A",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "transform 0.15s ease",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+              >
+                여기로 이동
               </button>
             </div>
           </div>
@@ -1522,7 +2068,7 @@ export default function Alloy() {
           입력창 폰트 크기를 16px 이상으로 둬야 iOS 사파리가 포커스 시 화면을 자동 확대하지 않는다. */}
       {searchOpen && (
         <>
-          <div onClick={toggleSearch} style={{ position: "fixed", inset: 0, zIndex: 9 }} />
+          <div onClick={toggleSearch} style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, zIndex: 9 }} />
           <div
             style={{
               position: "fixed",
