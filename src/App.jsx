@@ -81,13 +81,24 @@ export default function Alloy() {
   const [searchVisible, setSearchVisible] = useState(false);
   const searchInputRef = useRef(null);
 
+  // 홈 탭 기능: 경로, 폴더, 업로드 메뉴
+  const [currentPath, setCurrentPath] = useState([]);
+  const [folders, setFolders] = useState([]);
+  const [uploadMenuOpen, setUploadMenuOpen] = useState(false);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [folderMenuOpen, setFolderMenuOpen] = useState(null);
+
   const toggleSearch = () => {
     if (searchOpen) {
       if (document.activeElement && document.activeElement.blur) {
         document.activeElement.blur();
       }
       setSearchVisible(false);
-      setTimeout(() => setSearchOpen(false), 300);
+      setTimeout(() => {
+        setSearchOpen(false);
+        setSearchQuery("");
+      }, 300);
     } else {
       setSearchOpen(true);
       requestAnimationFrame(() => {
@@ -107,6 +118,35 @@ export default function Alloy() {
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [searchOpen]);
+
+  const navigateToBreadcrumb = (index) => {
+    setCurrentPath(currentPath.slice(0, index));
+  };
+
+  const createFolder = () => {
+    if (folderName.trim()) {
+      const newFolder = {
+        id: Date.now(),
+        name: folderName,
+        path: [...currentPath, folderName],
+      };
+      setFolders([...folders, newFolder]);
+      setFolderName("");
+      setFolderModalOpen(false);
+    }
+  };
+
+  const renameFolder = (folderId, newName) => {
+    if (newName.trim()) {
+      setFolders(folders.map(f => f.id === folderId ? { ...f, name: newName } : f));
+      setFolderMenuOpen(null);
+    }
+  };
+
+  const deleteFolder = (folderId) => {
+    setFolders(folders.filter(f => f.id !== folderId));
+    setFolderMenuOpen(null);
+  };
 
   // 상단 헤더(제목) 스티키 공통 스타일: 스크롤해도 화면 최상단에 계속 고정되어 보이고,
   // 탭 콘텐츠의 좌우 패딩을 상쇄하는 음수 마진으로 배경을 화면 끝까지 채운다.
@@ -159,7 +199,7 @@ export default function Alloy() {
         }}
       />
 
-      {/* 탭 콘텐츠 영역 (상단 헤더만 남기고 본문은 비워둠) */}
+      {/* 탭 콘텐츠 영역 */}
       <div
         style={{
           minHeight: vh,
@@ -168,6 +208,7 @@ export default function Alloy() {
           padding: "0 20px 140px 20px",
         }}
       >
+        {/* 상단 헤더 */}
         <div style={stickyHeaderStyle}>
           <div>
             <h1
@@ -184,7 +225,445 @@ export default function Alloy() {
             </h1>
           </div>
         </div>
+
+        {/* 홈 탭 콘텐츠 */}
+        {active === 0 && (
+          <>
+            {/* 경로 표기 및 업로드 버튼 영역 */}
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                paddingBottom: 12,
+                marginBottom: 16,
+                borderBottom: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+              }}
+            >
+              {/* 경로 표기 */}
+              <div style={{ display: "flex", alignItems: "center", gap: 4, flex: 1 }}>
+                <button
+                  onClick={() => setCurrentPath([])}
+                  style={{
+                    background: "none",
+                    border: "none",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    fontSize: 14,
+                    fontWeight: 500,
+                    cursor: "pointer",
+                    padding: 0,
+                    outline: "none",
+                    opacity: currentPath.length === 0 ? 1 : 0.7,
+                    transition: "opacity 0.2s",
+                  }}
+                  onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
+                  onMouseLeave={(e) => e.currentTarget.style.opacity = currentPath.length === 0 ? "1" : "0.7"}
+                >
+                  홈
+                </button>
+                {currentPath.map((path, index) => (
+                  <div key={index} style={{ display: "flex", alignItems: "center", gap: 4 }}>
+                    <span style={{ color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)", fontSize: 14 }}>
+                      &gt;
+                    </span>
+                    <button
+                      onClick={() => navigateToBreadcrumb(index)}
+                      style={{
+                        background: "none",
+                        border: "none",
+                        color: isLight ? "#14161A" : "#FFFFFF",
+                        fontSize: 14,
+                        fontWeight: 500,
+                        cursor: "pointer",
+                        padding: 0,
+                        outline: "none",
+                        opacity: 0.7,
+                        transition: "opacity 0.2s",
+                      }}
+                      onMouseEnter={(e) => e.currentTarget.style.opacity = "1"}
+                      onMouseLeave={(e) => e.currentTarget.style.opacity = "0.7"}
+                    >
+                      {path}
+                    </button>
+                  </div>
+                ))}
+              </div>
+
+              {/* 업로드 버튼 */}
+              <div style={{ position: "relative" }}>
+                <button
+                  onClick={() => setUploadMenuOpen(!uploadMenuOpen)}
+                  style={{
+                    width: 36,
+                    height: 36,
+                    borderRadius: 8,
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                    background: uploadMenuOpen
+                      ? (isLight ? "rgba(20,22,26,0.08)" : "rgba(255,255,255,0.12)")
+                      : (isLight ? "rgba(255,255,255,0.65)" : "rgba(255,255,255,0.06)"),
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    cursor: "pointer",
+                    color: isLight ? "#14161A" : "#FFFFFF",
+                    outline: "none",
+                    transition: "all 0.3s ease",
+                  }}
+                  aria-label="추가하기"
+                >
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="12" y1="5" x2="12" y2="19" />
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                  </svg>
+                </button>
+
+                {/* 업로드 메뉴 */}
+                {uploadMenuOpen && (
+                  <>
+                    <div onClick={() => setUploadMenuOpen(false)} style={{ position: "fixed", inset: 0, zIndex: 19 }} />
+                    <div
+                      style={{
+                        position: "absolute",
+                        top: 40,
+                        right: 0,
+                        minWidth: 140,
+                        background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                        backdropFilter: "blur(20px) saturate(180%)",
+                        WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                        borderRadius: 12,
+                        border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                        boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+                        zIndex: 20,
+                        overflow: "hidden",
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {["갤러리", "파일"].map((option) => (
+                        <button
+                          key={option}
+                          onClick={() => {
+                            setUploadMenuOpen(false);
+                          }}
+                          style={{
+                            width: "100%",
+                            padding: "10px 12px",
+                            border: "none",
+                            background: "transparent",
+                            color: isLight ? "#14161A" : "#FFFFFF",
+                            fontSize: 14,
+                            fontWeight: 500,
+                            cursor: "pointer",
+                            outline: "none",
+                            textAlign: "left",
+                            transition: "background 0.2s",
+                          }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                          onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                        >
+                          {option}
+                        </button>
+                      ))}
+                      <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
+                      <button
+                        onClick={() => {
+                          setUploadMenuOpen(false);
+                          setFolderModalOpen(true);
+                        }}
+                        style={{
+                          width: "100%",
+                          padding: "10px 12px",
+                          border: "none",
+                          background: "transparent",
+                          color: isLight ? "#14161A" : "#FFFFFF",
+                          fontSize: 14,
+                          fontWeight: 500,
+                          cursor: "pointer",
+                          outline: "none",
+                          textAlign: "left",
+                          transition: "background 0.2s",
+                        }}
+                        onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                        onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                      >
+                        폴더
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* 폴더 목록 */}
+            {folders
+              .filter((f) =>
+                f.path.length === currentPath.length + 1 &&
+                f.path.slice(0, currentPath.length).every((p, i) => p === currentPath[i])
+              )
+              .map((folder) => (
+                <div
+                  key={folder.id}
+                  style={{
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 12,
+                    padding: "12px 14px",
+                    marginBottom: 8,
+                    borderRadius: 10,
+                    background: isLight ? "rgba(255,255,255,0.4)" : "rgba(255,255,255,0.04)",
+                    backdropFilter: "blur(20px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                    border: `1px solid ${isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)"}`,
+                  }}
+                >
+                  {/* 폴더 아이콘 */}
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill={isLight ? "#14161A" : "#FFFFFF"}>
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+
+                  {/* 폴더 이름 */}
+                  <div
+                    onClick={() => setCurrentPath([...currentPath, folder.name])}
+                    style={{
+                      flex: 1,
+                      cursor: "pointer",
+                      color: isLight ? "#14161A" : "#FFFFFF",
+                      fontSize: 14,
+                      fontWeight: 500,
+                    }}
+                  >
+                    {folder.name}
+                  </div>
+
+                  {/* 삼점 메뉴 */}
+                  <div style={{ position: "relative" }}>
+                    <button
+                      onClick={() => setFolderMenuOpen(folderMenuOpen === folder.id ? null : folder.id)}
+                      style={{
+                        width: 28,
+                        height: 28,
+                        borderRadius: 6,
+                        border: "none",
+                        background: "transparent",
+                        color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                        cursor: "pointer",
+                        outline: "none",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        transition: "all 0.2s",
+                      }}
+                      onMouseEnter={(e) => {
+                        e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.08)";
+                        e.currentTarget.style.color = isLight ? "#14161A" : "#FFFFFF";
+                      }}
+                      onMouseLeave={(e) => {
+                        e.currentTarget.style.background = "transparent";
+                        e.currentTarget.style.color = isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)";
+                      }}
+                      aria-label="옵션"
+                    >
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <circle cx="12" cy="5" r="2" />
+                        <circle cx="12" cy="12" r="2" />
+                        <circle cx="12" cy="19" r="2" />
+                      </svg>
+                    </button>
+
+                    {/* 폴더 메뉴 */}
+                    {folderMenuOpen === folder.id && (
+                      <>
+                        <div onClick={() => setFolderMenuOpen(null)} style={{ position: "fixed", inset: 0, zIndex: 29 }} />
+                        <div
+                          style={{
+                            position: "absolute",
+                            top: 32,
+                            right: 0,
+                            minWidth: 120,
+                            background: isLight ? "rgba(244,243,238,0.95)" : "rgba(20,20,19,0.95)",
+                            backdropFilter: "blur(20px) saturate(180%)",
+                            WebkitBackdropFilter: "blur(20px) saturate(180%)",
+                            borderRadius: 12,
+                            border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                            boxShadow: "0 20px 60px rgba(0,0,0,0.45)",
+                            zIndex: 30,
+                            overflow: "hidden",
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <button
+                            onClick={() => {
+                              const newName = prompt("새 이름:", folder.name);
+                              if (newName) renameFolder(folder.id, newName);
+                            }}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "none",
+                              background: "transparent",
+                              color: isLight ? "#14161A" : "#FFFFFF",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              outline: "none",
+                              textAlign: "left",
+                              transition: "background 0.2s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(20,22,26,0.06)" : "rgba(255,255,255,0.06)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            이름 수정
+                          </button>
+                          <div style={{ height: 1, background: isLight ? "rgba(20,22,26,0.12)" : "rgba(255,255,255,0.12)" }} />
+                          <button
+                            onClick={() => deleteFolder(folder.id)}
+                            style={{
+                              width: "100%",
+                              padding: "10px 12px",
+                              border: "none",
+                              background: "transparent",
+                              color: "#EF4444",
+                              fontSize: 14,
+                              fontWeight: 500,
+                              cursor: "pointer",
+                              outline: "none",
+                              textAlign: "left",
+                              transition: "background 0.2s",
+                            }}
+                            onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(239,68,68,0.06)" : "rgba(239,68,68,0.1)"}
+                            onMouseLeave={(e) => e.currentTarget.style.background = "transparent"}
+                          >
+                            삭제
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))}
+
+            {/* 문서 저장 공간 */}
+            <div
+              style={{
+                marginTop: 24,
+                padding: 20,
+                borderRadius: 12,
+                border: `2px dashed ${isLight ? "rgba(20,22,26,0.2)" : "rgba(255,255,255,0.2)"}`,
+                background: isLight ? "rgba(255,255,255,0.2)" : "rgba(255,255,255,0.04)",
+                textAlign: "center",
+                color: isLight ? "rgba(20,22,26,0.45)" : "rgba(255,255,255,0.45)",
+                fontSize: 14,
+                minHeight: 120,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+              }}
+            >
+              문서가 저장될 공간입니다
+            </div>
+          </>
+        )}
       </div>
+
+      {/* 폴더 생성 모달 */}
+      {folderModalOpen && (
+        <>
+          <div onClick={() => setFolderModalOpen(false)} style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.4)", zIndex: 39 }} />
+          <div
+            style={{
+              position: "fixed",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              background: isLight ? "#F4F3EE" : "#1a1918",
+              borderRadius: 16,
+              border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+              padding: 24,
+              minWidth: 280,
+              zIndex: 40,
+              boxShadow: "0 25px 50px rgba(0,0,0,0.5)",
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2
+              style={{
+                margin: "0 0 16px 0",
+                fontSize: 18,
+                fontWeight: 700,
+                color: isLight ? "#14161A" : "#FFFFFF",
+              }}
+            >
+              폴더 만들기
+            </h2>
+            <input
+              type="text"
+              value={folderName}
+              onChange={(e) => setFolderName(e.target.value)}
+              placeholder="폴더 이름"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") createFolder();
+                if (e.key === "Escape") setFolderModalOpen(false);
+              }}
+              style={{
+                width: "100%",
+                padding: 12,
+                marginBottom: 20,
+                border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                borderRadius: 8,
+                background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                color: isLight ? "#14161A" : "#FFFFFF",
+                fontSize: 14,
+                outline: "none",
+                boxSizing: "border-box",
+              }}
+            />
+            <div style={{ display: "flex", gap: 12 }}>
+              <button
+                onClick={() => setFolderModalOpen(false)}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: `1px solid ${isLight ? "rgba(20,22,26,0.14)" : "rgba(255,255,255,0.14)"}`,
+                  borderRadius: 8,
+                  background: isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)",
+                  color: isLight ? "#14161A" : "#FFFFFF",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.7)" : "rgba(255,255,255,0.1)"}
+                onMouseLeave={(e) => e.currentTarget.style.background = isLight ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.06)"}
+              >
+                취소
+              </button>
+              <button
+                onClick={createFolder}
+                style={{
+                  flex: 1,
+                  padding: 10,
+                  border: "none",
+                  borderRadius: 8,
+                  background: isLight ? "#14161A" : "#FFFFFF",
+                  color: isLight ? "#FFFFFF" : "#14161A",
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                  outline: "none",
+                  transition: "all 0.2s",
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = "translateY(-1px)"}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "translateY(0)"}
+              >
+                확인
+              </button>
+            </div>
+          </div>
+        </>
+      )}
 
       {/* 하단 컨트롤 영역 */}
       <div
